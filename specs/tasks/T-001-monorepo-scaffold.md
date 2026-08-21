@@ -37,5 +37,5 @@ M: M0 | deps: -
   직접 import는 불가. 서버 기동 태스크(T-007/T-008/T-014)에서 dist 지향 exports 또는 tsx 실행 결정 필요.
 - **F-6 `packages/core/seed/`·`eval/`·`scripts/`가 `tsc -b` 프로젝트 그래프 밖이다.**
   지금은 JSON뿐이라 무해하나 seed에 .ts가 생기면 타입체크 사각지대가 된다.
-- **F-7 Acceptance 4는 로컬 재현으로만 판정했다.** 클린 `--frozen-lockfile` 설치부터 build까지
-  ci.yml 전 스텝 exit 0 확인. 실제 GitHub Actions 실행은 PR 생성 후 재확인 필요.
+- ~~**F-7 Acceptance 4는 로컬 재현으로만 판정했다.**~~ 해소됨 — PR #1에서 GitHub Actions 실행 확인
+  (verify 19s pass, spec-drift 5s pass).
