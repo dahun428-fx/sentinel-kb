@@ -6,12 +6,19 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./openapi": "./src/openapi.ts"
   },
   "scripts": {
-    "dev": "node -e \"console.log('[@sentinel/contracts] no dev server (library package)')\""
+    "dev": "node -e \"console.log('[@sentinel/contracts] no dev server (library package)')\"",
+    "openapi": "tsx scripts/gen-openapi.ts"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "7.3.4",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "openapi3-ts": "^4.6.1",
+    "tsx": "^4.23.12"
   }
 }

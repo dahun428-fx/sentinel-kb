@@ -1,2 +1,3 @@
 {"taskId":"T-001","attempts":1,"failedGate":null,"turns":1,"status":"GREEN","ts":"2026-08-21"}
 {"taskId":"T-000","attempts":1,"failedGate":null,"turns":1,"status":"GREEN","ts":"2026-08-21","planLines":4,"filesRead":["specs/tasks/T-000-harness-smoke.md","CLAUDE.md","packages/core/src/index.ts","vitest.config.ts","packages/core/tsconfig.json"]}
+{"taskId":"T-002","attempts":2,"failedGate":"G5","turns":2,"status":"GREEN","ts":"2026-08-21","planLines":5,"filesRead":["specs/tasks/T-002-contracts-schema.md","specs/02-data-model.md","specs/03-rag-pipeline.md","specs/04-api.md","specs/07-mcp.md","specs/00-product.md","specs/05-test-strategy.md","specs/tasks/T-018-generator.md","CLAUDE.md","packages/contracts/**",".env.example"]}
