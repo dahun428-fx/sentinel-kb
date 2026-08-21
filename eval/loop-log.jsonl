@@ -1,1 +1,2 @@
 {"taskId":"T-001","attempts":1,"failedGate":null,"turns":1,"status":"GREEN","ts":"2026-08-21"}
+{"taskId":"T-000","attempts":1,"failedGate":null,"turns":1,"status":"GREEN","ts":"2026-08-21","planLines":4,"filesRead":["specs/tasks/T-000-harness-smoke.md","CLAUDE.md","packages/core/src/index.ts","vitest.config.ts","packages/core/tsconfig.json"]}

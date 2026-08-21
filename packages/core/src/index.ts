@@ -9,3 +9,5 @@ export const PACKAGE_NAME = "@sentinel/core";
 
 /** contracts 의존 방향(core → contracts)이 살아 있는지 확인하는 최소 사용처. */
 export const DEFAULT_SEVERITY = Severity.parse("NOTE");
+
+export { VERSION } from "./version.js";
