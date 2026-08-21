@@ -1,6 +1,9 @@
 # T-000: 하네스 자체 검증 (더미 태스크)
 refs: CLAUDE.md, .claude/skills/task-loop/SKILL.md
-M: M0 | deps: -
+M: M0 | deps: T-001
+
+> Acceptance의 `pnpm verify`는 T-001이 만드는 파이프라인이다. 따라서 T-001을 먼저 수행한다.
+> (2026-08-21 인간 승인으로 deps 수정)
 
 ## 목적
 루프가 실제로 도는지 확인한다. 산출물의 가치보다 **프로토콜 준수 여부**가 검증 대상이다.
