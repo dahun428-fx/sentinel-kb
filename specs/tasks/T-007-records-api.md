@@ -5,8 +5,9 @@ M: M1 | deps: T-003, T-004
 ## Scope
 - Fastify 앱 + Bearer 인증 훅(키→project 클레임)
 - POST/GET/PATCH `/v1/records`, GET 목록(cursor 페이지네이션)
-- 저장 시 sanitizer 통과, `project`는 **키에서 주입**(바디 값 무시)
-- published 전환 시 `jobs`에 embed job 삽입
+- 저장 시 sanitizer 통과, `project`는 **키에서 주입**(바디에 `project`가 오면 400 거부 — specs/04)
+- published로 **저장 또는 전환** 시 `jobs`에 embed job 삽입
+  (T-002 이후 생성 기본값이 published다 — 전환만 걸면 대부분의 레코드가 임베딩되지 않는다)
 - `summary` 자동 생성(첫 2문장)
 
 ## Out of scope
