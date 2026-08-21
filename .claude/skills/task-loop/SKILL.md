@@ -49,8 +49,13 @@ STATUS: BLOCKED
 
 ### 7. 계측
 `eval/loop-log.jsonl`에 1줄 append:
-`{"taskId","attempts","failedGate","turns","status","ts"}`
+`{"taskId","attempts","failedGate","turns","status","ts","planLines","filesRead"}`
 이 로그가 자동 완결률 지표의 원천이다. 빠뜨리지 않는다.
+
+`planLines`(PLAN 줄 수)와 `filesRead`(실제로 읽은 파일 경로 배열)는 **verifier가
+"PLAN 3–7줄 선언 + Context budget 준수"를 기계 판정할 수 있게 하는 유일한 근거원**이다.
+이 두 필드가 없으면 해당 Acceptance는 판정 불가가 된다 (T-000 F-2).
+`filesRead`는 태스크 스펙의 Context budget과 대조되므로 축소 신고하지 않는다.
 
 ## 중단 사유 (즉시)
 - 테스트·eval·baselines를 고쳐서 통과시키려는 유혹이 생겼을 때
