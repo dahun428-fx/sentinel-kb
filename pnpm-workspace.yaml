@@ -1,2 +1,7 @@
 packages:
   - 'packages/*'
+
+# pnpm 10은 의존성 postinstall을 기본 차단한다 — 필요한 것만 명시 승인.
+onlyBuiltDependencies:
+  - esbuild
+  - unrs-resolver
