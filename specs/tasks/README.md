@@ -1,0 +1,43 @@
+# 태스크 백로그
+
+한 태스크 = 한 세션 = 한 PR. 순서대로 진행하되 `deps`가 만족되면 병렬 가능.
+Acceptance는 **전부 명령어로 판정 가능**해야 한다. 판정 불가한 항목이 있으면 태스크를 쪼갠다.
+
+| ID | 제목 | M | deps |
+|---|---|---|---|
+| T-000 | 하네스 자체 검증 (더미 태스크) | M0 | - |
+| T-001 | 모노레포 스캐폴드 + verify 파이프라인 | M0 | - |
+| T-002 | contracts: Zod 스키마 단일 소스 | M1 | T-001 |
+| T-003 | Mongo 연결·인덱스 부트스트랩 | M1 | T-002 |
+| T-004 | sanitizer (시크릿 마스킹 + 인젝션 플래그) | M1 | T-002 |
+| T-005 | 구조 인지 chunker | M1 | T-002 |
+| T-006 | embedder 추상화 + provider 구현 | M1 | T-002 |
+| T-007 | records CRUD API | M1 | T-003,T-004 |
+| T-008 | jobs 큐 + 임베딩 워커 | M1 | T-005,T-006 |
+| T-009 | 시드 데이터 50건 + db:seed | M1 | T-007,T-008 |
+| T-010 | Atlas 벡터·텍스트 인덱스 정의 스크립트 | M2 | T-003 |
+| T-011 | retriever: 하이브리드 + RRF | M2 | T-010 |
+| T-012 | /v1/search 라우트 | M2 | T-011 |
+| T-013 | retrieval eval 러너 + 골든셋 30 | M2 | T-012,T-009 |
+| T-014 | MCP 서버 스켈레톤 + Bearer 인증 | M3 | T-012 |
+| T-015 | MCP 도구 5종 구현 | M3 | T-014 |
+| T-016 | tool-selection eval 러너 + 시나리오 20 | M3 | T-015 |
+| T-017 | 클라이언트 연결 문서 + .mcp.json 배포 | M3 | T-015 |
+| T-018 | generator: 인용 강제 + 임계값 게이트 | M4 | T-011 |
+| T-019 | /v1/answer (SSE) + suggest_resolution 연결 | M4 | T-018,T-015 |
+| T-020 | 인용 후처리 검증 + generation eval | M4 | T-019 |
+| T-021 | 인젝션 레드팀 eval | M4 | T-019,T-004 |
+| T-022 | feedback API + MCP give_feedback | M4 | T-007 |
+| T-023 | Web 읽기 UI (검색·열람) | M5 | T-012 |
+| T-024 | 도그푸딩 연결 + /harvest 커맨드 | M5 | T-017 |
+| T-025 | Terraform 최소셋 | M6 | - |
+| T-026 | Docker Compose + nginx (SSE/MCP 버퍼링) | M6 | T-019 |
+| T-027 | CI/CD 배포 파이프라인 (ECR+SSM) | M6 | T-025,T-026 |
+| T-028 | 포트폴리오 패키징 (README·다이어그램·리포트) | M6 | 전체 |
+| T-029 | 아티클 스키마 + 트리거 배치 | M7 | T-022,T-024 |
+| T-030 | 팩트 추출기 (결정론) | M7 | T-029 |
+| T-031 | 작문 파이프라인 + 문체 린터 | M7 | T-030 |
+| T-032 | 다이어그램 생성·검증 루프 | M7 | T-031 |
+| T-033 | 아티클 UI (편집·발행) | M7 | T-031,T-023 |
+| T-034 | 스타일 eval (AI-티 판정) | M7 | T-031 |
+| T-035 | 관계 필드 + graphLookup 확장 (ADR-07 단계 0) | M7 | T-015,T-019 |

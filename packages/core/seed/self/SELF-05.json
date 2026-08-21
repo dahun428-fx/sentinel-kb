@@ -1,0 +1,11 @@
+{
+  "type": "divergence",
+  "title": "추적성 매트릭스가 존재하지 않는 테스트 ID를 참조 (IT-04, IT-08)",
+  "severity": "SEV3",
+  "tags": ["rtm", "traceability", "doc-drift", "audit-a1"],
+  "project": "sentinel-kb",
+  "expected": "RTM의 모든 검증 열은 테스트 계획서에 실재하는 TC를 가리켜야 한다. 참조가 끊긴 요구사항은 검증 불가 상태다.",
+  "actual": "RTM은 FR-01을 IT-01~04로, FR-07을 IT-08로 매핑했으나 테스트 계획서 TC 표에는 IT-04와 IT-08이 존재하지 않았다. 문서를 각각 작성하면서 상호 참조 무결성을 사람 눈으로만 확인한 결과.",
+  "context": { "model": "claude", "tool": "doc-authoring", "framework": "rtm" },
+  "correction": "누락 TC 2건을 테스트 계획서에 추가하고, RTM↔TEST-PLAN ID 대조를 spec-drift-check.sh에 구현해 CI로 상시 검사한다. 원칙: 문서 간 참조는 사람이 지키는 규율이 아니라 기계가 검사하는 제약으로 만든다."
+}

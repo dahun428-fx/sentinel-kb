@@ -1,0 +1,11 @@
+{
+  "type": "incident",
+  "title": "POSIX sh에서 brace expansion 미동작으로 리터럴 '{specs' 디렉토리 생성",
+  "severity": "SEV3",
+  "tags": ["bash", "sh", "posix", "brace-expansion", "scaffold"],
+  "project": "sentinel-kb",
+  "symptom": "mkdir -p specs/{tasks,agents} 형태의 명령 후 후속 파일 생성이 'cannot create specs/00-product.md: Directory nonexistent'로 실패. ls 결과에 '{specs' 라는 리터럴 디렉토리가 보임.",
+  "rootCause": "스크립트가 bash가 아닌 POSIX sh(/bin/sh → dash)로 실행되어 brace expansion이 동작하지 않음. '{a,b}'가 펼쳐지지 않고 문자 그대로 디렉토리명이 됨.",
+  "resolution": "잘못 생성된 리터럴 디렉토리 제거(rm -rf '{specs') 후 개별 mkdir -p specs/tasks 등으로 재생성. 이후 스캐폴드 스크립트에서 brace expansion 사용 금지.",
+  "prevention": "컨테이너·CI 환경에서는 /bin/sh가 dash인 경우가 많다. 셸 기능(brace expansion, [[ ]], 배열)을 쓰려면 shebang을 #!/usr/bin/env bash로 강제하고, 이식성이 필요하면 POSIX 문법만 쓴다."
+}

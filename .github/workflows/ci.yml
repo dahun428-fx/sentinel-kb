@@ -1,0 +1,30 @@
+name: ci
+on:
+  pull_request:
+  push: { branches: [main] }
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm test:integration
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_TEST_URI }}
+          EMBEDDING_PROVIDER: fake
+      - run: pnpm build
+
+  spec-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # specs/의 검증 가능한 주장(엔드포인트·도구 개수·필드명)과 코드 대조.
+      # 실패해도 머지는 막지 않고 경고만 — 스펙 수정은 사람 판단 사항이므로.
+      - run: ./scripts/spec-drift-check.sh || echo "::warning::스펙-코드 불일치 발견"

@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sentinel-kb — 분석·설계 도면집</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root{
+    --ink:#0F1A1F;
+    --ink-soft:#3E5058;
+    --paper:#DFE5E7;
+    --plate:#F7F9F9;
+    --rule:#AEBBC0;
+    --navy:#1C3D5A;
+    --verdi:#2C6B5A;
+    --ochre:#8A6512;
+    --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--sans); line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} }
+
+  /* ---------- masthead ---------- */
+  header.masthead{
+    border-bottom:1px solid var(--rule);
+    padding:28px 20px 20px;
+    background:var(--plate);
+  }
+  .stamp{
+    font-family:var(--mono); font-size:10px; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--verdi); margin:0 0 10px;
+  }
+  h1{
+    font-family:var(--mono); font-weight:600; font-size:clamp(20px,4.4vw,30px);
+    letter-spacing:-.01em; margin:0 0 6px; line-height:1.25;
+  }
+  .sub{ color:var(--ink-soft); font-size:13.5px; margin:0; max-width:62ch }
+  .meta{
+    margin-top:16px; display:flex; flex-wrap:wrap; gap:6px 18px;
+    font-family:var(--mono); font-size:10.5px; color:var(--ink-soft);
+  }
+  .meta b{ color:var(--navy); font-weight:600 }
+
+  /* ---------- layout ---------- */
+  .wrap{ display:grid; grid-template-columns:1fr; }
+  nav.index{
+    position:sticky; top:0; z-index:20;
+    background:rgba(223,229,231,.94); backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--rule);
+    overflow-x:auto; white-space:nowrap; padding:9px 14px;
+  }
+  nav.index a{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.06em;
+    color:var(--ink-soft); text-decoration:none; margin-right:16px;
+  }
+  nav.index a:hover, nav.index a:focus-visible{ color:var(--navy); text-decoration:underline }
+  main{ padding:22px 14px 80px; max-width:1080px; margin:0 auto; width:100% }
+
+  /* ---------- section head ---------- */
+  .chapter{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--verdi);
+    border-top:1px solid var(--rule); padding-top:14px; margin:44px 0 14px;
+  }
+  .chapter:first-of-type{ margin-top:8px }
+
+  /* ---------- plate (signature: 설계 도면 판) ---------- */
+  .plate{
+    background:var(--plate);
+    border:1px solid var(--ink);
+    box-shadow:3px 3px 0 rgba(28,61,90,.10);
+    margin:0 0 26px;
+  }
+  .plate > .inner{ border:1px solid var(--rule); margin:5px }
+  .plate-head{
+    display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+    padding:11px 13px 9px; border-bottom:1px solid var(--rule);
+  }
+  .plate-no{
+    font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+    color:#fff; background:var(--navy); padding:2px 7px;
+  }
+  .plate-title{ font-family:var(--mono); font-size:13.5px; font-weight:600 }
+  .plate-kind{ font-family:var(--mono); font-size:10px; color:var(--ink-soft); margin-left:auto }
+  .canvas{ overflow:auto; padding:16px 10px; background:
+      repeating-linear-gradient(0deg,transparent 0 23px,rgba(174,187,192,.16) 23px 24px),
+      repeating-linear-gradient(90deg,transparent 0 23px,rgba(174,187,192,.16) 23px 24px);
+  }
+  .canvas svg{ max-width:none; height:auto }
+  /* 도면 하단 표제란 — 실제 설계도면의 title block */
+  .titleblock{
+    border-top:1px solid var(--rule); padding:9px 13px;
+    font-size:12.5px; color:var(--ink-soft);
+  }
+  .titleblock b{ color:var(--ink); font-weight:600 }
+  .zoom{ display:flex; gap:6px; padding:0 13px 10px }
+  .zoom button{
+    font-family:var(--mono); font-size:11px; color:var(--navy);
+    background:transparent; border:1px solid var(--rule); padding:3px 9px; cursor:pointer;
+  }
+  .zoom button:hover{ background:#fff }
+  .zoom button:focus-visible{ outline:2px solid var(--verdi); outline-offset:1px }
+
+  /* ---------- table plate ---------- */
+  table{ border-collapse:collapse; width:100%; font-size:12.5px }
+  th,td{ border:1px solid var(--rule); padding:6px 8px; text-align:left; vertical-align:top }
+  th{ background:#E8EDEE; font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; font-weight:600 }
+  td code{ font-family:var(--mono); font-size:11.5px; color:var(--navy) }
+  .tbl-wrap{ overflow-x:auto; padding:12px }
+
+  footer{
+    border-top:1px solid var(--rule); margin-top:40px; padding:18px 14px 0;
+    font-family:var(--mono); font-size:10.5px; color:var(--ink-soft);
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <p class="stamp">분석 · 설계 산출물 / 도면집</p>
+  <h1>sentinel-kb</h1>
+  <p class="sub">여러 프로젝트의 AI 에이전트와 개발자가 함께 쓰는 트러블슈팅 · AI 개발 이격 지식 보관소. 아래는 요구사항 분석부터 배포 설계까지의 도면 15판이다.</p>
+  <div class="meta">
+    <span>문서 <b>v1.0</b></span>
+    <span>표준 <b>ISO/IEC/IEEE 29148 · 4+1 뷰</b></span>
+    <span>도면 <b>15판</b></span>
+    <span>1차 인터페이스 <b>MCP</b></span>
+  </div>
+</header>
+
+<nav class="index" aria-label="도면 목차">
+  <a href="#p01">01 유스케이스</a><a href="#p02">02 컨텍스트</a><a href="#p03">03 논리뷰</a>
+  <a href="#p04">04 패키지</a><a href="#p05">05 ERD</a><a href="#p06">06 기록·인제스트</a>
+  <a href="#p07">07 해결제안</a><a href="#p08">08 검색</a><a href="#p09">09 잡 상태</a>
+  <a href="#p10">10 마이그레이션</a><a href="#p11">11 데이터흐름</a><a href="#p12">12 배포</a>
+  <a href="#p13">13 구현루프</a><a href="#p14">14 일정</a><a href="#p15">15 추적성</a>
+</nav>
+
+<main>
+
+<p class="chapter">1부 — 요구사항 분석</p>
+
+<section class="plate" id="p01"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 01</span><span class="plate-title">유스케이스 다이어그램</span><span class="plate-kind">UML / 액터·시스템 경계</span></div>
+  <div class="canvas"><pre class="mermaid">
+flowchart LR
+  A1(["A1 대응 에이전트"]):::ai
+  A2(["A2 기록 개발자"]):::hum
+  A3(["A3 열람자"]):::hum
+  A4(["A4 운영자"]):::hum
+  subgraph SYS["sentinel-kb 시스템 경계"]
+    direction TB
+    UC1(["UC-01 유사 사례 검색"])
+    UC2(["UC-02 해결책 제안"])
+    UC3(["UC-03 사례 기록"])
+    UC4(["UC-04 이격 기록"])
+    UC5(["UC-05 전문 조회"])
+    UC6(["UC-06 피드백 제출"])
+    UC7(["UC-07 골든셋 승인"])
+    UC8(["UC-08 임베딩 교체"])
+  end
+  S1(["S1 임베딩 서비스"]):::ext
+  S2(["S2 LLM 서비스"]):::ext
+  A1 --- UC1 & UC2 & UC3 & UC4 & UC5 & UC6
+  A2 --- UC3 & UC4
+  A3 --- UC1 & UC5 & UC6
+  A4 --- UC7 & UC8
+  UC2 -.->|include| UC1
+  UC4 -.->|extend| UC3
+  UC1 --- S1
+  UC2 --- S2
+  UC8 --- S1
+  classDef ai fill:#1C3D5A,color:#fff,stroke:#0F1A1F;
+  classDef hum fill:#F7F9F9,color:#0F1A1F,stroke:#0F1A1F;
+  classDef ext fill:#E8EDEE,color:#3E5058,stroke:#AEBBC0,stroke-dasharray:3 3;
+  style SYS fill:#EDF1F2,stroke:#1C3D5A,stroke-width:1px
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>읽는 법</b> — UC-02는 UC-01을 포함한다(검색 없이 제안 없음). UC-04는 UC-03의 확장으로, 필수 필드만 다르다. 대응 에이전트가 여섯 개 유스케이스에 걸쳐 있는 것이 이 시스템의 성격을 말해준다.</div>
+</div></section>
+
+<section class="plate" id="p02"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 02</span><span class="plate-title">시스템 컨텍스트</span><span class="plate-kind">C4 Level 1</span></div>
+  <div class="canvas"><pre class="mermaid">
+flowchart TB
+  P1["프로젝트 A<br/>Claude Code 세션"]:::cli
+  P2["프로젝트 B<br/>Claude Code 세션"]:::cli
+  P3["웹 브라우저<br/>열람자"]:::cli
+  SK["sentinel-kb<br/>지식 보관소"]:::sys
+  EM["임베딩 서비스"]:::ext
+  LM["LLM 서비스"]:::ext
+  DB[("MongoDB Atlas<br/>Vector Search")]:::ext
+  P1 -->|MCP · 검색/기록| SK
+  P2 -->|MCP · 검색/기록| SK
+  P3 -->|HTTPS| SK
+  SK -->|텍스트→벡터| EM
+  SK -->|답변 생성| LM
+  SK -->|저장·검색| DB
+  classDef sys fill:#1C3D5A,color:#fff,stroke:#0F1A1F,stroke-width:2px;
+  classDef cli fill:#F7F9F9,stroke:#0F1A1F;
+  classDef ext fill:#E8EDEE,stroke:#AEBBC0,color:#3E5058,stroke-dasharray:3 3;
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>설계 의도</b> — 서로 다른 프로젝트가 같은 보관소를 공유하는 것이 제품의 존재 이유다. 읽기는 프로젝트를 넘나들고, 쓰기는 자기 프로젝트로 제한된다.</div>
+</div></section>
+
+<p class="chapter">2부 — 아키텍처 설계</p>
+
+<section class="plate" id="p03"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 03</span><span class="plate-title">논리 뷰 — 계층 구조</span><span class="plate-kind">4+1 / Logical View</span></div>
+  <div class="canvas"><pre class="mermaid">
+flowchart TB
+  subgraph L1["클라이언트 계층"]
+    AG["대응 에이전트"]:::c
+    WB["웹 UI (읽기 전용)"]:::c
+  end
+  subgraph L2["인터페이스 계층"]
+    MCP["MCP 서버<br/>도구 5종 · 응답 정규화"]:::i
+    API["HTTP API<br/>Fastify"]:::i
+  end
+  subgraph L3["도메인 계층 · core"]
+    SAN["sanitizer"]:::d
+    CHK["chunker"]:::d
+    EMB["embedder"]:::d
+    RET["retriever<br/>hybrid + RRF"]:::d
+    GEN["generator<br/>임계값 · 인용강제"]:::d
+  end
+  subgraph L4["영속 계층"]
+    DB[("records · chunks<br/>jobs · feedbacks")]:::p
+  end
+  AG --> MCP --> API
+  WB --> API
+  API --> SAN
+  API --> RET
+  API --> GEN
+  GEN --> RET
+  RET --> EMB
+  CHK --> EMB
+  SAN --> DB
+  CHK --> DB
+  RET --> DB
+  classDef c fill:#F7F9F9,stroke:#0F1A1F;
+  classDef i fill:#1C3D5A,color:#fff,stroke:#0F1A1F;
+  classDef d fill:#E7EFEC,stroke:#2C6B5A;
+  classDef p fill:#E8EDEE,stroke:#AEBBC0;
+  style L3 fill:#F1F5F4,stroke:#2C6B5A
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>핵심 결정</b> — 도메인 계층은 HTTP도 MCP도 알지 못한다. 덕분에 인터페이스가 하나 더 늘어도(CLI, 슬랙 봇) 도메인은 그대로다.</div>
+</div></section>
+
+<section class="plate" id="p04"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 04</span><span class="plate-title">개발 뷰 — 패키지 의존</span><span class="plate-kind">4+1 / Development View</span></div>
+  <div class="canvas"><pre class="mermaid">
+flowchart LR
+  CT["contracts<br/><small>Zod 스키마 단일 소스</small>"]:::base
+  CO["core<br/><small>도메인 로직</small>"]:::core
+  AP["api"]:::svc
+  WK["worker"]:::svc
+  MC["mcp"]:::svc
+  WE["web"]:::svc
+  CT --> CO
+  CO --> AP
+  CO --> WK
+  AP --> MC
+  AP --> WE
+  X["역방향 의존<br/>lint 실패"]:::bad
+  CO -.->|금지| AP
+  classDef base fill:#8A6512,color:#fff,stroke:#0F1A1F;
+  classDef core fill:#2C6B5A,color:#fff,stroke:#0F1A1F;
+  classDef svc fill:#F7F9F9,stroke:#0F1A1F;
+  classDef bad fill:#F7F9F9,stroke:#8A6512,stroke-dasharray:4 3,color:#8A6512;
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>강제 수단</b> — 의존 방향은 문서가 아니라 lint 규칙으로 강제한다. 자동 구현 루프가 도는 저장소에서 규칙은 검증되지 않으면 존재하지 않는 것과 같다.</div>
+</div></section>
+
+<section class="plate" id="p05"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 05</span><span class="plate-title">논리 데이터 모델</span><span class="plate-kind">ERD</span></div>
+  <div class="canvas"><pre class="mermaid">
+erDiagram
+  PROJECT ||--o{ RECORD : "소유"
+  RECORD ||--o{ CHUNK : "분할"
+  RECORD ||--o{ FEEDBACK : "평가"
+  RECORD ||--o{ JOB : "인제스트"
+  EVAL_CASE }o--o{ RECORD : "정답 참조"
+  PROJECT {
+    string slug PK
+    string apiKeyHash
+  }
+  RECORD {
+    objectId id PK
+    string type "incident|divergence"
+    string project FK
+    string title
+    string severity
+    string symptom "incident"
+    string resolution "incident"
+    string expected "divergence"
+    string actual "divergence"
+    string correction "divergence"
+    object context "model|tool|framework"
+    string summary "사전생성"
+    array sanitizeFlags
+    int embeddingVersion
+  }
+  CHUNK {
+    objectId id PK
+    objectId recordId FK
+    string section
+    int seq
+    string text
+    array embedding "벡터"
+    object meta "필터용 비정규화"
+    int embeddingVersion
+  }
+  FEEDBACK {
+    objectId id PK
+    objectId recordId FK
+    string query
+    bool helped
+  }
+  JOB {
+    objectId id PK
+    objectId recordId FK
+    string status
+    int attempts
+  }
+  EVAL_CASE {
+    objectId id PK
+    string query
+    array expectedRecordIds
+    string approvedBy "human 고정"
+  }
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>비정규화 근거</b> — <code>chunk.meta</code>는 레코드 필드를 복제한다. 벡터 검색이 파이프라인 첫 단계여야 해서 조인 후 필터가 불가능하기 때문이다. 정합성은 레코드 수정 시 청크 재생성으로 지킨다.</div>
+</div></section>
+
+<p class="chapter">3부 — 동적 설계</p>
+
+<section class="plate" id="p06"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 06</span><span class="plate-title">기록 및 인제스트</span><span class="plate-kind">시퀀스 / UC-03</span></div>
+  <div class="canvas"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor AG as 에이전트
+  participant MCP as MCP 서버
+  participant API as core-api
+  participant SAN as sanitizer
+  participant DB as Atlas
+  participant WK as worker
+  participant EM as 임베딩
+  AG->>MCP: record_knowledge(type, 섹션)
+  MCP->>API: POST /v1/records (Bearer)
+  API->>API: 스키마 검증
+  API->>SAN: 텍스트 정제
+  SAN-->>API: 정제문 + 플래그
+  API->>DB: 저장 (project 주입)
+  API->>DB: 인제스트 잡 등록
+  API-->>MCP: recordId + 마스킹 경고
+  MCP-->>AG: 저장 완료 · 무엇이 마스킹됐는지
+  Note over WK,EM: 비동기 — 기록의 마찰을 0으로
+  WK->>DB: 잡 원자적 클레임
+  WK->>WK: 섹션 청킹
+  WK->>EM: 배치 임베딩
+  EM-->>WK: 벡터
+  WK->>DB: 청크 upsert (멱등)
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>왜 비동기인가</b> — 임베딩 지연이 기록 행위를 붙잡으면 사람은 기록을 안 남긴다. 기록률이 이 시스템의 생존 조건이므로 저장과 인덱싱을 분리했다.</div>
+</div></section>
+
+<section class="plate" id="p07"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 07</span><span class="plate-title">해결책 제안 — 임계값 게이트</span><span class="plate-kind">시퀀스 / UC-02</span></div>
+  <div class="canvas"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor AG as 에이전트
+  participant API as core-api
+  participant RET as retriever
+  participant DB as Atlas
+  participant GEN as generator
+  participant LLM as LLM
+  AG->>API: suggest_resolution(errorText)
+  API->>RET: 검색
+  RET->>DB: 벡터 검색
+  RET->>DB: 키워드 검색
+  DB-->>RET: 후보 집합
+  RET->>RET: RRF 융합 · 레코드당 상한
+  RET-->>API: 상위 결과 + 최고 점수
+  alt 최고 점수 < 임계값
+    API-->>AG: 사례 없음 · 해결 후 기록 권유
+    Note right of API: LLM을 호출하지 않는다
+  else 임계값 충족
+    API->>GEN: 컨텍스트 조립 (플래그 청크 제외)
+    GEN->>LLM: 인용 강제 프롬프트
+    LLM-->>GEN: 스트리밍 응답
+    GEN->>GEN: 인용 유효성 검증
+    GEN-->>AG: 원인 가설 · 절차 · 인용
+  end
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>이 도면의 요점</b> — 임계값 판정이 생성보다 <b>앞</b>에 있다. 근거가 약할 때 모델을 아예 부르지 않으면 환각은 구조적으로 불가능해진다. 잘못된 해결책은 없는 것보다 나쁘다.</div>
+</div></section>
+
+<section class="plate" id="p08"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 08</span><span class="plate-title">하이브리드 검색과 우아한 저하</span><span class="plate-kind">시퀀스 / UC-01</span></div>
+  <div class="canvas"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as 에이전트 · 열람자
+  participant API as core-api
+  participant EM as 임베딩
+  participant DB as Atlas
+  U->>API: POST /v1/search
+  API->>EM: 질의 임베딩
+  alt 임베딩 실패
+    EM--xAPI: 오류
+    API->>DB: 키워드 검색 단독
+    API-->>U: 결과 + degraded 표시
+  else 정상
+    EM-->>API: 질의 벡터
+    par 병렬
+      API->>DB: 벡터 검색
+    and
+      API->>DB: 키워드 검색
+    end
+    API->>API: RRF 융합 · 중복 정리 · 요약 부착
+    API-->>U: 결과 목록 (본문 미포함)
+  end
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>본문을 주지 않는 이유</b> — 에이전트의 컨텍스트는 유한 자원이다. 목록은 요약과 식별자만, 전문은 필요할 때 별도 호출로. 응답이 무거운 도구는 결국 호출되지 않는다.</div>
+</div></section>
+
+<section class="plate" id="p09"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 09</span><span class="plate-title">인제스트 잡 생명주기</span><span class="plate-kind">상태 다이어그램</span></div>
+  <div class="canvas"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> pending: 레코드 published
+  pending --> running: 워커 원자적 클레임
+  running --> done: 청크 upsert 성공
+  running --> failed: 임베딩 · DB 오류
+  failed --> pending: 재시도 (attempts++)
+  failed --> dead: attempts > 3
+  dead --> pending: 운영자 수동 재큐잉
+  done --> [*]
+  note right of dead
+    레코드 자체는 보존된다.
+    인덱싱 실패가 지식 유실이
+    되어서는 안 된다.
+  end note
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>멱등성</b> — 청크는 <code>recordId+section+seq+version</code> 유니크 키로 upsert된다. 같은 잡이 두 번 처리돼도 결과가 같다.</div>
+</div></section>
+
+<section class="plate" id="p10"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 10</span><span class="plate-title">임베딩 모델 교체 — 무중단 전환</span><span class="plate-kind">상태 다이어그램 / NFR-06</span></div>
+  <div class="canvas"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> v1운영
+  v1운영 --> 병행: 버전 증가 · v2 청크 삽입 시작
+  병행 --> 병행: 재임베딩 진행 (검색은 계속 v1)
+  병행 --> 인덱스대기: v2 삽입 완료
+  인덱스대기 --> v2운영: 인덱스 READY 확인 후 필터 전환
+  v2운영 --> [*]: v1 청크 삭제
+  병행 --> v1운영: 실패 시 v2 폐기하고 원복
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>인플레이스 금지</b> — 제자리 갱신은 중간 상태에서 검색을 부분적으로 깨뜨린다. 롤백 경로가 항상 존재하도록 신·구 버전을 공존시킨다.</div>
+</div></section>
+
+<section class="plate" id="p11"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 11</span><span class="plate-title">데이터 흐름과 3중 방어선</span><span class="plate-kind">DFD / NFR-05</span></div>
+  <div class="canvas"><pre class="mermaid">
+flowchart LR
+  IN["기록 입력<br/>사람 · 에이전트"]:::io
+  D1{{"방어 1<br/>저장 시 정제<br/>자격증명 마스킹<br/>인젝션 패턴 표시"}}:::def
+  ST[("저장소<br/>records · chunks")]:::store
+  Q["검색 질의"]:::io
+  RT["검색 · 융합"]:::proc
+  D2{{"방어 2<br/>플래그 청크<br/>생성 컨텍스트 제외"}}:::def
+  GN["답변 생성"]:::proc
+  D3{{"방어 3<br/>데이터 블록 래핑<br/>지시 무시 고지"}}:::def
+  OUT["에이전트 컨텍스트"]:::io
+  IN --> D1 --> ST
+  Q --> RT --> ST
+  RT --> D2 --> GN --> D3 --> OUT
+  ST -.->|전문 조회| D3
+  classDef io fill:#F7F9F9,stroke:#0F1A1F;
+  classDef def fill:#F3EEE0,stroke:#8A6512,color:#0F1A1F;
+  classDef proc fill:#E7EFEC,stroke:#2C6B5A;
+  classDef store fill:#E8EDEE,stroke:#AEBBC0;
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>왜 3중인가</b> — 한 프로젝트에서 기록된 텍스트가 다른 프로젝트 에이전트의 컨텍스트로 들어간다. 저장소 자체가 공격 매개가 될 수 있는 구조이므로 입력·선별·출력 세 지점에서 각각 막는다.</div>
+</div></section>
+
+<p class="chapter">4부 — 배포 · 프로세스</p>
+
+<section class="plate" id="p12"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 12</span><span class="plate-title">물리 뷰 — AWS 배포</span><span class="plate-kind">4+1 / Physical View</span></div>
+  <div class="canvas"><pre class="mermaid">
+flowchart TB
+  U["외부 에이전트 · 브라우저"]:::ext
+  R53["Route 53"]:::aws
+  subgraph EC2["EC2 t3.small — Docker Compose"]
+    NG["nginx :443<br/>TLS · proxy_buffering off"]:::box
+    MC["mcp :3002"]:::box
+    AP["core-api :3001"]:::box
+    WE["web :3000"]:::box
+    WK["worker"]:::box
+  end
+  SSM["SSM<br/>Parameter Store · Session Manager"]:::aws
+  ECR["ECR"]:::aws
+  CW["CloudWatch Logs"]:::aws
+  DB[("MongoDB Atlas<br/>상태 전량 외부화")]:::ext
+  U --> R53 --> NG
+  NG --> MC & AP & WE
+  MC --> AP
+  WK --> DB
+  AP --> DB
+  SSM -. 시크릿 · 무SSH 접속 .-> EC2
+  ECR -. 이미지 .-> EC2
+  EC2 -. 로그 .-> CW
+  classDef aws fill:#1C3D5A,color:#fff,stroke:#0F1A1F;
+  classDef box fill:#F7F9F9,stroke:#0F1A1F;
+  classDef ext fill:#E8EDEE,stroke:#AEBBC0,color:#3E5058;
+  style EC2 fill:#EDF1F2,stroke:#2C6B5A
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>운영 원칙</b> — 인스턴스는 복구 대상이 아니라 재생성 대상이다. 상태가 전부 외부에 있으므로 죽으면 새로 띄우고 DNS만 바꾼다. 인바운드는 443 하나, 접속은 세션 매니저로 한다.</div>
+</div></section>
+
+<section class="plate" id="p13"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 13</span><span class="plate-title">자동 구현 루프와 게이트</span><span class="plate-kind">프로세스 / 하네스</span></div>
+  <div class="canvas"><pre class="mermaid">
+flowchart TB
+  T["태스크 스펙<br/>T-xxx.md"]:::spec
+  PL["PLAN<br/>계획 3–7줄 선언"]:::step
+  IM["IMPLEMENT<br/>implementer"]:::step
+  VF["VERIFY<br/>verifier · 쓰기권한 없음"]:::step
+  G1{"G1 정적"}:::gate
+  G2{"G2 테스트"}:::gate
+  G3{"G3 계약"}:::gate
+  G4{"G4 평가"}:::gate
+  G5{"G5 스펙정합"}:::gate
+  G6{"G6 MCP계약"}:::gate
+  PR["PR 생성 · 계측 기록"]:::done
+  HU["사람 판단<br/>BLOCKED 큐"]:::human
+  T --> PL --> IM --> VF --> G1
+  G1 -->|통과| G2
+  G2 -->|통과| G3
+  G3 -->|통과| G4
+  G4 -->|통과| G5
+  G5 -->|통과| G6
+  G6 -->|통과| PR
+  G1 -->|실패| IM
+  G2 -->|실패| IM
+  G4 -->|실패| IM
+  G3 -->|변경 감지| HU
+  G6 -->|변경 감지| HU
+  G5 -->|범위 초과| IM
+  IM -->|3회 초과| HU
+  classDef spec fill:#8A6512,color:#fff,stroke:#0F1A1F;
+  classDef step fill:#F7F9F9,stroke:#0F1A1F;
+  classDef gate fill:#E7EFEC,stroke:#2C6B5A;
+  classDef done fill:#1C3D5A,color:#fff,stroke:#0F1A1F;
+  classDef human fill:#F3EEE0,stroke:#8A6512;
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>사람이 개입하는 곳</b> — 계약 변경(G3·G6)과 3회 실패뿐이다. 나머지는 루프가 자체 처리한다. 실패를 무한정 반복하는 것보다 멈추는 편이 싸다.</div>
+</div></section>
+
+<section class="plate" id="p14"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 14</span><span class="plate-title">개발 일정</span><span class="plate-kind">간트 / WBS</span></div>
+  <div class="canvas"><pre class="mermaid">
+gantt
+  title 마일스톤 일정 (총 7주)
+  dateFormat YYYY-MM-DD
+  axisFormat %m/%d
+  section 분석·설계
+  명세서 작성        :done, d1, 2026-08-20, 4d
+  section 하네스
+  스캐폴드·루프      :a1, after d1, 4d
+  section 코어
+  계약·저장소·정제   :a2, after a1, 3d
+  청킹·임베딩·워커   :a3, after a2, 3d
+  API·시드           :a4, after a3, 3d
+  section 검색
+  인덱스·리트리버    :b1, after a4, 4d
+  검색API·품질평가   :b2, after b1, 3d
+  section MCP
+  서버·도구 5종      :c1, after b2, 4d
+  도구평가·연동      :c2, after c1, 3d
+  section 생성
+  제너레이터·답변API :e1, after c2, 4d
+  인용검증·레드팀    :e2, after e1, 3d
+  section 활용
+  열람 UI            :f1, after e2, 4d
+  도그푸딩 상시      :f2, after c2, 21d
+  section 배포
+  인프라·컨테이너    :g1, after f1, 4d
+  파이프라인·패키징  :g2, after g1, 3d
+  </pre></div>
+  <div class="zoom"><button data-z="-">축소</button><button data-z="+">확대</button><button data-z="0">원본</button></div>
+  <div class="titleblock"><b>순서의 근거</b> — MCP가 생성보다 앞선다. 접속이 먼저 열려야 도그푸딩 기간이 3주 확보되고, 실사용 지표는 시간을 압축할 수 없는 유일한 지표다.</div>
+</div></section>
+
+<section class="plate" id="p15"><div class="inner">
+  <div class="plate-head"><span class="plate-no">PLATE 15</span><span class="plate-title">요구사항 추적성 매트릭스</span><span class="plate-kind">RTM</span></div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>요구사항</th><th>유스케이스</th><th>설계</th><th>태스크</th><th>검증</th></tr></thead>
+      <tbody>
+        <tr><td>FR-01 레코드</td><td>UC-03·04·05</td><td>DB §2 · IF §2.1</td><td><code>T-002 T-007</code></td><td>IT-01~04</td></tr>
+        <tr><td>FR-02 인제스트</td><td>UC-03</td><td>SAD §4.2 · DB §3</td><td><code>T-005 T-006 T-008</code></td><td>UT-05 · IT-05</td></tr>
+        <tr><td>FR-03 검색</td><td>UC-01</td><td>SAD §4.3 · IF §2.2</td><td><code>T-010~012</code></td><td>eval:retrieval · IT-06</td></tr>
+        <tr><td>FR-04 생성</td><td>UC-02</td><td>SAD §4.4</td><td><code>T-018 T-019</code></td><td>eval:generation · IT-07</td></tr>
+        <tr><td>FR-05 MCP</td><td>UC-01~06</td><td>IF §3</td><td><code>T-014~017</code></td><td>계약 테스트 · eval:tools</td></tr>
+        <tr><td>FR-06 정제</td><td>UC-03·04</td><td>SAD §4.5</td><td><code>T-004</code></td><td>UT-04 (20케이스)</td></tr>
+        <tr><td>FR-07 피드백</td><td>UC-06·07</td><td>IF §2.3</td><td><code>T-022</code></td><td>IT-08</td></tr>
+        <tr><td>FR-08 UI</td><td>—</td><td>SAD §4.6</td><td><code>T-023</code></td><td>ET-01~03</td></tr>
+        <tr><td>FR-10 시드</td><td>—</td><td>—</td><td><code>T-009</code></td><td>시드 검증 스크립트</td></tr>
+        <tr><td>NFR-01 성능</td><td>전체</td><td>SAD §6</td><td><code>T-012 T-019 T-026</code></td><td>부하 스크립트 p95</td></tr>
+        <tr><td>NFR-02 무환각</td><td>UC-02</td><td>SAD §4.4</td><td><code>T-018</code></td><td>임계값 시나리오 5건</td></tr>
+        <tr><td>NFR-03 토큰예산</td><td>UC-01</td><td>IF §3.2</td><td><code>T-015</code></td><td>토큰 추정 테스트</td></tr>
+        <tr><td>NFR-04 인증</td><td>전체</td><td>SAD §5.1</td><td><code>T-007 T-014</code></td><td>IT-01·02</td></tr>
+        <tr><td>NFR-05 인젝션</td><td>UC-02·05</td><td>SAD §5.2</td><td><code>T-004 T-015 T-021</code></td><td>eval:injection 10/10</td></tr>
+        <tr><td>NFR-06 마이그레이션</td><td>UC-08</td><td>DB §5</td><td><code>T-010</code></td><td>전환 리허설</td></tr>
+        <tr><td>NFR-07 가용성</td><td>—</td><td>SAD §7</td><td><code>T-025~027</code></td><td>복구 훈련 (런북)</td></tr>
+        <tr><td>NFR-08 품질</td><td>—</td><td>STP §4</td><td><code>T-013 T-016 T-020</code></td><td>평가 리포트 3종</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="titleblock"><b>빈칸의 의미</b> — 검증 열이 비면 그 요구사항은 아직 검증 불가 상태다. 자동화되지 않은 항목은 성능(NFR-01)과 복구(NFR-07) 둘뿐이며, 런북에 수동 절차로 남긴다.</div>
+</div></section>
+
+<footer>
+  sentinel-kb / 분석·설계 산출물 v1.0 — SRS · 유스케이스 명세 · SAD · DB 설계 · 인터페이스 설계 · 테스트 계획 · RTM · WBS
+</footer>
+</main>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    securityLevel: 'loose',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    themeVariables: {
+      background: '#F7F9F9',
+      primaryColor: '#F7F9F9',
+      primaryTextColor: '#0F1A1F',
+      primaryBorderColor: '#0F1A1F',
+      lineColor: '#3E5058',
+      secondaryColor: '#E7EFEC',
+      tertiaryColor: '#E8EDEE',
+      fontSize: '13px',
+      actorBkg: '#1C3D5A',
+      actorTextColor: '#ffffff',
+      actorBorder: '#0F1A1F',
+      signalColor: '#3E5058',
+      signalTextColor: '#0F1A1F',
+      labelBoxBkgColor: '#F3EEE0',
+      labelBoxBorderColor: '#8A6512',
+      noteBkgColor: '#F3EEE0',
+      noteBorderColor: '#8A6512',
+      noteTextColor: '#0F1A1F'
+    },
+    gantt: { barHeight: 18, fontSize: 11 },
+    er: { fontSize: 11 }
+  });
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.zoom button');
+    if (!btn) return;
+    var canvas = btn.closest('.inner').querySelector('.canvas');
+    var svg = canvas.querySelector('svg');
+    if (!svg) return;
+    var cur = parseFloat(svg.dataset.scale || '1');
+    var mode = btn.dataset.z;
+    var next = mode === '+' ? Math.min(cur + 0.25, 3)
+             : mode === '-' ? Math.max(cur - 0.25, 0.5) : 1;
+    svg.dataset.scale = next;
+    svg.style.transformOrigin = 'top left';
+    svg.style.transform = 'scale(' + next + ')';
+  });
+</script>
+</body>
+</html>
