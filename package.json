@@ -15,6 +15,7 @@
     "test:integration": "vitest run --project integration --passWithNoTests",
     "build": "tsc -b",
     "dev": "pnpm -r --parallel dev",
+    "db:indexes": "tsx packages/core/src/db/ensure-indexes.cli.ts",
     "format": "prettier --write ."
   },
   "devDependencies": {
@@ -25,6 +26,7 @@
     "eslint-import-resolver-typescript": "^4.4.0",
     "eslint-plugin-import": "^2.32.0",
     "prettier": "^3.6.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.40.0",
     "vitest": "^3.2.4"

@@ -54,10 +54,36 @@
 }
 ```
 
+## jobs
+```ts
+{
+  _id: ObjectId,
+  type: "embed",                // specs/03 §1-1이 정의한 유일한 종류. 늘리려면 스펙 먼저.
+  recordId: ObjectId,
+  status: "pending"|"running"|"failed"|"dead"|"done",  // docs/design/DB-DESIGN.md:69
+  attempts: number,             // specs/03 §1-4 "실패 시 attempts++, 3회 초과면 dead"
+  lastError?: string,           // dead 판정 후 원인 추적용 진단 정보
+  createdAt: Date, updatedAt: Date
+}
+```
+> 근거(T-003): 이 문서는 원래 jobs의 **인덱스만** 명시하고 도큐먼트 형상을 정의하지 않았다(T-002 F-3).
+> 형상 없이는 T-008의 원자적 클레임·재시도 로직을 계약으로 잠글 수 없어 여기서 정의했다.
+> 필드는 대부분 기존 문서에서 유도했고(위 각 줄의 출처 참조), 새로 발명한 것은 `lastError`와
+> `updatedAt` 둘이다. DB-DESIGN.md의 JOB 엔터티는 `createdAt`만 갖는다.
+> 구현: `packages/contracts/src/job.ts`
+>
+> **미정의로 남은 것 (T-008에서 결정):** `failed` → `pending` 재큐잉의 주체가 어디에도 없다.
+> 또 `claimedBy`·`leaseExpiresAt` 같은 리스 필드가 없어 **`running` 상태로 죽은 워커의 잡은
+> 영구 좀비가 된다** — `{status:1, createdAt:1}` 폴링은 그 잡을 다시 집지 않는다.
+> `JobSchema`가 `.strict()`이므로 T-008이 리스 필드를 넣으려면 contracts 재개방(인간 승인)이 필요하다.
+
 ## 인덱스
 - chunks: Atlas Vector Search `vec_idx` — path embedding, cosine, dim=EMBEDDING_DIM,
   filter 필드: meta.type, meta.project, embeddingVersion
 - chunks: Atlas Search `text_idx` — path text (lucene.standard)
+- chunks: {recordId:1, section:1, seq:1, embeddingVersion:1} **unique** — 인제스트 멱등성.
+  (T-003 추가. docs/design/DB-DESIGN.md §3과 specs/03 §1-3이 요구하는데 이 목록만 빠뜨리고 있었다.
+   T-010이 이 목록을 읽으므로 여기서 메운다.)
 - records: {project:1, type:1, createdAt:-1}, {tags:1}
 - jobs: {status:1, createdAt:1}
 

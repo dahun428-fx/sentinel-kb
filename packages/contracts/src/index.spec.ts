@@ -57,6 +57,10 @@ describe("@sentinel/contracts smoke", () => {
         // feedback.ts
         "FeedbackSchema",
         "FeedbackRequest",
+        // job.ts
+        "JobStatus",
+        "JobType",
+        "JobSchema",
         // eval-case.ts
         "EvalCaseSchema",
         // api.ts
