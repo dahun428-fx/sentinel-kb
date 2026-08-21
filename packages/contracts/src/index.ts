@@ -14,5 +14,6 @@ export * from "./common.js";
 export * from "./record.js";
 export * from "./chunk.js";
 export * from "./feedback.js";
+export * from "./job.js";
 export * from "./eval-case.js";
 export * from "./api.js";
