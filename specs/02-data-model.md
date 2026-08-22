@@ -33,7 +33,18 @@
     type: "recurrence_of" | "same_root_cause" | "related" | "corrects",
     targetRecordId: ObjectId, note?: string }],
   status: "draft" | "published",
-  embeddingVersion: number,
+  embeddingVersion: number,     // "마지막으로 온전히 임베딩된 세대" 워터마크. 0 = 미임베딩.
+                                // **생성 시 `0`으로 초기화하는 것은 T-007**(필수 필드라 반드시 쓴다).
+                                // **그 이후 값을 올리는 유일한 주체는 인제스트 워커**이며,
+                                // 세대 N 청크를 **전부 커밋한 뒤에만** N으로 올린다.
+                                // ⚠ **T-007의 PATCH는 이 필드를 보존해야 한다.** 도큐먼트를 통째로
+                                //   `$set`하거나 재검증 후 전체 치환하면 워터마크가 0으로 되돌아가
+                                //   이미 임베딩된 record가 미임베딩으로 오인된다.
+                                //   `PatchRecordInput`이 `.strict()`라 클라이언트 주입은 막히지만
+                                //   서버 내부의 전체 치환은 막는 장치가 없다.
+                                // 재임베딩 창에서 이 값이 chunk.embeddingVersion과 다른 것은 정상이다.
+                                // (T-006 F-1b가 "쓰기 주체 미배정"을 결함으로 올렸고 T-008이 메웠다.
+                                //  인간 사후 비준 대상.)
   createdAt: Date, updatedAt: Date
 }
 ```

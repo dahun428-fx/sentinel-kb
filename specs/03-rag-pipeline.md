@@ -13,7 +13,23 @@
      > 대신 긴 제목은 본문 예산을 잠식한다 — 그건 총량이 예산이라는 정의의 당연한 귀결이다.
    - 청크 텍스트 = `"[{title}] ({section}) {body}"` — 임베딩에 문맥 제공
 3. 임베딩 배치 호출(최대 32개) → chunks upsert (`{recordId, section, seq, embeddingVersion}` 유니크)
-4. 실패 시 job은 `failed`+attempts++, 3회 초과면 `dead`. **record 저장 자체는 롤백하지 않는다.**
+4. 실패 시 job 상태 기계 — **record 저장 자체는 롤백하지 않는다.**
+   - **일시 실패**(임베딩 429/5xx 소진, DB 순단 등) → `pending` + `attempts++`.
+     재큐잉 주체는 **워커 자신**이다.
+   - `attempts >= EMBED_JOB_MAX_ATTEMPTS`(기본 3) → `dead`.
+   - **영구 실패**(설정 오류, 4xx 등 재시도가 무의미한 것) → `failed`. attempts를 태우지 않는다.
+   - 재클레임은 **백오프를 거친다**: `updatedAt < now - backoff(attempts)`인 잡만 집는다.
+     그렇지 않으면 10초짜리 순단이 밀리초 안에 attempts를 전부 태워 `dead`로 보낸다.
+   > T-008 정정(인간 비준 대상): 원문은 "실패 시 job은 `failed`+attempts++, 3회 초과면 `dead`"였다.
+   > 그 문면에는 **`failed`를 되살리는 주체가 없어** attempts가 1을 넘지 못하고
+   > "3회 초과면 dead"가 도달 불가능한 죽은 조항이 된다.
+   > G5가 대안도 제시했다 — 클레임 필터를 `{status: {$in: ["pending","failed"]}}`로 두면
+   > 원문 문면을 지키면서 같은 결과를 얻는다. 위 안을 택한 이유는 `failed`를
+   > "재시도가 무의미한 영구 실패"로 쓰면 **설정 오류가 큐를 통째로 소각하는 사고**를 막을 수 있고
+   > (T-006 인계 사항), 그 구분이 운영 진단에 더 유용하기 때문이다.
+   > **다만 `failed`도 `dead`도 되살리는 주체는 여전히 없다** — 회수는 백필 도구의 몫이며 아직 없다.
+   > 또 `specs/03`의 "3회 **초과**"(>3)와 T-008 Acceptance의 "3회 **후**"(>=3)가 어긋나 있었다.
+   > 구현은 Acceptance를 따라 `>=`를 택했다. 이 문면도 그에 맞췄다.
 
 ## 2. Retrieve
 ```
