@@ -17,6 +17,7 @@
     "dev": "pnpm -r --parallel dev",
     "db:indexes": "tsx packages/core/src/db/ensure-indexes.cli.ts",
     "db:seed": "tsx scripts/seed.cli.ts",
+    "mcp:ping": "tsx scripts/mcp-ping.cli.ts",
     "format": "prettier --write ."
   },
   "devDependencies": {
