@@ -30,6 +30,7 @@ export default tseslint.config(
             "packages/*/tsconfig.json",
             "tools/tsconfig.json",
             "scripts/tsconfig.json",
+            "eval/tsconfig.json",
           ],
           noWarnOnMultipleProjects: true,
         },
