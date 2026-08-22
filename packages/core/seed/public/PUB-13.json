@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "백본 라우터 설정 실수로 경로가 한 지점으로 몰려 전역 트래픽 절반 손실 (Cloudflare 2020-07-17)",
+  "severity": "SEV1",
+  "tags": ["bgp", "backbone", "routing", "config-error", "traffic-engineering", "global-outage", "src:cloudflare-2020-backbone", "public-postmortem"],
+  "symptom": "약 27분간 전 세계 트래픽의 큰 부분이 손실됐다. 엣지 서버 자체는 살아 있었지만 백본을 통한 도달이 무너졌다.",
+  "rootCause": "혼잡 완화를 위한 백본 라우터 설정 변경에서 경로 필터의 범위가 의도보다 넓게 지정되어, 전 세계 백본의 트래픽이 특정 지점으로 끌려갔다. 그 지점의 용량으로는 감당할 수 없어 대량 폐기가 일어났다. 설정은 여러 라우터에 걸쳐 적용되는 형태였고 단계적 검증 없이 반영됐다.",
+  "resolution": "공개된 대응은 해당 설정을 되돌리고 백본 경로를 원상 복구하는 것이었다. 이후 백본 설정 변경에도 단계적 적용과 자동 검증이 도입됐다.",
+  "prevention": "라우팅 설정은 코드처럼 다룬다 — 리뷰, 시뮬레이션(적용 전 경로 계산 diff), 단계적 적용, 자동 롤백. '한 지점으로 트래픽을 끌어오는' 변경은 그 지점의 용량과 대조하는 검사를 강제한다. 되돌릴 수 있는 시간(변경 유예 후 자동 복원)을 기본값으로 둔다. 출처(자기 문장 요약, 원문 아님): https://blog.cloudflare.com/cloudflare-outage-on-july-17-2020/"
+}

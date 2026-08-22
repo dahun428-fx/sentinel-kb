@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "UTF-8 BOM이 붙은 JSON 시드 파일이 JSON.parse에서 position 0 에러",
+  "severity": "SEV3",
+  "tags": ["json", "bom", "encoding", "utf-8", "seed", "windows"],
+  "symptom": "일부 시드 파일만 로딩에 실패한다. 에러 원문: 'SyntaxError: Unexpected token in JSON at position 0' (Node 20 이상은 \"Unexpected token \\ufeff, ...\"). 파일을 열어 보면 육안으로는 완전히 정상인 JSON이다. 재현: file <경로> 가 'UTF-8 Unicode (with BOM) text'를 보고하는 파일을 fs.readFileSync(p,'utf8') 후 JSON.parse한다.",
+  "rootCause": "Windows 계열 에디터나 PowerShell 리다이렉션이 파일 앞에 BOM(U+FEFF)을 붙였다. Node의 utf8 디코딩은 BOM을 제거하지 않으므로 JSON.parse가 첫 문자에서 실패한다. JSON 규격은 BOM을 허용하지 않는다.",
+  "resolution": "로더에서 읽은 문자열의 선두 U+FEFF를 제거한 뒤 파싱하도록 했다(text.replace(/^\\uFEFF/, ''))). 원본 파일들은 sed -i '1s/^\\xEF\\xBB\\xBF//' 로 정리하고 .gitattributes로 해당 확장자를 text eol=lf 로 고정했다.",
+  "prevention": "외부에서 들어오는 텍스트 파일은 파싱 전에 BOM을 벗긴다. 리포지토리에 들어오는 JSON은 CI에서 BOM 검사를 한 줄 넣는다(grep -rlI $'\\xEF\\xBB\\xBF'). '눈으로 정상인데 파서만 실패'하는 증상은 보이지 않는 문자를 먼저 의심한다."
+}

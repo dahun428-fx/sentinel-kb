@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "tsc -b 증분 빌드가 stale tsbuildinfo로 삭제된 파일의 선언을 계속 참조",
+  "severity": "SEV3",
+  "tags": ["typescript", "project-references", "incremental-build", "tsbuildinfo", "monorepo"],
+  "symptom": "파일을 지우고 참조도 전부 없앴는데 pnpm typecheck가 여전히 그 파일을 찾는다. 에러 원문: \"error TS6305: Output file 'packages/core/dist/old-module.d.ts' has not been built from source file 'packages/core/src/old-module.ts'.\" 또는 삭제한 심볼이 자동완성에 계속 뜬다. 로컬에서만 재현되고 CI(클린 체크아웃)에서는 통과한다.",
+  "rootCause": "tsc -b 는 *.tsbuildinfo에 이전 빌드의 파일 목록과 해시를 남긴다. 소스가 사라져도 dist의 .d.ts와 tsbuildinfo 항목은 자동으로 정리되지 않아, 빌더가 '있어야 할 출력이 소스보다 새롭다'고 판단하며 꼬인다. 로컬에만 있는 상태이므로 CI 그린이 안전을 보장하지 않는다.",
+  "resolution": "tsc -b --clean 으로 참조 프로젝트 전체의 출력과 tsbuildinfo를 지운 뒤 다시 빌드했다. 남아 있던 잔재는 find . -name '*.tsbuildinfo' -not -path '*/node_modules/*' -delete 와 각 패키지 dist 삭제로 정리했다.",
+  "prevention": "파일 삭제·이동이 포함된 브랜치를 오갈 때는 typecheck 전에 --clean을 한 번 돌린다. dist와 *.tsbuildinfo는 .gitignore에 반드시 넣는다. '로컬에서만 나는 타입 에러'는 대부분 캐시이므로 코드를 의심하기 전에 캐시를 지운다."
+}

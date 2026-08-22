@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "NodeNext ESM에서 상대 import 확장자 누락으로 ERR_MODULE_NOT_FOUND",
+  "severity": "SEV3",
+  "tags": ["typescript", "esm", "nodenext", "node22", "tsx", "module-resolution"],
+  "symptom": "tsc는 통과하는데 런타임에서만 죽는다. 에러 원문: 'Error [ERR_MODULE_NOT_FOUND]: Cannot find module /app/packages/api/dist/records imported from /app/packages/api/dist/app.js' + 'Did you mean to import ./records.js?'. 재현 조건: package.json에 type: module, tsconfig에 module/moduleResolution: NodeNext, 소스에 import { x } from \"./records\" (확장자 없음).",
+  "rootCause": "Node의 ESM 로더는 CommonJS와 달리 확장자 추론을 하지 않는다. TypeScript는 NodeNext 모드에서 이를 에러로 잡아야 하지만, 해당 파일이 allowJs 경로거나 moduleResolution이 bundler로 섞여 있으면 잡지 않는다. 컴파일과 실행이 서로 다른 해석 규칙을 쓴 것이 근본 원인이다.",
+  "resolution": "모든 상대 import에 .js 확장자를 붙였다(소스가 .ts여도 .js로 쓴다 — 출력 기준이다). tsconfig.base.json에서 module/moduleResolution을 NodeNext로 통일하고 verbatimModuleSyntax를 켜 컴파일러가 이 규칙을 강제하게 했다. 일괄 수정은 ESLint의 import/extensions 규칙 + --fix로 처리했다.",
+  "prevention": "빌드 산출물을 실제로 node로 실행하는 스모크 스텝을 CI에 둔다. tsc 통과는 ESM 해석 성공을 보장하지 않는다. moduleResolution을 패키지마다 다르게 설정하지 않는다 — 한 곳(tsconfig.base.json)에서만 정한다."
+}

@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "fake 임베딩으로 채운 데이터에서 유사도 게이트가 모든 질의에 found:false를 반환",
+  "severity": "SEV1",
+  "tags": ["embedding", "fake-embedder", "cosine", "threshold", "retrieval", "seed", "test-fidelity"],
+  "symptom": "시드를 넣고 검색을 돌리면 어떤 질의에도 답이 안 나온다. 응답은 항상 {found:false, message:..., suggestRecord:true}. 청크는 정상적으로 생성돼 있고 개수도 맞는다. 재현: EMBEDDING_PROVIDER=fake 로 시드·인제스트한 뒤 SIMILARITY_THRESHOLD=0.62 로 검색한다.",
+  "rootCause": "fake embedder는 텍스트 해시를 시드로 한 의사난수 벡터를 L2 정규화해 돌려준다. 결정론과 노름 1은 만족하지만 의미를 담지 않으므로, 서로 다른 두 텍스트의 cosine 기댓값이 0 근처(고차원에서는 거의 항상 절댓값 0.1 미만)다. 임계값 0.62는 실제 임베딩의 분포를 전제로 산정한 값이라 fake 벡터로는 원리적으로 도달할 수 없다. 즉 게이트가 고장 난 것이 아니라 데이터가 게이트의 전제를 만족하지 못한 것이다.",
+  "resolution": "운영·eval용 시드는 실제 임베딩 provider로 적재하도록 시드 CLI가 provider를 검사하고, fake일 때는 '검색 품질 검증에는 쓸 수 없다'는 경고를 출력하도록 했다. 반대로 통합 테스트는 fake를 계속 쓴다 — 테스트가 검증하는 것은 청크 생성·멱등성·워터마크이지 유사도 값이 아니기 때문이다. 이 구분을 코드 주석과 .env.example에 명시했다.",
+  "prevention": "테스트 더블은 인터페이스를 만족한다고 해서 그 값의 통계적 성질까지 만족하지 않는다. 임계값 게이트처럼 값의 분포에 의존하는 로직은 더블로 검증할 수 없다는 사실을 명시적으로 적어 둔다. 검색 품질 측정(eval)과 파이프라인 동작 검증(integration)을 서로 다른 데이터 소스로 분리한다."
+}

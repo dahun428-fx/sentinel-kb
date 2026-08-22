@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "Atlas 접속이 MongoServerSelectionError ENOTFOUND — SRV 조회와 IP 허용 목록 두 원인이 겹침",
+  "severity": "SEV2",
+  "tags": ["mongodb", "atlas", "srv", "dns", "network-access", "connection"],
+  "symptom": "로컬에서는 붙는데 CI 러너와 EC2에서만 실패한다. 에러 원문 두 종류: 'MongoServerSelectionError: getaddrinfo ENOTFOUND _mongodb._tcp.cluster0.xxxxx.mongodb.net' 그리고 'MongoServerSelectionError: Server selection timed out after 5000 ms'. 재현: mongodb+srv:// URI로 접속하는 프로세스를 사내 DNS만 쓰는 네트워크에서 실행한다.",
+  "rootCause": "원인이 둘이었고 서로를 가렸다. (1) mongodb+srv 스킴은 SRV·TXT 레코드 조회를 요구하는데 일부 러너의 DNS 리졸버가 SRV를 반환하지 않아 ENOTFOUND가 났다. (2) SRV가 풀린 환경에서는 Atlas Network Access의 IP 허용 목록에 러너 egress IP가 없어 타임아웃이 났다. 첫 번째를 고치자 두 번째가 드러났다.",
+  "resolution": "SRV 문제는 mongodb:// 표준 스킴 + 노드 목록 + replicaSet 파라미터로 우회했다. IP 문제는 Atlas Network Access에 NAT 게이트웨이 고정 IP를 등록해 해결했다. 진단은 dig SRV _mongodb._tcp.<cluster-host> 와 nc -vz <node-host> 27017 두 명령으로 갈랐다.",
+  "prevention": "접속 실패는 DNS·네트워크·인증 세 층 중 어디인지부터 가른다. MONGODB_SERVER_SELECTION_TIMEOUT_MS를 5000처럼 짧게 두어 오설정이 30초씩 매달리지 않게 한다. CI에는 egress IP가 고정인 러너를 쓰거나 Atlas의 임시 허용 API를 파이프라인 스텝으로 넣는다."
+}

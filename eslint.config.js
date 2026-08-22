@@ -26,7 +26,11 @@ export default tseslint.config(
     settings: {
       "import/resolver": {
         typescript: {
-          project: ["packages/*/tsconfig.json", "tools/tsconfig.json"],
+          project: [
+            "packages/*/tsconfig.json",
+            "tools/tsconfig.json",
+            "scripts/tsconfig.json",
+          ],
           noWarnOnMultipleProjects: true,
         },
       },

@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "nginx가 SSE 응답을 버퍼링해 MCP 이벤트가 연결 종료 시점에 몰려 도착",
+  "severity": "SEV2",
+  "tags": ["nginx", "sse", "proxy-buffering", "mcp", "streaming", "reverse-proxy"],
+  "symptom": "MCP 클라이언트가 도구 호출 진행 이벤트를 실시간으로 못 받고, 응답이 끝나는 순간 수십 개가 한꺼번에 도착한다. 로컬(프록시 없음)에서는 정상. curl -N https://<host>/mcp/sse 로 확인하면 출력이 끊겼다가 몰려 나온다. 재현: nginx reverse proxy 뒤에 text/event-stream을 내보내는 엔드포인트를 둔다.",
+  "rootCause": "nginx는 업스트림 응답을 기본적으로 버퍼링한다(proxy_buffering on). SSE는 응답 본문이 끝나지 않는 스트림이므로, 버퍼가 차거나 연결이 닫힐 때까지 클라이언트로 아무것도 나가지 않는다. 추가로 proxy_read_timeout 기본 60초가 유휴 스트림을 끊고 있었다.",
+  "resolution": "SSE 경로에만 별도 location 블록을 만들어 proxy_buffering off; proxy_cache off; proxy_read_timeout 3600s; proxy_http_version 1.1; proxy_set_header Connection ''; 를 적용했다. 애플리케이션 쪽에서도 X-Accel-Buffering: no 헤더를 실어 프록시 설정이 누락된 환경에서도 버퍼링이 꺼지게 했다. nginx -t 로 문법 검사 후 nginx -s reload.",
+  "prevention": "스트리밍 엔드포인트는 일반 API와 같은 location 블록에 두지 않는다. 배포 후 검증은 브라우저가 아니라 curl -N 으로 한다 — 브라우저는 자체 버퍼링이 있어 증상을 가린다. 하트비트 주석(: ping)을 주기적으로 보내 유휴 타임아웃도 함께 방어한다."
+}

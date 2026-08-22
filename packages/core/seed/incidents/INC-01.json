@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "pnpm 10이 postinstall을 차단해 esbuild 네이티브 바이너리가 설치되지 않음",
+  "severity": "SEV2",
+  "tags": ["pnpm", "pnpm-10", "esbuild", "postinstall", "monorepo", "node"],
+  "symptom": "pnpm install 후 vitest 실행이 즉시 죽는다. 에러 원문: 'Error: The package \"@esbuild/darwin-arm64\" could not be found, and is needed by esbuild.' 또는 'You installed esbuild for another platform than the one you're currently using.' 재현 조건: pnpm 10.x + 새 lockfile + node_modules 삭제 후 첫 설치. pnpm 9에서는 재현되지 않는다.",
+  "rootCause": "pnpm 10부터 의존성의 postinstall/install 스크립트가 기본 차단된다(공급망 공격 완화). esbuild는 postinstall에서 플랫폼별 바이너리를 배치하므로, 스크립트가 실행되지 않으면 패키지는 설치돼 있지만 실행 파일이 없다. 설치 로그에는 'Ignored build scripts' 경고 한 줄만 남아 눈에 띄지 않는다.",
+  "resolution": "pnpm-workspace.yaml에 onlyBuiltDependencies 목록을 만들어 필요한 패키지만 명시 승인했다. onlyBuiltDependencies: [esbuild, unrs-resolver]. 이후 pnpm install --force로 재설치하니 바이너리가 배치됐다. pnpm approve-builds 로 대화형 승인도 가능하다.",
+  "prevention": "pnpm 메이저 업그레이드 시 install 로그의 'Ignored build scripts' 경고를 CI에서 grep해 실패시킨다. 승인 목록은 화이트리스트로 유지하고, 새 항목을 추가할 때 그 패키지가 왜 빌드 스크립트를 필요로 하는지 주석으로 남긴다."
+}

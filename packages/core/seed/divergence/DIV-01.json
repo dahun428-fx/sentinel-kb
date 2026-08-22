@@ -1,0 +1,14 @@
+{
+  "type": "divergence",
+  "title": "스펙은 incident 본문 섹션을 전부 선택으로 적었는데 계약 구현이 symptom·resolution을 필수로 만듦",
+  "severity": "SEV2",
+  "tags": ["zod", "contracts", "spec-drift", "optionality", "product-decision", "t-002", "repo-finding"],
+  "expected": "specs/02-data-model.md의 records 정의는 symptom·rootCause·resolution·prevention을 전부 물음표(선택)로 적었다. 아직 해결하지 못한 진행 중 장애도 기록 대상이라는 뜻으로 읽힌다 — 기록의 가치는 해결 여부가 아니라 검색 가능성에 있기 때문이다.",
+  "actual": "contracts 구현(IncidentInput)은 symptom을 min(10) 필수, resolution을 min(10) 필수로 만들었다. 결과적으로 '지금 겪고 있는데 아직 원인을 모르는 장애'는 API로 기록할 수 없다. 계약이 제품 판단을 대신 내려 버린 것이고, 스펙 문서와 코드가 어느 쪽이 옳은지 명시되지 않은 채 두 개의 진실이 됐다. 저장 스키마(IncidentRecord)는 rootCause·prevention만 선택이라 입력과 저장의 선택성 경계도 서로 다르다.",
+  "context": {
+    "model": "claude",
+    "tool": "implementer 에이전트 (task-loop T-002)",
+    "framework": "typescript / zod v4, packages/contracts/src/record.ts"
+  },
+  "correction": "코드를 조용히 스펙에 맞추지 않았다 — 어느 쪽이 옳은지가 제품 판단이기 때문이다. 대신 스펙 파일 안에 이격을 경고 주석으로 박아 두 문서가 서로를 가리키게 했다(specs/02의 'F-1 미결' 블록). 그리고 태스크 프로토콜을 고쳤다: 스펙의 선택/필수 표기와 다르게 구현할 때는 구현을 바꾸는 것이 아니라 스펙 변경 승인을 요청하고, 승인 전까지는 미결 표시를 남긴다. 재발 방지: 스펙에서 필드의 물음표는 장식이 아니라 계약이다. 스키마를 생성할 때 스펙 표기와 Zod optional 여부를 대조하는 검사를 두면 이 축의 이격은 기계가 잡는다. 더 근본적으로는 '해결되지 않은 인시던트를 기록 대상으로 볼 것인가'를 제품 스펙이 한 문장으로 답해야 하고, 그 문장이 없으면 구현자가 매번 다르게 추측한다."
+}
