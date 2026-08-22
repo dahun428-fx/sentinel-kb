@@ -6,6 +6,7 @@
  * 모든 요청을 401로 돌려주는 서버는 원인을 어디에도 남기지 않는다.
  */
 import {
+  createChatModel,
   createEmbedder,
   createRetriever,
   parseApiKeys,
@@ -50,30 +51,32 @@ export async function start(): Promise<void> {
   const retriever = createRetriever({ db, embedder: createEmbedder() });
 
   /*
-   * **`chatModel`을 아직 넘기지 못한다 — 그래서 `/v1/answer`는 프로덕션에서 뜨지 않는다.**
+   * **`/v1/answer`가 프로덕션에서 뜬다 — T-019 F-8이 남긴 간극을 여기서 닫는다.**
    *
-   * `packages/core/src/llm/`에는 `ChatModel` 인터페이스와 fake만 있고 실 provider가 없다
-   * (T-018 D-2). T-019가 그걸 채우지 않은 이유는 셋이다:
-   *  (1) 실 provider는 `packages/core/src/llm/`에 있어야 하는데(CLAUDE.md: LLM 호출은 그
-   *      디렉터리 경유만 허용) 그건 T-019의 Context budget(`packages/api/**`·`packages/mcp/**`)
-   *      **밖**이다. budget 밖 파일을 고치는 것은 태스크 루프의 중단 사유다.
-   *  (2) `@anthropic-ai/sdk`는 새 의존성이고 lockfile 변경은 인간 승인 사항이다(T-018 F-1).
-   *  (3) T-019 Acceptance 어디에도 실제 모델 호출이 필요하지 않다 — specs/05가 unit·integration은
-   *      fixture 목, 실 호출은 eval 계층으로 갈라 두었다.
+   * T-019는 실 provider가 없어 이 값을 만들지 못했고, 임의의 스텁을 넘겨 라우트를 띄우지
+   * 않기로 했다. 그 판단은 옳았다: "모델이 없다"가 `found:false`("유사 사례 없음")로 둔갑하면
+   * 거짓말이고, 그건 NFR-02가 막으려는 것이다. 그 대가로 **드리프트 가드는 초록인데
+   * 프로덕션엔 라우트가 없는** 상태가 남았다(T-019 F-8). T-039가 provider를 붙여 그것을 닫았다.
    *
-   * 여기서 임의의 스텁을 넘겨 라우트를 띄우지 **않는다**. 그러면 근거가 있는데도 지어낸 답이
-   * 나가거나, "모델이 없다"가 `found:false`("유사 사례 없음")로 둔갑한다 — 둘 다 NFR-02가
-   * 막으려는 것이고 후자는 거짓말이다. 라우트가 없으면 404가 나가고 원인이 분명하다.
+   * **설정이 없으면 부팅이 죽는다** — 위 `createEmbedder()`와 같은 규약이고, 그렇게 정한
+   * 근거는 셋이다(T-039 D-4):
+   *  (1) 같은 파일에 이미 선례가 있다. 오설정이 라우트 404가 아니라 부팅 실패로 드러나는 것이
+   *      T-006 인계 패턴이고 MCP stdio CLI도 같다(T-014).
+   *  (2) 명시적 503을 택하면 요청이 인증·검증·**검색**을 다 지나 생성 직전에 죽는다.
+   *      임베딩 호출과 Atlas 왕복이 이미 나간 뒤다 — 오설정 1건이 요청마다 돈을 쓴다.
+   *  (3) 부팅 거부는 `compose up -d`가 즉시 실패해 롤백이 자동이다(specs/06). 503은
+   *      헬스체크가 초록인 채로 뜨고 `/v1/answer`만 죽는다 — F-8의 재현이다.
    *
-   * provider가 붙는 태스크가 할 일: `createChatModel()`을 core에 만들고(모델 ID는 env에서 —
-   * `embeddingVersion`과 같은 규약으로 **하드코딩 금지**) 아래 `createApp`에 `chatModel`을
-   * 한 줄 더하면 된다. 그때 `retriever`처럼 **설정이 없으면 부팅이 죽는** 쪽으로 둘 것.
+   * `createApp`의 `chatModel?`이 여전히 **선택** 의존인 것은 모순이 아니다. 시드 스크립트와
+   * records 통합 테스트처럼 모델 없이 앱을 만드는 정당한 소비자가 있기 때문이고(`app.ts`의
+   * `retriever` 주석과 같은 근거), 운영에서 조용히 빠질 위험은 **이 줄**이 닫는다.
    */
   const app = createApp({
     db,
     apiKeys,
     sanitizeOptions,
     retriever,
+    chatModel: createChatModel(),
     embeddingVersion: readEmbeddingVersion(process.env),
     version: VERSION,
     logger: true,
