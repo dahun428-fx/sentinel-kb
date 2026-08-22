@@ -22,6 +22,7 @@
     "eval:retrieval:check": "tsx eval/retrieval/check-baseline.cli.ts",
     "eval:tools": "tsx eval/tools/run.cli.ts",
     "eval:tools:check": "tsx eval/tools/check-baseline.cli.ts",
+    "eval:injection": "tsx eval/injection/run.cli.ts",
     "mcp:ping": "tsx scripts/mcp-ping.cli.ts",
     "format": "prettier --write ."
   },
