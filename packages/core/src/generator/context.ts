@@ -14,7 +14,7 @@
  */
 import type { SanitizeFlag } from "@sentinel/contracts";
 
-import type { RetrievedChunk } from "../retriever/types.js";
+import type { RelationProvenance, RetrievedChunk } from "../retriever/types.js";
 
 /**
  * 컨텍스트에서 청크를 빼는 플래그. specs/03 §2가 지목한 그 하나다.
@@ -34,6 +34,12 @@ export interface ContextChunk {
   readonly text: string;
   /** `[REC-{recordId}#{section}]` — specs/03 §4 조항 2의 형식. */
   readonly citation: string;
+  /**
+   * 이 청크가 관계 확장(specs/03 §2.5)으로 들어왔으면 그 출처, 아니면 `null`.
+   * 렌더링에서 `via=` 속성으로 나가며, **인용 문자열 자체는 건드리지 않는다** —
+   * 이유는 `relationAttribute` 주석 참조.
+   */
+  readonly relation: RelationProvenance | null;
 }
 
 /** 컨텍스트에서 빠진 청크 1건과 그 사유. */
@@ -79,6 +85,7 @@ export function buildGenerationContext(hits: readonly RetrievedChunk[]): Generat
       title: hit.title,
       text: hit.text,
       citation: citationFor(hit.recordId, hit.section),
+      relation: hit.relation,
     });
   }
 
@@ -100,12 +107,46 @@ export function renderContext(context: GenerationContext): string {
 
   const blocks = context.chunks.map(
     (chunk) =>
-      `<chunk citation="${chunk.citation}" title="${escapeAttribute(chunk.title)}">\n` +
+      `<chunk citation="${chunk.citation}"${relationAttribute(chunk.relation)}` +
+      ` title="${escapeAttribute(chunk.title)}">\n` +
       `${escapeChunkBody(chunk.text)}\n` +
       "</chunk>",
   );
 
   return `<retrieved-chunks>\n${blocks.join("\n")}\n</retrieved-chunks>`;
+}
+
+/**
+ * specs/03 §2.5의 "**출처 관계를 인용에 표기**"가 이행되는 지점.
+ *
+ * ## 왜 인용 **문자열**을 바꾸지 않는가 (T-020과의 상호작용)
+ *
+ * `[REC-{id}#{section}]`을 `[REC-{id}#{section} via recurrence_of REC-{from}]`처럼 늘리는 것이
+ * 문면에는 더 가까워 보이지만, 그렇게 하면 **세 곳이 동시에 깨진다**:
+ *
+ *  1. `prompts/answer.md` 조항 2와 specs/03 §4가 정한 인용 형식이 청크마다 달라진다.
+ *     모델은 그 문자열을 **그대로 복사**해야 하는데, 길고 불규칙한 것을 정확히 복사할 확률이
+ *     떨어진다. 틀리게 복사하면 T-020이 `unknown` 위반으로 잡아 그 문장을 제거한다 —
+ *     즉 관계 표기를 인용에 넣을수록 관계로 들어온 근거가 답변에서 사라진다.
+ *  2. `[REC-...]` 하나가 곧 recordId·section 두 값이라는 규약이 깨져, 소비자(T-019의
+ *     `Citation` 투영)가 문자열을 다시 파싱해야 한다.
+ *  3. 인용은 `SearchHit`/`Citation` 계약이 닿는 자리라 형식 변경이 G3 대상이 된다.
+ *
+ * 그래서 **인용 ID는 canonical 그대로 두고**(→ T-020의 `allowed` 집합에 그대로 들어가
+ * 확장 청크의 인용도 "컨텍스트 실재 ID"로 인정된다), 출처 관계는 모델이 그 인용을 읽는
+ * **바로 그 자리**인 청크 블록의 속성으로 붙인다. 표기는 있고 복사 부담은 없다.
+ *
+ * 값 공간이 서버 스키마로 닫혀 있는 것만 싣는다 — `RelationType` 열거형과 24자 hex id다.
+ * `Relation.note`(작성자가 쓴 자유 텍스트)는 싣지 않는다. 속성은 프레이밍 밖이고,
+ * 거기에 외부 산문을 놓으면 NFR-05가 새는 구멍이 된다(`mcp/tools/get-record.ts`와 같은 판단).
+ *
+ * ⚠️ 값에 대괄호를 쓰지 않는다. `[REC-...]` 모양이면 `citation.ts`의 `CITATION_RE`가 인용으로
+ * 잡는데, 이 문자열은 `allowed`에 없으므로 모델이 베껴 쓰는 순간 `unknown` 위반이 되어
+ * **그 문장이 통째로 제거된다.** 출처 표기가 답변을 지우는 장치가 되면 안 된다.
+ */
+function relationAttribute(relation: RelationProvenance | null): string {
+  if (relation === null) return "";
+  return ` via="${relation.type} REC-${relation.fromRecordId}"`;
 }
 
 /** 질의를 붙인 최종 사용자 메시지. */

@@ -160,6 +160,7 @@ export function buildTaintedHits(
         textScore: null,
         vectorRank: index,
         textRank: null,
+        relation: null,
       });
     });
   }

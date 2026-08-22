@@ -55,6 +55,8 @@ const CONFIG_STUB: RetrievalConfig = {
   numCandidates: 200,
   candidateOverfetch: 4,
   maxChunksPerRecord: 2,
+  // T-035: 관계 확장은 기본 off다. 이 스텁이 재는 것은 확장 없는 기존 경로다.
+  relationExpansion: false,
 };
 
 /* --------------------------------------------------------------------------
@@ -85,6 +87,7 @@ const CHUNKS: RetrievedChunk[] = [
     textScore: 4.2,
     vectorRank: 1,
     textRank: 1,
+    relation: null,
   },
   {
     chunkId: "dddddddddddddddddddddddd",
@@ -102,6 +105,7 @@ const CHUNKS: RetrievedChunk[] = [
     textScore: 2.1,
     vectorRank: null,
     textRank: 2,
+    relation: null,
   },
 ];
 

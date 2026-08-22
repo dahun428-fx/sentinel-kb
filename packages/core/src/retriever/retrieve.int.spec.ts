@@ -255,6 +255,7 @@ const CONFIG: RetrievalConfig = {
   numCandidates: 64,
   candidateOverfetch: 4,
   maxChunksPerRecord: 2,
+  relationExpansion: false,
 };
 
 let handle: AtlasLocalHandle | undefined;

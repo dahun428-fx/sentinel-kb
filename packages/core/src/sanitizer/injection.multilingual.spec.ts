@@ -166,6 +166,7 @@ describe("A5 컨테이너 앵커는 에미터에서 기계적으로 대조된다
       textScore: null,
       vectorRank: null,
       textRank: null,
+      relation: null,
     };
     const rendered = renderContext(buildGenerationContext([hit]));
     return [...rendered.matchAll(/<\/([a-z-]+)>/gi)].map((match) => match[1] ?? "");

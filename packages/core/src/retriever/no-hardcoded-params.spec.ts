@@ -65,6 +65,9 @@ describe("retriever 파라미터 하드코딩 금지 (Acceptance 4)", () => {
     // 파일을 못 찾아 빈 배열을 순회하면 아래 단언들이 전부 공허하게 통과한다.
     expect(readPipelineSources().map((s) => s.file)).toEqual([
       "index.ts",
+      // T-035: 관계 확장 코드도 같은 가드 아래 둔다. 목록에 넣지 않으면
+      // `$graphLookup` 쪽에 튜닝 값이 박혀도 이 테스트가 보지 못한다.
+      "relation-expansion.ts",
       "retrieve.ts",
       "rrf.ts",
       "types.ts",

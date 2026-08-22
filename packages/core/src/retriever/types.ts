@@ -17,7 +17,7 @@
  *
  * `section`·`type`은 contracts의 열거형을 **재정의하지 않고 그대로 재사용**한다.
  */
-import type { ChunkSection, RecordType, SanitizeFlag } from "@sentinel/contracts";
+import type { ChunkSection, RecordType, RelationType, SanitizeFlag } from "@sentinel/contracts";
 
 /**
  * 이 모듈이 실제로 쓰는 드라이버 표면만 추린 구조적 타입.
@@ -78,6 +78,21 @@ export interface PathCandidate {
   readonly score: number;
 }
 
+/**
+ * 이 청크가 **관계 확장(specs/03 §2.5)으로 들어왔다**는 출처 표시.
+ *
+ * 검색 두 경로(vector/text) 중 어느 쪽도 이 청크를 뽑지 않았다는 뜻이다 —
+ * 융합 상위 진입점 레코드가 `recurrence_of`/`same_root_cause`로 가리켜서 딸려 왔다.
+ * `null`이면 평범한 검색 hit이다. **이 필드가 있어야 "관계를 타고 온 근거"와
+ * "질의가 직접 찾은 근거"를 인용에서 구별할 수 있다**(§2.5 "출처 관계를 인용에 표기").
+ */
+export interface RelationProvenance {
+  /** 실제로는 `recurrence_of`·`same_root_cause` 둘 중 하나다(specs/03 §2.5가 정한 확장 대상). */
+  readonly type: RelationType;
+  /** 이 관계를 선언한 **진입점 레코드**의 id. 확장의 출발점이지 대상이 아니다. */
+  readonly fromRecordId: string;
+}
+
 /** 최종 결과 1건. 청크 수준이며 record 메타(title/summary)가 붙어 있다. */
 export interface RetrievedChunk {
   readonly chunkId: string;
@@ -103,6 +118,16 @@ export interface RetrievedChunk {
   readonly textScore: number | null;
   readonly vectorRank: number | null;
   readonly textRank: number | null;
+  /**
+   * 관계 확장으로 들어온 청크면 그 출처, 아니면 `null`.
+   * **플래그가 off면 언제나 `null`이다** — 기존 동작과 완전히 같다(Acceptance 2).
+   *
+   * 확장 청크는 융합에 참여하지 않았으므로 `fusedScore`가 `0`이고
+   * `vectorScore`·`textScore`·`vectorRank`·`textRank`가 전부 `null`이다.
+   * 그 `0`은 "관련도가 0"이 아니라 **"RRF 순위가 없다"**는 뜻이다 —
+   * `SearchHit.score`가 애초에 순위 결정 전용이라(specs/03:62) 절대 해석 대상이 아니다.
+   */
+  readonly relation: RelationProvenance | null;
 }
 
 /**

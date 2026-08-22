@@ -27,6 +27,7 @@ export function makeChunk(overrides: Partial<RetrievedChunk> = {}): RetrievedChu
     textScore: null,
     vectorRank: 0,
     textRank: null,
+    relation: null,
     ...overrides,
   };
 }

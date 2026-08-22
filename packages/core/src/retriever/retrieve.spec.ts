@@ -33,6 +33,7 @@ const CONFIG: RetrievalConfig = {
   numCandidates: 50,
   candidateOverfetch: 3,
   maxChunksPerRecord: 2,
+  relationExpansion: false,
 };
 
 const QUERY_VECTOR = [0.1, 0.2, 0.3, 0.4];
@@ -90,6 +91,13 @@ interface FakeDbOptions {
   readonly vector?: readonly Record<string, unknown>[];
   readonly text?: readonly Record<string, unknown>[];
   readonly records?: readonly Record<string, unknown>[];
+  /**
+   * T-035: `$graphLookup` 파이프라인이 돌려줄 도큐먼트. 관계 확장(specs/03 §2.5) 전용이며,
+   * 플래그가 off면 그 파이프라인이 **아예 발행되지 않으므로** 이 값도 쓰이지 않는다.
+   */
+  readonly relationLookup?: readonly Record<string, unknown>[];
+  /** 확장 대상의 resolution/prevention 청크. */
+  readonly relationChunks?: readonly Record<string, unknown>[];
 }
 
 interface FakeDb {
@@ -108,12 +116,32 @@ function makeDb(options: FakeDbOptions): FakeDb {
           return {
             toArray: () => {
               if (name === "records") {
+                // 관계 확장의 $graphLookup은 records를 읽지만 메타 조회와 형상이 다르다.
+                if (pipeline.some((stage) => "$graphLookup" in stage)) {
+                  const wanted = matchedIds(pipeline);
+                  return Promise.resolve(
+                    (options.relationLookup ?? []).filter((doc) => wanted.includes(doc["_id"])),
+                  );
+                }
                 const wanted = matchedIds(pipeline);
                 return Promise.resolve(
                   (options.records ?? []).filter((doc) => wanted.includes(doc["_id"])),
                 );
               }
               const isVector = pipeline[0] !== undefined && "$vectorSearch" in pipeline[0];
+              // 확장 청크 조회는 $search도 $vectorSearch도 없는 순수 $match다.
+              const isRelationChunks =
+                pipeline[0] !== undefined &&
+                "$match" in pipeline[0] &&
+                "recordId" in (asRecord(pipeline[0]["$match"]) ?? {});
+              if (isRelationChunks) {
+                const match = asRecord(pipeline[0]?.["$match"]) ?? {};
+                const wanted = asRecord(match["recordId"])?.["$in"];
+                const ids = Array.isArray(wanted) ? wanted : [];
+                return Promise.resolve(
+                  (options.relationChunks ?? []).filter((doc) => ids.includes(doc["recordId"])),
+                );
+              }
               return Promise.resolve([...((isVector ? options.vector : options.text) ?? [])]);
             },
           };
@@ -663,5 +691,195 @@ describe("config 주입", () => {
 
     expect(retriever.config.finalK).toBe(2);
     expect(retriever.config.rrfK).toBe(5);
+  });
+});
+
+/* --------------------------------------------------------------------------
+ * T-035 관계 확장 (specs/03 §2.5, ADR-07 단계 0)
+ * ----------------------------------------------------------------------- */
+
+const ENTRY = "r1";
+const TARGET = "r9";
+
+const EXPANSION_CONFIG: RetrievalConfig = { ...CONFIG, relationExpansion: true };
+
+function lookupDoc(
+  id: string,
+  relations: readonly { type: string; targetRecordId: string }[],
+  found: readonly string[],
+): Record<string, unknown> {
+  return {
+    _id: id,
+    relations: relations.map((relation) => ({ ...relation })),
+    relationTargets: found.map((targetId) => ({ _id: targetId })),
+  };
+}
+
+/** 확장 청크 도큐먼트. 파이프라인이 `score: {$literal: 0}`을 투영하므로 score는 0이다. */
+function expandedChunkDoc(
+  id: string,
+  recordId: string,
+  section: "resolution" | "prevention",
+  options: ChunkDocOptions = {},
+): Record<string, unknown> {
+  return { ...chunkDoc(id, recordId, 0, { ...options, section }) };
+}
+
+const retrieverWith = (fake: FakeDb, config: RetrievalConfig): ReturnType<typeof createRetriever> =>
+  createRetriever({ db: fake.db, embedder, config });
+
+describe("관계 확장 — 플래그 off (Acceptance 2)", () => {
+  const base: FakeDbOptions = {
+    vector: [chunkDoc("c1", ENTRY, 0.95)],
+    records: [recordDoc(ENTRY), recordDoc(TARGET)],
+    relationLookup: [lookupDoc(ENTRY, [{ type: "recurrence_of", targetRecordId: TARGET }], [TARGET])],
+    relationChunks: [expandedChunkDoc("c9", TARGET, "resolution")],
+  };
+
+  it("$graphLookup을 **아예 발행하지 않는다** — 쿼리 1건도 더 나가지 않는다", async () => {
+    const fake = makeDb(base);
+    await retrieverWith(fake, CONFIG).retrieve({ query: "질의" });
+
+    expect(fake.calls.some((call) => call.pipeline.some((s) => "$graphLookup" in s))).toBe(false);
+  });
+
+  it("결과가 확장 전과 완전히 같다", async () => {
+    const off = makeDb(base);
+    const result = await retrieverWith(off, CONFIG).retrieve({ query: "질의" });
+
+    expect(result.hits.map((h) => h.chunkId)).toEqual(["c1"]);
+    // 확장 필드는 언제나 null이다 — 기존 소비자가 보는 모양이 바뀌지 않는다.
+    expect(result.hits.every((h) => h.relation === null)).toBe(true);
+  });
+});
+
+describe("관계 확장 — 플래그 on (Acceptance 1)", () => {
+  it("recurrence_of 대상의 resolution 청크가 결과에 포함되고 출처 관계가 붙는다", async () => {
+    const fake = makeDb({
+      vector: [chunkDoc("c1", ENTRY, 0.95)],
+      records: [recordDoc(ENTRY), recordDoc(TARGET)],
+      relationLookup: [
+        lookupDoc(ENTRY, [{ type: "recurrence_of", targetRecordId: TARGET }], [TARGET]),
+      ],
+      relationChunks: [expandedChunkDoc("c9", TARGET, "resolution")],
+    });
+
+    const result = await retrieverWith(fake, EXPANSION_CONFIG).retrieve({ query: "질의" });
+
+    expect(result.hits.map((h) => h.chunkId)).toEqual(["c1", "c9"]);
+    const expanded = result.hits[1];
+    expect(expanded?.relation).toEqual({ type: "recurrence_of", fromRecordId: ENTRY });
+    expect(expanded?.section).toBe("resolution");
+    // 융합에 참여하지 않았다는 사실이 값에 드러나야 한다.
+    expect(expanded?.fusedScore).toBe(0);
+    expect(expanded?.vectorScore).toBeNull();
+    expect(expanded?.textScore).toBeNull();
+    expect(expanded?.vectorRank).toBeNull();
+    expect(expanded?.textRank).toBeNull();
+  });
+
+  /**
+   * 게이트(T-018)는 `maxVectorScore`로 판정한다. 확장 청크에는 cosine이 없으므로
+   * 그 값을 움직여선 안 된다 — 움직이면 "관계를 타고 온 청크 때문에 게이트가 열렸다"가 된다.
+   */
+  it("maxVectorScore를 움직이지 않는다 — 게이트 판정은 벡터 경로만 본다", async () => {
+    const base: FakeDbOptions = {
+      vector: [chunkDoc("c1", ENTRY, 0.95)],
+      records: [recordDoc(ENTRY), recordDoc(TARGET)],
+      relationLookup: [
+        lookupDoc(ENTRY, [{ type: "recurrence_of", targetRecordId: TARGET }], [TARGET]),
+      ],
+      relationChunks: [expandedChunkDoc("c9", TARGET, "resolution")],
+    };
+
+    const off = await retrieverWith(makeDb(base), CONFIG).retrieve({ query: "질의" });
+    const on = await retrieverWith(makeDb(base), EXPANSION_CONFIG).retrieve({ query: "질의" });
+
+    expect(on.maxVectorScore).toBe(off.maxVectorScore);
+    expect(on.vectorCandidateCount).toBe(off.vectorCandidateCount);
+    expect(on.textCandidateCount).toBe(off.textCandidateCount);
+  });
+
+  it("확장 대상이 없으면 청크 조회를 하지 않는다", async () => {
+    const fake = makeDb({
+      vector: [chunkDoc("c1", ENTRY, 0.95)],
+      records: [recordDoc(ENTRY)],
+      relationLookup: [lookupDoc(ENTRY, [{ type: "related", targetRecordId: TARGET }], [TARGET])],
+      relationChunks: [expandedChunkDoc("c9", TARGET, "resolution")],
+    });
+
+    const result = await retrieverWith(fake, EXPANSION_CONFIG).retrieve({ query: "질의" });
+    expect(result.hits.map((h) => h.chunkId)).toEqual(["c1"]);
+  });
+
+  it("최대 3청크까지만 붙인다 (뮤테이션: 상한 무시)", async () => {
+    const fake = makeDb({
+      vector: [chunkDoc("c1", ENTRY, 0.95)],
+      records: [recordDoc(ENTRY), recordDoc(TARGET)],
+      relationLookup: [
+        lookupDoc(ENTRY, [{ type: "recurrence_of", targetRecordId: TARGET }], [TARGET]),
+      ],
+      relationChunks: [
+        expandedChunkDoc("e1", TARGET, "resolution", { seq: 0 }),
+        expandedChunkDoc("e2", TARGET, "resolution", { seq: 1 }),
+        expandedChunkDoc("e3", TARGET, "resolution", { seq: 2 }),
+        expandedChunkDoc("e4", TARGET, "resolution", { seq: 3 }),
+        expandedChunkDoc("e5", TARGET, "prevention", { seq: 0 }),
+      ],
+    });
+
+    const result = await retrieverWith(fake, EXPANSION_CONFIG).retrieve({ query: "질의" });
+    expect(result.hits.filter((h) => h.relation !== null)).toHaveLength(3);
+  });
+
+  /**
+   * **관계를 타고 오염이 들어오는 경로가 생기면 안 된다** (T-018/T-021, NFR-05).
+   * retriever는 specs/03 §2대로 플래그를 **실어 보내고 빼지 않는다**(목록에는 경고와 함께
+   * 노출). 실제 제외는 `generator/context.ts`가 하며 그 상호작용은
+   * `generator/context.spec.ts`가 잠근다 — 여기서는 플래그가 소실되지 않음만 확인한다.
+   */
+  it("확장 청크의 sanitizeFlags를 그대로 실어 보낸다 (T-018이 제외할 수 있게)", async () => {
+    const fake = makeDb({
+      vector: [chunkDoc("c1", ENTRY, 0.95)],
+      records: [recordDoc(ENTRY), recordDoc(TARGET)],
+      relationLookup: [
+        lookupDoc(ENTRY, [{ type: "same_root_cause", targetRecordId: TARGET }], [TARGET]),
+      ],
+      relationChunks: [
+        expandedChunkDoc("c9", TARGET, "resolution", { flags: ["injection-suspect"] }),
+      ],
+    });
+
+    const result = await retrieverWith(fake, EXPANSION_CONFIG).retrieve({ query: "질의" });
+    const expanded = result.hits.find((h) => h.relation !== null);
+    expect(expanded?.flags).toEqual(["injection-suspect"]);
+  });
+
+  it("삭제된 대상을 가리키는 관계는 결과를 바꾸지 않는다", async () => {
+    const fake = makeDb({
+      vector: [chunkDoc("c1", ENTRY, 0.95)],
+      records: [recordDoc(ENTRY)],
+      // $graphLookup이 대상을 찾지 못했다 = 그 레코드가 지워졌다.
+      relationLookup: [lookupDoc(ENTRY, [{ type: "recurrence_of", targetRecordId: TARGET }], [])],
+      relationChunks: [expandedChunkDoc("c9", TARGET, "resolution")],
+    });
+
+    const result = await retrieverWith(fake, EXPANSION_CONFIG).retrieve({ query: "질의" });
+    expect(result.hits.map((h) => h.chunkId)).toEqual(["c1"]);
+  });
+
+  it("이미 검색이 찾은 청크를 확장으로 중복해서 싣지 않는다", async () => {
+    const fake = makeDb({
+      vector: [chunkDoc("c1", ENTRY, 0.95), chunkDoc("c9", TARGET, 0.9, { section: "resolution" })],
+      records: [recordDoc(ENTRY), recordDoc(TARGET)],
+      relationLookup: [
+        lookupDoc(ENTRY, [{ type: "recurrence_of", targetRecordId: TARGET }], [TARGET]),
+      ],
+      relationChunks: [expandedChunkDoc("c9", TARGET, "resolution")],
+    });
+
+    const result = await retrieverWith(fake, EXPANSION_CONFIG).retrieve({ query: "질의" });
+    expect(result.hits.filter((h) => h.chunkId === "c9")).toHaveLength(1);
+    expect(result.hits.every((h) => h.relation === null)).toBe(true);
   });
 });

@@ -7,6 +7,14 @@
 import { ChunkSection, RecordType, SanitizeFlag } from "@sentinel/contracts";
 
 import { readRetrievalConfig, type RetrievalConfig } from "./config.js";
+import {
+  buildRelationChunkPipeline,
+  buildRelationLookupPipeline,
+  MAX_RELATION_CHUNKS,
+  parseRelationTargets,
+  selectExpansionChunks,
+  type ExpansionPick,
+} from "./relation-expansion.js";
 import { capByRecordId, dedupeByRecordId, fuseRrf } from "./rrf.js";
 import type {
   PathCandidate,
@@ -125,7 +133,21 @@ export function createRetriever(options: CreateRetrieverOptions): Retriever {
 
       const textScoreByChunk = new Map(textRaw.map((c) => [c.chunkId, c.score]));
       const vectorScoreByChunk = new Map(vectorRaw.map((c) => [c.chunkId, c.score]));
-      const records = await loadRecordMeta(db, top.map((entry) => entry.candidate));
+
+      /*
+       * 관계 확장 (specs/03 §2.5). **`maxVectorScore`가 이미 확정된 뒤**에 일어난다 —
+       * 확장 청크에는 cosine이 없으므로 게이트(T-018)의 판정 대상이 될 수 없고,
+       * 여기서 순서를 뒤집으면 "관계를 타고 온 청크 때문에 게이트가 열렸다"는 상태가 생긴다.
+       * 플래그가 off면 쿼리 자체가 나가지 않는다(Acceptance 2).
+       */
+      const expansion = config.relationExpansion
+        ? await expandByRelations(db, top.map((entry) => entry.candidate), embedder.version)
+        : [];
+
+      const records = await loadRecordMeta(db, [
+        ...top.map((entry) => entry.candidate),
+        ...expansion.map((pick) => pick.candidate),
+      ]);
 
       const hits: RetrievedChunk[] = [];
       for (const entry of top) {
@@ -148,6 +170,38 @@ export function createRetriever(options: CreateRetrieverOptions): Retriever {
           textScore: textScoreByChunk.get(entry.candidate.chunkId) ?? null,
           vectorRank: entry.vectorRank,
           textRank: entry.textRank,
+          relation: null,
+        });
+      }
+
+      /*
+       * 확장 청크는 **검색 hit 뒤에** 붙는다. 질의가 직접 찾은 근거가 먼저이고 관계로
+       * 딸려 온 근거가 나중이다 — 순서를 섞으면 RRF 순위가 의미를 잃는다.
+       * `injection-suspect`는 여기서 걸러내지 **않는다**: specs/03 §2가 "생성 컨텍스트에서
+       * 제외(목록에는 경고와 함께 노출)"로 소비자를 갈라 놨고, 제외는 전적으로
+       * `generator/context.ts`의 의무다(그 파일 주석 참조). 확장 청크만 여기서 미리 빼면
+       * 제외 지점이 두 곳이 되어 갈라지고, 목록에서 경고와 함께 보여야 할 것이 사라진다.
+       */
+      for (const pick of expansion) {
+        const meta = records.get(pick.candidate.recordId);
+        if (meta === undefined) continue;
+        hits.push({
+          chunkId: pick.candidate.chunkId,
+          recordId: pick.candidate.recordId,
+          section: pick.candidate.section,
+          seq: pick.candidate.seq,
+          text: pick.candidate.text,
+          title: meta.title,
+          summary: meta.summary,
+          type: pick.candidate.type,
+          project: pick.candidate.project,
+          flags: pick.candidate.flags,
+          fusedScore: 0,
+          vectorScore: null,
+          textScore: null,
+          vectorRank: null,
+          textRank: null,
+          relation: pick.relation,
         });
       }
 
@@ -296,7 +350,66 @@ async function loadRecordMeta(
   );
 }
 
-function parseCandidate(doc: Record<string, unknown>, path: "vector" | "text"): PathCandidate {
+/**
+ * 관계 확장을 실행한다 (specs/03 §2.5). **쿼리 2건**이다:
+ *  1. `records`에서 `$graphLookup`으로 진입점의 1홉 대상을 찾고,
+ *  2. `chunks`에서 그 대상들의 `resolution`/`prevention` 청크를 긁는다.
+ *
+ * 대상이 0건이면 2번을 **부르지 않는다** — `$in: []`은 항상 0건이라 낼 이유가 없는 왕복이다.
+ * 선택 규칙(상한·중복·순서)은 전부 `relation-expansion.ts`의 순수 함수가 갖는다.
+ */
+async function expandByRelations(
+  db: RetrievalDbLike,
+  entries: readonly PathCandidate[],
+  embeddingVersion: number,
+): Promise<ExpansionPick<PathCandidate>[]> {
+  // 진입점 = 융합 상위 hit이 속한 레코드. 순위 순서를 유지한 채 중복만 없앤다.
+  const entryOrder: string[] = [];
+  const entryIdsRaw: unknown[] = [];
+  const seenEntry = new Set<string>();
+  for (const entry of entries) {
+    if (seenEntry.has(entry.recordId)) continue;
+    seenEntry.add(entry.recordId);
+    entryOrder.push(entry.recordId);
+    entryIdsRaw.push(entry.recordIdRaw);
+  }
+  if (entryIdsRaw.length === 0) return [];
+
+  const lookupDocs = await db
+    .collection(RECORDS_COLLECTION)
+    .aggregate(buildRelationLookupPipeline(entryIdsRaw, RECORDS_COLLECTION))
+    .toArray();
+
+  const targets = parseRelationTargets(lookupDocs, entryOrder, toIdString);
+  if (targets.length === 0) return [];
+
+  const targetIdsRaw: unknown[] = [];
+  const seenTarget = new Set<string>();
+  for (const target of targets) {
+    if (seenTarget.has(target.targetRecordId)) continue;
+    seenTarget.add(target.targetRecordId);
+    targetIdsRaw.push(target.targetRecordIdRaw);
+  }
+
+  const chunkDocs = await db
+    .collection(CHUNKS_COLLECTION)
+    .aggregate(buildRelationChunkPipeline(targetIdsRaw, embeddingVersion, CANDIDATE_PROJECTION))
+    .toArray();
+
+  const candidates = chunkDocs.map((doc) => parseCandidate(doc, "relation"));
+  const exclude = new Set(entries.map((entry) => entry.chunkId));
+  return selectExpansionChunks(candidates, targets, exclude, MAX_RELATION_CHUNKS);
+}
+
+/**
+ * `path`가 `"relation"`이면 관계 확장으로 들어온 청크다 — 검색 경로가 아니므로 점수가
+ * 없고, 파이프라인이 `score: 0`을 투영해 넣는다. 검사는 나머지 두 경로와 **똑같이** 엄격하다:
+ * 확장 청크라고 빈 본문을 통과시키면 근거 없는 인용이 관계를 타고 들어온다.
+ */
+function parseCandidate(
+  doc: Record<string, unknown>,
+  path: "vector" | "text" | "relation",
+): PathCandidate {
   const meta = isRecord(doc["meta"]) ? doc["meta"] : {};
   const score = doc["score"];
   if (typeof score !== "number" || !Number.isFinite(score)) {
