@@ -12,6 +12,7 @@
  */
 export * from "./common.js";
 export * from "./record.js";
+export * from "./article.js";
 export * from "./chunk.js";
 export * from "./feedback.js";
 export * from "./job.js";

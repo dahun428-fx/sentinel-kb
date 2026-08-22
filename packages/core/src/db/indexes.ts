@@ -62,6 +62,39 @@ export const DB_INDEX_SPECS: readonly DbIndexSpec[] = [
     key: { recordId: 1, section: 1, seq: 1, embeddingVersion: 1 },
     unique: true,
   },
+  /**
+   * articles: 후보 목록 조회 — 상태로 좁히고 최신순 (specs/08 §1의 "후보 큐", §5.3의 /articles).
+   *
+   * **T-029가 이 항목들을 여기 두는 이유**: T-003 F-1이 "인덱스 없이 upsert를 짜지 말 것"을
+   * 남겼고 T-022가 그것을 미해결로 넘겼다. 야간 배치는 매일 컬렉션 전체를 훑으므로
+   * 인덱스가 없으면 첫날부터 컬렉션 스캔이고, §7이 요구한 "핵심 경로와의 리소스 격리"가
+   * 무의미해진다. 카탈로그를 worker 쪽에 따로 만들지 않은 것도 같은 근거다 —
+   * 인덱스 정의가 두 곳에 살면 어느 쪽이 배포에 반영되는지 아무도 모르게 된다.
+   */
+  {
+    collection: "articles",
+    name: "articles_status_createdAt",
+    key: { status: 1, createdAt: -1 },
+    unique: false,
+  },
+  /** articles: 배치의 중복 억제 스캔 — 같은 유형의 열린(candidate/draft) 아티클만 읽는다. */
+  {
+    collection: "articles",
+    name: "articles_kind_status",
+    key: { kind: 1, status: 1 },
+    unique: false,
+  },
+  /**
+   * articles: slug 유일성. slug는 발행 URL의 일부(§5.3)이므로 충돌하면 두 아티클 중
+   * 하나가 영구히 도달 불가가 된다. `_id`와 같은 해시에서 파생되므로 정상 경로에서는
+   * 절대 충돌하지 않지만, 유일성을 **인덱스로** 잠가야 파생 규칙이 바뀌는 날 조용히 깨지지 않는다.
+   */
+  {
+    collection: "articles",
+    name: "articles_slug",
+    key: { slug: 1 },
+    unique: true,
+  },
 ];
 
 /**
