@@ -12,6 +12,7 @@ import type { Db } from "mongodb";
 
 import { registerAuth } from "./auth.js";
 import { API_ERROR_CODES, HttpError, sendError } from "./errors.js";
+import { registerFeedbackRoutes } from "./feedback.js";
 import { registerRecordRoutes } from "./records.js";
 
 export interface AppOptions {
@@ -62,11 +63,15 @@ export function createApp(options: AppOptions): FastifyInstance {
     );
   });
 
+  const now = options.now ?? ((): Date => new Date());
+
   registerRecordRoutes(app, {
     db: options.db,
     sanitizeOptions: options.sanitizeOptions,
-    now: options.now ?? ((): Date => new Date()),
+    now,
   });
+
+  registerFeedbackRoutes(app, { db: options.db, now });
 
   app.setNotFoundHandler(async (request, reply) =>
     sendError(
