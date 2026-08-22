@@ -55,6 +55,21 @@ const RETRIEVER_STUB = {
   }),
 } as unknown as NonNullable<Parameters<typeof createApp>[0]["retriever"]>;
 
+/**
+ * **chatModel도 반드시 주입한다.** `/v1/answer`는 `createApp`에서 `retriever`와 **함께**
+ * 있을 때만 등록되므로(생성은 검색 없이는 근거가 없다), 위 `RETRIEVER_STUB` 주석과 같은
+ * 이유로 여기서도 배선을 재현해야 가드가 문서화된 API 표면 전체를 판정한다.
+ *
+ * ⚠️ 다만 `server.ts`는 아직 이 값을 넘기지 못한다 — 실 provider가 없기 때문이다(T-018 D-2).
+ * 즉 **이 가드가 보는 표면과 운영 표면이 지금은 다르다.** 가드가 초록인데 프로덕션에는
+ * `/v1/answer`가 없다. `server.ts` 배선을 검증하는 테스트가 없다는 T-012 G5 지적이
+ * 여기서 실제 간극으로 나타난 것이라, T-019 Findings에 인계했다.
+ */
+const CHAT_MODEL_STUB = {
+  model: "openapi-spec-stub",
+  complete: () => Promise.resolve({ text: "…", model: "openapi-spec-stub", stopReason: "end_turn" }),
+} as unknown as NonNullable<Parameters<typeof createApp>[0]["chatModel"]>;
+
 function makeApp() {
   return createApp({
     db: DB_STUB,
@@ -63,6 +78,7 @@ function makeApp() {
     embeddingVersion: 7,
     version: "0.0.1-test",
     retriever: RETRIEVER_STUB,
+    chatModel: CHAT_MODEL_STUB,
   });
 }
 
@@ -147,11 +163,18 @@ describe("드리프트 가드", () => {
   });
 
   /**
-   * 유예가 **실재하는 시차**만 덮는지 확인한다. 유예를 끄면 아직 라우트가 없는
-   * 오퍼레이션이 그대로 드러나야 한다 — 초록이 유예 덕분임을 못박는 대조군이다.
-   * 이 목록이 줄어들면(=라우트가 생기면) `stalePending`이 먼저 실패시킨다.
+   * **유예 목록이 비었다는 사실 자체를 잠근다.**
+   *
+   * 이 테스트는 원래 "유예를 끄면 아직 라우트가 없는 오퍼레이션이 드러난다"였고 기댓값이
+   * `["POST /v1/answer"]`였다. T-019가 그 라우트를 세웠으므로 유예 대상이 하나도 남지 않았다 —
+   * `PENDING_OPERATIONS`가 스스로 규정한 대로, 라우트가 생기면 그 줄을 지워야만 초록이 되고
+   * (`stalePending`), 지운 결과가 이 단언이다. 기댓값을 느슨하게 고친 것이 아니라
+   * **유예가 사라졌다는 사실을 그대로 옮겨 적은 것**이다.
+   *
+   * 유예 없이도 양방향이 일치한다는 것은 곧 문서와 라우트가 **유예에 기대지 않고** 맞는다는
+   * 뜻이다. 새 오퍼레이션이 문서에만 등재되면 여기가 가장 먼저 빨개진다.
    */
-  it("유예를 끄면 아직 구현되지 않은 오퍼레이션이 드러난다", () => {
+  it("유예 없이도 문서와 라우트가 일치한다 — 유예 목록이 비었다", () => {
     const app = makeApp();
     const report = diffOperations(
       documentedOperations(buildOpenApiDocument()),
@@ -159,7 +182,8 @@ describe("드리프트 가드", () => {
       { pending: [] },
     );
 
-    expect(report.documentedButNotRouted).toEqual(["POST /v1/answer"]);
+    expect(PENDING_OPERATIONS).toEqual([]);
+    expect(report.documentedButNotRouted).toEqual([]);
   });
 
   /**
@@ -191,6 +215,10 @@ describe("드리프트 가드", () => {
       "GET /v1/records",
       "GET /v1/records/{id}",
       "PATCH /v1/records/{id}",
+      // T-019. 유예 목록에서 지운 오퍼레이션이 **실제로 라우트로 있는지**를 여기서 다시 본다 —
+      // 유예를 지우고 라우트를 안 세우는 실수는 `documentedButNotRouted`가 잡지만,
+      // 이 리터럴 목록은 가드 기계가 통째로 고장 나도 남는 마지막 단언이다.
+      "POST /v1/answer",
       "GET /health",
     ]) {
       expect(routed).toContain(key);

@@ -1,6 +1,6 @@
 /**
  * `@sentinel/api` 배럴. HTTP 계약 구현은 specs/04-api.md를 따른다.
- * 생성(`/v1/answer`)·피드백은 후속 태스크에서 채운다.
+ * specs/04 표의 오퍼레이션 8개가 모두 라우트로 섰다(`/v1/answer`는 T-019).
  */
 import { PACKAGE_NAME as CORE_PACKAGE } from "@sentinel/core";
 
@@ -56,6 +56,23 @@ export {
   isBodySectionField,
   summarySourceField,
 } from "./record-fields.js";
+export {
+  ANSWER_CHUNK_CHARS,
+  ANSWER_LOG_EVENT,
+  ANSWER_ROUTE,
+  buildAnswerLogFields,
+  registerAnswerRoutes,
+  splitAnswerChunks,
+  sseFrame,
+  toAnswerBody,
+  SSE_CONTENT_TYPE,
+  SSE_EVENTS,
+  toCitation,
+  toCitations,
+  type AnswerLogFields,
+  type AnswerRoutesDeps,
+  type BuildAnswerLogInput,
+} from "./answer.js";
 export {
   buildSearchLogFields,
   registerSearchRoutes,

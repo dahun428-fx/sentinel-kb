@@ -356,6 +356,73 @@ export function renderSearchHits(
   return NO_RESULTS_TEXT;
 }
 
+// ---------------------------------------------------------------- 답변 렌더 (T-019)
+
+/**
+ * `POST /v1/answer`의 found:true 응답을 **납작한 텍스트**로 렌더한다.
+ *
+ * 예산·절단은 `renderSearchHits`와 **같은 기계**를 쓴다(`estimateTokens` + `waterFill` +
+ * `truncateToTokens`). 별도 경로를 만들면 NFR-03 방어선이 도구마다 갈라지고, 그중 하나가
+ * 빠져도 아무 테스트도 깨지지 않는다 — 예산은 한 곳에서만 지켜져야 한다.
+ *
+ * 우선순위가 검색 목록과 다르다: **답변 산문이 먼저다.** 목록에서는 recordId가 없으면 결과가
+ * 쓸모없지만, 여기서는 답변이 곧 결과이고 인용은 그 근거다. 그래서 예산을 답변에 먼저 채우고
+ * 남은 몫을 제목이 나눠 갖는다. 다만 **인용 머리줄(`순위 recordId 섹션`)은 산문 예산과
+ * 무관하게 항상 나간다** — specs/07 §4가 "인용된 recordId 목록"을 응답의 필수 요소로 정했다.
+ *
+ * `score`는 싣지 않는다(`metaLine`과 같은 이유, T-012 F-B): RRF 척도라 절대 해석이 불가능하다.
+ */
+export interface AnswerCitationLike {
+  readonly recordId: string;
+  readonly section: string;
+  readonly title: string;
+}
+
+/** 인용 1건의 머리줄. 검색 목록의 `metaLine`과 같은 규약이다 — 순위 + ID + 위치. */
+function citationMetaLine(citation: AnswerCitationLike, rank: number): string {
+  return `${String(rank)} ${citation.recordId} #${citation.section}`;
+}
+
+export function renderAnswer(
+  answer: string,
+  citations: readonly AnswerCitationLike[],
+  budgetTokens: number = MCP_SEARCH_TOKEN_BUDGET,
+): string {
+  const prose = oneLine(answer);
+  const metas = citations.map((citation, index) => citationMetaLine(citation, index + 1));
+  const titles = citations.map((citation) =>
+    sliceCodePoints(oneLine(citation.title), TITLE_MAX_CHARS),
+  );
+
+  const fixedCost = metas.reduce((sum, meta) => sum + estimateTokens(`${meta}\n`).high, 0);
+
+  const build = (proseBudget: number): string => {
+    // 답변이 먼저 요구량을 채우고, 남은 몫이 제목으로 흘러간다(waterFill의 잔여 재배분).
+    const demands = [estimateTokens(prose).high, ...titles.map((t) => estimateTokens(t).high)];
+    const [answerBudget = 0, ...titleBudgets] = waterFill(demands, proseBudget);
+    const blocks = citations.map((_, index) =>
+      [metas[index] ?? "", truncateToTokens(titles[index] ?? "", titleBudgets[index] ?? 0)]
+        .filter((line) => line.length > 0)
+        .join("\n"),
+    );
+    return [truncateToTokens(prose, answerBudget), ...blocks]
+      .filter((part) => part.length > 0)
+      .join("\n");
+  };
+
+  let proseBudget = Math.max(0, budgetTokens - fixedCost);
+  let text = build(proseBudget);
+  // 반올림 오차 되돌리기 — 넘친 만큼 산문 예산을 깎아 다시 짠다(`renderSearchHits`와 같다).
+  for (let attempt = 0; attempt < 8 && proseBudget > 0; attempt += 1) {
+    const overshoot = estimateTokens(text).high - budgetTokens;
+    if (overshoot <= 0) break;
+    proseBudget = Math.max(0, proseBudget - overshoot);
+    text = build(proseBudget);
+  }
+  // 하드 클램프. 위 계산이 어긋나도 예산은 무조건 지켜진다.
+  return truncateToTokens(text, budgetTokens);
+}
+
 // ---------------------------------------------------------------- data 래핑 (NFR-05)
 
 export const RECORD_TAG = "retrieved-record";

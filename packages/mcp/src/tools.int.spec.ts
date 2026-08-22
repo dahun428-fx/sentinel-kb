@@ -591,62 +591,132 @@ describe("Acceptance 4 — record_knowledge의 project는 키에서 주입된다
 
 // ================================================================ suggest_resolution
 
-describe("suggest_resolution — 검색 기반 스텁", () => {
-  it("결과가 0건이면 found:false + suggestRecord:true로 기록을 유도한다", async () => {
-    routes.set("POST /v1/search", { status: 200, body: { results: [] } });
+describe("suggest_resolution — /v1/answer 기반 (T-019)", () => {
+  /** `POST /v1/answer`의 found:true 응답. 청크 본문은 여기에도 없다(T-018 F-3의 경계). */
+  function answerFound(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      found: true,
+      answer:
+        `nginx의 proxy_buffering이 켜져 있어 SSE 하트비트가 버퍼에 모였다 [REC-${RECORD_ID}#rootCause]. ` +
+        `proxy_buffering off와 proxy_read_timeout 상향으로 해결했다 [REC-${RECORD_ID}#resolution].`,
+      citations: [
+        {
+          recordId: RECORD_ID,
+          section: "resolution",
+          title: "nginx가 SSE를 버퍼링해 MCP 세션이 30초에 끊긴다",
+          score: 0.016_393_442_622_950_82,
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  const NOT_FOUND_BODY = { found: false, message: "유사 사례 없음", suggestRecord: true };
+
+  /**
+   * **게이트는 `/v1/answer` 한 곳에만 있다**(T-015 F-4). 도구는 그 판정을 전달할 뿐이다.
+   * 이 도구가 자기 게이트를 가지면 여기서 잡힌다 — 서버가 found:false라고 했는데
+   * 도구가 후보를 만들어 내거나, 그 반대가 되면 단언이 깨진다.
+   */
+  it("서버가 found:false면 그대로 전달하고 record_knowledge로 유도한다", async () => {
+    routes.set("POST /v1/answer", { status: 200, body: NOT_FOUND_BODY });
 
     const { text } = await callTool("suggest_resolution", { errorText: "듣도 보도 못한 에러" });
 
     expect(text).toContain("found: false");
     expect(text).toContain("suggestRecord: true");
     expect(text).toContain("record_knowledge");
+    // 근거가 없는데 가설을 지어내지 않았다 — 인용 형식이 응답에 아예 없어야 한다.
+    expect(text).not.toContain("[REC-");
+  });
+
+  /** Acceptance 3 — 응답에 **인용된 recordId 목록**이 있다(specs/07 §4). */
+  it("found:true면 답변과 인용된 recordId 목록을 함께 낸다", async () => {
+    routes.set("POST /v1/answer", { status: 200, body: answerFound() });
+
+    const { text } = await callTool("suggest_resolution", { errorText: "SSE가 30초에 끊긴다" });
+
+    expect(text).toContain("found: true");
+    expect(text).toContain("proxy_buffering");
+    expect(text).toContain(RECORD_ID);
+    // recordId 머리줄은 산문 예산과 무관하게 항상 나간다.
+    expect(text).toContain(`1 ${RECORD_ID} #resolution`);
+    expect(estimateTokens(text).high).toBeLessThanOrEqual(MCP_SEARCH_TOKEN_BUDGET);
   });
 
   /**
-   * **가짜 원인 가설을 지어내지 않는다.** 생성은 T-019가 `/v1/answer`를 붙이면서 온다.
-   * 그때까지 이 도구는 인용 후보만 주고 "가설은 아직 없다"고 말한다 —
-   * 근거 없는 해결책 생성 금지는 NFR-02이자 이 제품의 존재 이유다.
+   * **검색을 따로 부르지 않는다.** `/v1/answer`가 이미 검색 → 게이트 → 생성을 한 번에 한다.
+   * `/v1/search`를 덧붙여 부르면 같은 질의로 검색이 두 번 나가고(NFR-01), 두 결과가 어긋날 때
+   * 어느 쪽이 인용의 진실인지 알 수 없다. 도구가 자체 게이트를 만들려면 대개 여기부터 깨진다.
    */
-  it("결과가 있으면 인용 후보만 주고 원인 가설을 만들지 않는다", async () => {
-    routes.set("POST /v1/search", { status: 200, body: { results: [searchHit()] } });
+  it("core-api로 나가는 것은 POST /v1/answer 하나뿐이다", async () => {
+    routes.set("POST /v1/answer", { status: 200, body: answerFound() });
+
+    await callTool("suggest_resolution", { errorText: "SSE가 30초에 끊긴다" });
+
+    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual(["POST /v1/answer"]);
+    expect(outbound("POST", "/v1/answer")?.body).toEqual({
+      query: "SSE가 30초에 끊긴다",
+      stream: false,
+    });
+  });
+
+  /**
+   * **점수로 자체 판정하지 않는다.** `Citation.score`는 RRF 융합 점수라 절대 해석이 불가능하고
+   * (`specs/03:62`), 이 도구가 그 값을 임계값과 비교하면 금지된 척도 비교가 된다.
+   * 서버가 found:true라고 한 이상 점수가 얼마든 답변을 그대로 전달해야 한다.
+   */
+  it("인용 점수가 아무리 낮아도 서버의 found:true를 뒤집지 않는다", async () => {
+    routes.set("POST /v1/answer", {
+      status: 200,
+      body: answerFound({
+        citations: [
+          { recordId: RECORD_ID, section: "resolution", title: "제목", score: 0.000_000_1 },
+        ],
+      }),
+    });
 
     const { text } = await callTool("suggest_resolution", { errorText: "SSE가 30초에 끊긴다" });
 
     expect(text).toContain("found: true");
     expect(text).toContain(RECORD_ID);
-    expect(text).toContain("원인 가설·해결 절차를 만들지 않는다");
-    expect(text).toContain("get_record");
-    expect(estimateTokens(text).high).toBeLessThanOrEqual(MCP_SEARCH_TOKEN_BUDGET);
+  });
+
+  /** 점수는 **보여주지 않는다** — 백분율 환산·임계값 비교 둘 다 틀린다(T-012 F-B). */
+  it("RRF 점수를 응답에 노출하지 않는다", async () => {
+    routes.set("POST /v1/answer", { status: 200, body: answerFound() });
+
+    const { text } = await callTool("suggest_resolution", { errorText: "SSE가 30초에 끊긴다" });
+
+    expect(text).not.toContain("0.0163");
+    expect(text).not.toContain("score");
   });
 
   /**
-   * **NFR-02를 잠그는 단언** (T-015 검증 지적 G19).
+   * **응답에 서버가 준 것과 고정 안내 말고는 아무 문장도 없다** (T-015 검증 지적 G19의 계승).
    *
-   * 위 테스트는 꼬리말 문구가 **있는지**만 본다 — 머리말에 지어낸 원인 가설과 해결 절차를
-   * 끼워 넣어도 그대로 통과했다. "가설을 만들지 않는다"고 적힌 문장 위에 가설이 실려 있어도
-   * 아무도 몰랐다는 뜻이다.
-   *
-   * 그래서 여기서는 **응답에 무엇이 있는지가 아니라 응답이 그것뿐인지**를 본다:
-   * 모든 줄이 (a) 아래 문면 그대로의 안내 두 줄이거나 (b) 검색 결과에서 유래한 줄이어야 한다.
-   * 상수를 import하지 않고 **리터럴로 박는 것**이 핵심이다 — 상수를 import하면 상수 자체에
+   * "인용이 붙어 있다"를 확인하는 것만으로는 부족하다 — 도구가 답변 위에 자기 요약이나
+   * 추가 가설을 얹어도 통과하기 때문이다. 그래서 **응답이 그것뿐인지**를 본다.
+   * 상수를 import하지 않고 리터럴로 박는 것이 핵심이다: 상수를 import하면 상수 자체에
    * 가설을 끼워 넣는 변조가 그대로 통과한다.
    */
-  it("응답에 검색 결과와 고정 안내 말고는 아무 문장도 없다", async () => {
-    const fixture = searchHit();
-    routes.set("POST /v1/search", { status: 200, body: { results: [fixture] } });
+  it("응답에 서버 답변·인용과 고정 안내 말고는 아무 문장도 없다", async () => {
+    const fixture = answerFound();
+    routes.set("POST /v1/answer", { status: 200, body: fixture });
 
     const { text } = await callTool("suggest_resolution", { errorText: "SSE가 30초에 끊긴다" });
 
     const GUIDANCE = [
-      "found: true (인용 후보 — 원인 가설은 아직 생성되지 않는다)",
-      "위 기록들이 인용 후보다. 이 도구는 현재 검색 기반이라 원인 가설·해결 절차를 만들지 않는다 — " +
-        "지어낸 가설을 내놓느니 후보만 주는 편이 낫다. 적용해 볼 후보를 골라 get_record로 전문을 읽어라. " +
-        "어느 것도 맞지 않으면 직접 해결한 뒤 record_knowledge로 기록하라.",
+      "found: true (아래 답변은 인용된 기록에만 근거한다)",
+      "위 답변의 각 주장에는 `[REC-<recordId>#<섹션>]` 인용이 붙어 있고, 그 아래가 인용된 기록 목록이다. " +
+        "적용하기 전에 근거를 확인하려면 recordId로 get_record를 불러 전문을 읽어라. " +
+        "해결에 도움이 됐는지는 give_feedback으로 알려주고, 답이 맞지 않았다면 " +
+        "직접 해결한 뒤 record_knowledge로 기록하라.",
     ];
-    const FROM_SEARCH = [
-      `1 ${RECORD_ID} incident/sentinel-kb/resolution`,
-      String(fixture["title"]),
-      String(fixture["summary"]),
+    const FROM_SERVER = [
+      String(fixture["answer"]),
+      `1 ${RECORD_ID} #resolution`,
+      "nginx가 SSE를 버퍼링해 MCP 세션이 30초에 끊긴다",
     ];
 
     for (const line of text.split("\n")) {
@@ -654,27 +724,41 @@ describe("suggest_resolution — 검색 기반 스텁", () => {
       // 예산 절단으로 뒤가 잘렸을 수 있다. 잘린 줄은 원본의 접두여야 한다.
       const body = line.endsWith("…") ? line.slice(0, -1).trimEnd() : line;
       expect(
-        FROM_SEARCH.some((source) => source.startsWith(body)),
-        `검색 결과에도 고정 안내에도 없는 문장이 응답에 있다: ${JSON.stringify(line)}`,
+        FROM_SERVER.some((source) => source.startsWith(body)),
+        `서버 응답에도 고정 안내에도 없는 문장이 응답에 있다: ${JSON.stringify(line)}`,
       ).toBe(true);
     }
   });
 
   /**
-   * 임계값 게이트를 흉내내지 않는다. `specs/03 §4`의 게이트는 **원시 cosine 최고점**을 쓰는데
-   * 그 값은 `/v1/search` 응답에 없고, `SearchHit.score`(RRF)로 대신 재면 척도가 다르다.
-   * 스텁이 자체 게이트를 만들면 T-019가 진짜 게이트를 붙일 때 두 곳으로 갈라진다.
+   * 긴 답변에서도 NFR-03 예산을 지키되 **recordId는 잘려 나가지 않는다** —
+   * 산문 예산과 무관하게 나가는 머리줄이 그 보증이다(`renderAnswer`).
    */
-  it("RRF 점수를 임계값처럼 쓰지 않는다 — 점수가 낮아도 후보를 버리지 않는다", async () => {
-    routes.set("POST /v1/search", {
+  it("답변이 예산을 넘겨도 recordId는 남는다", async () => {
+    routes.set("POST /v1/answer", {
       status: 200,
-      body: { results: [searchHit({ score: 0.000_1 })] },
+      body: answerFound({ answer: `${"해결 절차를 아주 길게 적는다. ".repeat(200)}[REC-x#y]` }),
     });
 
     const { text } = await callTool("suggest_resolution", { errorText: "SSE가 30초에 끊긴다" });
 
-    expect(text).toContain("found: true");
+    expect(estimateTokens(text).high).toBeLessThanOrEqual(MCP_SEARCH_TOKEN_BUDGET);
     expect(text).toContain(RECORD_ID);
+  });
+
+  /** core-api 실패는 삼키지 않는다 — 무엇이 왜 실패했는지 알려야 루프가 산다. */
+  it("core-api가 실패하면 오류를 그대로 보고한다", async () => {
+    routes.set("POST /v1/answer", {
+      status: 503,
+      body: { error: { code: "SERVICE_UNAVAILABLE", message: "생성 모델에 닿지 못했다." } },
+    });
+
+    const { text, isError } = await callTool("suggest_resolution", { errorText: "무슨 에러" });
+
+    expect(isError).toBe(true);
+    expect(text).toContain("suggest_resolution");
+    // 실패를 "유사 사례 없음"으로 둔갑시키지 않는다 — 그건 거짓말이다.
+    expect(text).not.toContain("found: false");
   });
 });
 

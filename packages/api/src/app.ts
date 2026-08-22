@@ -8,6 +8,8 @@
 import { HealthResponse } from "@sentinel/contracts";
 import {
   SanitizeInputTooLargeError,
+  type ChatModel,
+  type GeneratorConfig,
   type ResolvedSanitizeOptions,
   type Retriever,
 } from "@sentinel/core";
@@ -18,6 +20,7 @@ import Fastify, {
 } from "fastify";
 import type { Db } from "mongodb";
 
+import { registerAnswerRoutes } from "./answer.js";
 import { registerAuth } from "./auth.js";
 import { API_ERROR_CODES, HttpError, sendError } from "./errors.js";
 import { registerFeedbackRoutes } from "./feedback.js";
@@ -59,6 +62,22 @@ export interface AppOptions {
    * **부팅이 실패한다**(T-006 인계 패턴).
    */
   readonly retriever?: Retriever;
+  /**
+   * `/v1/answer`가 쓰는 생성 모델. **`retriever`와 함께 있어야 라우트가 뜬다** — 답변은
+   * 검색 없이는 근거가 없고, 근거 없는 생성은 NFR-02가 금지한다.
+   *
+   * `retriever`와 달리 프로덕션 컴포지션 루트도 아직 이 값을 만들지 못한다.
+   * `packages/core/src/llm/`에 인터페이스와 fake만 있고 **실 provider가 없기 때문**이다
+   * (T-018 D-2). T-019는 새 의존성(`@anthropic-ai/sdk`)을 물리지 않기로 했다 —
+   * 근거는 `server.ts`의 주석에 적었다. 그때까지 `/v1/answer`는 테스트·eval에서만 뜬다.
+   */
+  readonly chatModel?: ChatModel;
+  /**
+   * 생성 튜닝 파라미터(`SIMILARITY_THRESHOLD`·`ANSWER_MAX_TOKENS`). 생략하면 요청마다
+   * env에서 읽는다. **테스트와 eval 스윕이 임계값을 흔드는 지점**이고, 주입하지 않으면
+   * 게이트 테스트가 실행 환경의 env에 결합돼 조용히 뒤집힌다.
+   */
+  readonly generatorConfig?: GeneratorConfig;
   readonly now?: () => Date;
   /**
    * `boolean` 외에 pino 옵션 객체도 받는다 — 테스트가 `stream`을 주입해 **실제로 나간
@@ -119,6 +138,13 @@ export function createApp(options: AppOptions): FastifyInstance {
 
   if (options.retriever !== undefined) {
     registerSearchRoutes(app, { retriever: options.retriever });
+    if (options.chatModel !== undefined) {
+      registerAnswerRoutes(app, {
+        retriever: options.retriever,
+        chatModel: options.chatModel,
+        ...(options.generatorConfig === undefined ? {} : { generatorConfig: options.generatorConfig }),
+      });
+    }
   }
   registerFeedbackRoutes(app, { db: options.db, now });
 

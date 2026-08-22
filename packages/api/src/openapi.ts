@@ -81,9 +81,13 @@ export interface PendingOperation {
  * 유예를 늘리는 것도 지우는 것도 리뷰어의 눈에 보이는 명시적 행위가 된다.
  */
 export const PENDING_OPERATIONS: readonly PendingOperation[] = [
-  // T-012(/v1/search)와 T-022(/v1/feedback)는 통합 브랜치에서 실제로 라우트가 섰다.
-  // `stalePending`이 그 사실을 알려서 이 두 줄을 지웠다 — 자정 장치가 설계대로 작동한 첫 사례다.
-  { key: "POST /v1/answer", task: "T-019" },
+  // T-012(/v1/search)·T-022(/v1/feedback)·T-019(/v1/answer)는 라우트가 실제로 섰다.
+  // `stalePending`이 그 사실을 알려서 세 줄을 차례로 지웠다 — 자정 장치가 설계대로 작동했다.
+  //
+  // **목록이 비었다고 이 상수를 지우지 마라.** specs/04 표에 새 오퍼레이션이 등재되고
+  // 라우트가 나중에 오는 상황은 다시 온다. 빈 목록은 "유예가 필요 없는 상태"라는 사실
+  // 자체를 기록하며, `diffOperations`의 기본값이 여기라 지우면 호출부가 각자 빈 배열을
+  // 만들어 넣게 되고 그때부터 유예는 리뷰어의 눈에 보이지 않는 곳에서 늘어난다.
 ];
 
 /**
