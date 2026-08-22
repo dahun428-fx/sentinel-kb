@@ -18,6 +18,8 @@
     "db:indexes": "tsx packages/core/src/db/ensure-indexes.cli.ts",
     "db:search-indexes": "tsx packages/core/src/db/ensure-search-indexes.cli.ts",
     "db:seed": "tsx scripts/seed.cli.ts",
+    "eval:retrieval": "tsx eval/retrieval/run.cli.ts",
+    "eval:retrieval:check": "tsx eval/retrieval/check-baseline.cli.ts",
     "mcp:ping": "tsx scripts/mcp-ping.cli.ts",
     "format": "prettier --write ."
   },
@@ -38,6 +40,7 @@
     "tsx": "^4.23.12",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.40.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "zod": "^3.25.76"
   }
 }

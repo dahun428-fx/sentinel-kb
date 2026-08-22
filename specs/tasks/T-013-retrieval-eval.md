@@ -14,6 +14,19 @@ STATUS: BLOCKED
   더불어 아래 `## ⚠️ 착수 전 결정 필요`의 `seedBatch` 마커도 함께 결정해야 한다 —
   그것 없이 골든셋 30건을 만들면 `--reset` 한 번에 통째로 무효화된다.
 
+### 부분 구현 (2026-08-23, `feat/T-013-eval`)
+**STATUS는 BLOCKED 그대로다.** Acceptance 1(`Recall@5 >= 0.8`)은 여전히 **판정 불가**다.
+자격증명 없이 판정 가능한 나머지 셋만 구현했다 — 자격증명이 들어오면 바로 돌릴 수 있는 러너다.
+- Acceptance 2 (회귀 가드) **PASS** — `pnpm eval:retrieval:check`가 기준선 미달 리포트에 exit 1,
+  동률·초과에 exit 0, fake 임베딩·케이스 0건·손상 리포트에 exit 78. 실제 프로세스로 10건 확인.
+- Acceptance 3 (리포트 스키마) **PASS** — `eval/reports/YYYY-MM-DD-retrieval.json`,
+  지표 키가 `eval/baselines.json`의 `retrieval` 키와 글자 그대로 일치함을 실제 파일에 대고 단언.
+- Acceptance 4 (`pnpm verify`) **PASS**.
+- **골든셋 30건은 만들지 않았다** — 아래 `## ⚠️ 착수 전 결정 필요`(seedBatch, G3)가 선행이다.
+  로더·스키마·경고만 있고, `eval_cases`가 비어 있으면 러너가 판정하지 않고 78로 끝난다.
+- `eval/baselines.json`은 **읽기만 했다.** 측정하지 않은 숫자를 기준선으로 쓰지 않았다.
+- 인수인계: `eval/retrieval/README.md` §"자격증명이 생겼을 때 — 무엇을 하면 되나".
+
 **M2의 나머지(T-010·T-011·T-012)는 자격증명 없이 전부 완료됐다.**
 `mongodb-atlas-local` 컨테이너가 `$vectorSearch`·`$search`를 지원해 인덱스·검색·라우트는 로컬에서
 판정 가능하다(specs/05 정정분). 경계는 "Atlas 유무"가 아니라 **"의미 있는 임베딩 유무"**이고,

@@ -29,6 +29,15 @@ export {
   type RouteRef,
 } from "./openapi.js";
 export { decodeCursor, encodeCursor, type ListCursor } from "./cursor.js";
+// 골든셋의 **정의**(승인된 케이스만)와 그 컬렉션 핸들. eval 러너(T-013)가 소비한다 —
+// 같은 필터를 러너 쪽에 다시 적으면 "골든셋" 정의가 둘이 되고, `/v1/feedback`이 만드는
+// 미승인 후보가 언젠가 한쪽으로만 새어 들어온다 (specs/02: 사람 승인 없이 자동 추가 금지).
+export {
+  APPROVED_EVAL_CASE_FILTER,
+  EVAL_CASE_CANDIDATE_FILTER,
+  evalCasesCollection,
+  type EvalCaseDocument,
+} from "./feedback.js";
 export {
   buildSummary,
   firstSentences,
