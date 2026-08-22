@@ -1,0 +1,6 @@
+# 의도적 위반: ip_protocol = "-1" 은 포트 지정 없이 전 포트를 연다.
+resource "aws_vpc_security_group_ingress_rule" "any" {
+  security_group_id = aws_security_group.app.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+}

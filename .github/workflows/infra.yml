@@ -1,0 +1,117 @@
+name: infra
+
+# T-025. 두 잡으로 나눈 이유:
+#   static — AWS 자격증명이 필요 없다. 포크 PR 을 포함해 항상 판정된다.
+#   plan   — 자격증명이 필요하다. OIDC 롤이 설정된 저장소에서만 돈다.
+# `terraform plan` 을 자격증명 없는 환경에서 "건너뛰고 통과"시키면 가짜 그린이 된다.
+# 그래서 plan 은 별도 잡으로 두고, 롤이 없으면 명시적으로 실패한다.
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.15.8"
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  static:
+    name: fmt + validate + policy (자격증명 불필요)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive infra
+
+      # SG 에 22 인바운드가 없는지: HCL 정적 스캔 + 스캐너 자기검증.
+      # --self-test 는 일부러 22 를 여는 fixture 를 스캐너가 실제로 잡는지 확인한다.
+      # 이게 없으면 "아무것도 안 잡는 스캐너"가 영원히 그린을 낸다.
+      - name: policy — no SSH(22) ingress
+        run: ./infra/policy/no-ssh-ingress.sh --self-test
+
+      - name: terraform init (backend 없이)
+        run: terraform -chdir=infra init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform -chdir=infra validate
+
+      - name: terraform init/validate (bootstrap)
+        run: |
+          terraform -chdir=infra/bootstrap init -backend=false -input=false
+          terraform -chdir=infra/bootstrap validate
+
+  plan:
+    name: terraform plan (자격증명 필요)
+    needs: static
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC. 장기 액세스 키를 시크릿에 두지 않는다.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 필요한 저장소 설정 확인
+        run: |
+          missing=0
+          for k in AWS_PLAN_ROLE_ARN AWS_REGION TF_STATE_BUCKET; do
+            if [ -z "${!k}" ]; then echo "::error::저장소 변수 $k 가 없다"; missing=1; fi
+          done
+          if [ "$missing" = "1" ]; then
+            echo "::error::plan 은 AWS 자격증명 없이 판정할 수 없다. 건너뛰면 가짜 그린이다."
+            echo "::error::infra/README.md 의 'CI 설정' 절을 따라 OIDC 롤과 변수를 등록하라."
+            exit 1
+          fi
+        env:
+          AWS_PLAN_ROLE_ARN: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform init (S3 backend + DynamoDB 락)
+        run: |
+          terraform -chdir=infra init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: terraform plan
+        run: |
+          terraform -chdir=infra plan -input=false -lock-timeout=5m \
+            -out=tfplan
+        env:
+          TF_VAR_route53_zone_name: ${{ vars.ROUTE53_ZONE_NAME }}
+          TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+
+      # plan 된 실제 값으로 22 인바운드를 다시 판정한다.
+      # 정적 스캔은 변수·for_each 뒤에 숨은 포트를 못 본다 — 여기서 잡힌다.
+      - name: policy — no SSH(22) ingress (planned values)
+        run: |
+          terraform -chdir=infra show -json tfplan > infra/plan.json
+          ./infra/policy/no-ssh-ingress.sh --plan infra/plan.json
+
+      - name: plan 요약
+        run: terraform -chdir=infra show -no-color tfplan | head -200

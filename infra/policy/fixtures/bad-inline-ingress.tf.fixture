@@ -1,0 +1,20 @@
+# 의도적 위반: 레거시 aws_security_group 인라인 ingress 블록.
+# 두 번째 ingress(443)는 정상이라 "블록 단위" 판정이 되는지도 같이 본다.
+resource "aws_security_group" "legacy" {
+  name = "legacy"
+
+  ingress {
+    description = "ssh"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}

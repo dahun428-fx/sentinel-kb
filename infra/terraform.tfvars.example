@@ -1,0 +1,10 @@
+# cp terraform.tfvars.example terraform.tfvars
+# 시크릿은 절대 여기 넣지 않는다 — SSM Parameter Store 로 수동 주입한다(infra/ssm.tf).
+route53_zone_name = "example.com"
+domain_name       = "kb.example.com"
+
+# aws_region        = "ap-northeast-2"
+# instance_type     = "t3.small"
+# vpc_id            = null   # null = 계정 기본 VPC
+# subnet_id         = null
+# allowed_https_cidrs = ["0.0.0.0/0"]
