@@ -2,6 +2,23 @@
 refs: specs/05-test-strategy.md (Eval 1)
 M: M2 | deps: T-012, T-009
 
+STATUS: BLOCKED
+사유: 실제 임베딩 provider 자격증명이 없어 Acceptance 1(`Recall@5 >= 0.8`)을 **측정 자체가 불가능**하다.
+실패 로그:
+  - `FakeEmbedder`는 해시 기반이라 서로 다른 텍스트 간 cosine ≈ 0이다(T-006 F-8, 실측 mean −0.00007).
+  - T-012 검증자가 그 귀결을 실증했다: 벡터 경로를 융합에서 제거해도 통합 테스트 11개가 전부 통과하고,
+    응답 19건 중 `vectorRank`·`textRank`가 동시에 non-null인 hit이 **0건**이다(RRF가 교대 배치로 퇴화).
+  - 즉 지금 골든셋을 만들어 재면 지표가 검색 품질이 아니라 BM25 단독 성능을 잰다.
+필요한 결정: **임베딩 provider 자격증명 주입**(`EMBEDDING_PROVIDER`+API 키). 
+  `specs/05`가 "실제 모델 호출은 eval 계층에서만"으로 이미 경계를 그어 뒀고, 이 태스크가 그 경계다.
+  더불어 아래 `## ⚠️ 착수 전 결정 필요`의 `seedBatch` 마커도 함께 결정해야 한다 —
+  그것 없이 골든셋 30건을 만들면 `--reset` 한 번에 통째로 무효화된다.
+
+**M2의 나머지(T-010·T-011·T-012)는 자격증명 없이 전부 완료됐다.**
+`mongodb-atlas-local` 컨테이너가 `$vectorSearch`·`$search`를 지원해 인덱스·검색·라우트는 로컬에서
+판정 가능하다(specs/05 정정분). 경계는 "Atlas 유무"가 아니라 **"의미 있는 임베딩 유무"**이고,
+이 태스크가 그 경계 바깥에 있는 유일한 M2 태스크다.
+
 ## Scope
 - `eval/retrieval/`: 골든셋 로더(eval_cases) → /v1/search 호출 → Recall@5, MRR 계산
 - 리포트 `eval/reports/{date}-retrieval.json` + 콘솔 요약
