@@ -4,7 +4,13 @@
 1. record가 `published`로 저장되면 `jobs`에 `{type:"embed", recordId}` 삽입 (트랜잭션 불필요, 멱등)
 2. worker 폴링 → record 로드 → **섹션별 청킹**
    - 각 섹션(symptom/rootCause/... )은 독립 청크. 섹션이 비면 스킵(에러 아님)
-   - 섹션이 1200자 초과 시 문단 경계로 분할, 각 분할에 제목+섹션명 헤더 prefix 부착
+   - **완성 청크 텍스트**(prefix 포함)가 `CHUNK_MAX_CHARS`(기본 1200) 초과 시 문단 경계로 분할,
+     각 분할에 제목+섹션명 헤더 prefix 부착
+     > T-005 정정(인간 비준 대상): 원문은 "섹션이 1200자 초과 시"였다. 그러나 이 상한의 목적은
+     > **임베딩 입력 예산**이고 실제로 임베딩되는 텍스트는 prefix를 포함한 완성 청크다.
+     > 본문 기준으로 재면 `[긴 제목] (section) ` 만큼 상한을 넘겨 임베딩된다.
+     > 제목은 contracts에서 200자까지 허용되므로 최대 217자가 초과될 수 있다.
+     > 대신 긴 제목은 본문 예산을 잠식한다 — 그건 총량이 예산이라는 정의의 당연한 귀결이다.
    - 청크 텍스트 = `"[{title}] ({section}) {body}"` — 임베딩에 문맥 제공
 3. 임베딩 배치 호출(최대 32개) → chunks upsert (`{recordId, section, seq, embeddingVersion}` 유니크)
 4. 실패 시 job은 `failed`+attempts++, 3회 초과면 `dead`. **record 저장 자체는 롤백하지 않는다.**
