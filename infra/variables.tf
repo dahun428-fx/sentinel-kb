@@ -70,9 +70,23 @@ variable "secure_parameter_names" {
     SSM Parameter Store 에 **정의만** 할 SecureString 파라미터 이름.
     값은 terraform 이 관리하지 않는다 — 배포 담당자가 콘솔/CLI로 수동 주입한다.
     (CLAUDE.md 금지사항: 시크릿 하드코딩)
+
+    이 목록은 `infra/deploy/deploy.sh` 가 .env 로 렌더하는 목록과 **글자 그대로 같아야
+    한다.** 하나라도 어긋나면 배포는 성공하는데 compose 가 `:?` 로 거절하거나, 반대로
+    파라미터만 만들어지고 아무도 읽지 않는다. `tools/deploy-contract.spec.ts` 가 대조한다.
+
+    `CORE_API_KEY` 는 T-027 에서 추가됐다 — T-026 의 compose 가 web 서비스에
+    `CORE_API_KEY:?` 로 요구하는데 T-025 의 이 목록에 없어서, 그대로면 첫 배포가
+    `up -d` 단계에서 죽는다(T-027 F-4). 값은 `API_KEYS` 에 등록된 키 중 하나여야 한다.
   EOT
   type        = list(string)
-  default     = ["MONGODB_URI", "ANTHROPIC_API_KEY", "VOYAGE_API_KEY", "API_KEYS"]
+  default = [
+    "MONGODB_URI",
+    "ANTHROPIC_API_KEY",
+    "VOYAGE_API_KEY",
+    "API_KEYS",
+    "CORE_API_KEY",
+  ]
 }
 
 variable "log_retention_days" {
