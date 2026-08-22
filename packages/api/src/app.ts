@@ -66,10 +66,14 @@ export interface AppOptions {
    * `/v1/answer`가 쓰는 생성 모델. **`retriever`와 함께 있어야 라우트가 뜬다** — 답변은
    * 검색 없이는 근거가 없고, 근거 없는 생성은 NFR-02가 금지한다.
    *
-   * `retriever`와 달리 프로덕션 컴포지션 루트도 아직 이 값을 만들지 못한다.
-   * `packages/core/src/llm/`에 인터페이스와 fake만 있고 **실 provider가 없기 때문**이다
-   * (T-018 D-2). T-019는 새 의존성(`@anthropic-ai/sdk`)을 물리지 않기로 했다 —
-   * 근거는 `server.ts`의 주석에 적었다. 그때까지 `/v1/answer`는 테스트·eval에서만 뜬다.
+   * **T-039부터 프로덕션 컴포지션 루트가 이 값을 만든다**(`server.ts`의 `createChatModel()`).
+   * 그전까지는 `packages/core/src/llm/`에 인터페이스와 fake만 있어 만들 수 없었고, 그래서
+   * `/v1/answer`가 테스트·eval에서만 떴다(T-019 F-8).
+   *
+   * 그럼에도 **선택** 의존으로 남긴다 — `retriever`와 같은 근거다. 시드 스크립트와 records
+   * 통합 테스트는 모델 없이 앱을 만드는 정당한 소비자이고, 필수로 만들면 그 호출부들이
+   * 쓰지도 않을 Anthropic 자격증명을 요구받는다. 운영에서 조용히 빠질 위험은 컴포지션 루트가
+   * 닫는다: 거기서 설정이 없으면 라우트가 404가 되는 게 아니라 **부팅이 실패한다**(T-039 D-4).
    */
   readonly chatModel?: ChatModel;
   /**

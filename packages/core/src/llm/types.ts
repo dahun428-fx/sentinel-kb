@@ -26,6 +26,15 @@
  * 따라서 실 provider는 **컴포지션 루트가 모델을 실제로 물리는 태스크**(T-019 `/v1/answer`)의
  * 몫으로 넘긴다. generator는 `ChatModel`만 알면 되고, 그 경계 덕분에 T-018의 단위 테스트는
  * 처음부터 fake로 결정론적이다(specs/05). 인계 사항은 T-018 Findings에 적었다.
+ *
+ * ## T-039 갱신: 실 provider가 `anthropic.ts`에 들어왔다
+ *
+ * 위 D-2의 "여기에 실제 provider는 없다"는 **더 이상 사실이 아니다.** T-019가 그 몫을 지지
+ * 못한 이유(budget 밖)는 정당했고, T-039가 그 자리를 채웠다. D-2가 지시한 대로 **공식
+ * SDK**(`@anthropic-ai/sdk`)를 쓴다 — raw fetch 선례는 임베딩에 한정된다.
+ *
+ * **이 파일의 타입은 그대로다.** 도구 선택(specs/05 Eval 3)은 `ChatRequest`에 필드를 더하는
+ * 대신 `tools.ts`의 별도 인터페이스로 갔다 — 근거는 T-039 D-7.
  */
 
 /** 모델에 보내는 메시지 1건. system은 별도 필드라 여기 오지 않는다. */
@@ -69,6 +78,10 @@ export const LLM_ERROR_CODES = {
   REQUEST_FAILED: "LLM_REQUEST_FAILED",
   /** 응답에 텍스트가 없다 — 인용할 근거가 있어도 답이 없으면 답이 아니다. */
   RESPONSE_EMPTY: "LLM_RESPONSE_EMPTY",
+  /** 모델 ID가 env에 없다. 코드에 기본값을 두지 않는다 (T-039 D-2, `EMBEDDING_MODEL`과 같은 규약). */
+  MODEL_MISSING: "LLM_MODEL_MISSING",
+  /** API 키가 env에 없다. 시크릿 하드코딩 금지 — SSM/.env로만 주입한다(specs/06). */
+  API_KEY_MISSING: "LLM_API_KEY_MISSING",
 } as const;
 
 export type LlmErrorCode = (typeof LLM_ERROR_CODES)[keyof typeof LLM_ERROR_CODES];

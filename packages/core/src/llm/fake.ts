@@ -6,6 +6,12 @@
  * 발생하지 않음**(스파이 검증)"을 요구한다. "호출하고 결과를 버렸다"와 "부르지 않았다"는
  * 비용이 다르고, 후자만이 스펙이 요구하는 동작이다. 호출 기록이 없으면 그 둘을 구별할 수 없다.
  */
+import type {
+  ToolChoiceModel,
+  ToolSelectionRequest,
+  ToolSelectionResponse,
+  ToolUse,
+} from "./tools.js";
 import type { ChatModel, ChatRequest, ChatResponse } from "./types.js";
 
 /** 호출을 기록하는 fake. `calls.length === 0`이 "부르지 않았다"의 증거다. */
@@ -43,6 +49,55 @@ export function createFakeChatModel(options: FakeChatModelOptions = {}): FakeCha
         text: reply(request),
         model,
         stopReason: options.stopReason ?? "end_turn",
+      });
+    },
+  };
+}
+
+/**
+ * 도구 선택용 fake. `FakeChatModel`과 **별개 객체**다 — 두 호출 표면을 나눈 근거(T-039 D-7)를
+ * 테스트 도구에서 다시 합치면 그 경계가 테스트에서만 사라진다.
+ *
+ * `calls`를 노출하는 이유는 같다: "무엇을 물어봤는가"가 채점기 검증의 근거이고,
+ * 특히 **도구 목록을 실제로 실어 보냈는지**는 기록이 없으면 확인할 수 없다.
+ */
+export interface FakeToolChoiceModel extends ToolChoiceModel {
+  readonly calls: ToolSelectionRequest[];
+}
+
+export interface FakeToolChoiceModelOptions {
+  readonly model?: string;
+  /**
+   * 요청 → 고른 도구들. **기본은 빈 배열(=아무것도 고르지 않음)이다.**
+   * "첫 번째 도구를 고른다" 같은 기본값을 두면 채점기 테스트가 자기충족적이 된다 —
+   * 시나리오가 무엇이든 정답 도구가 첫 자리에 오도록 픽스처를 짜면 통과하기 때문이다.
+   */
+  readonly pick?: (request: ToolSelectionRequest) => ToolUse[];
+  readonly text?: (request: ToolSelectionRequest) => string;
+  readonly stopReason?: string | null;
+}
+
+const DEFAULT_FAKE_TOOL_MODEL = "fake-tool-choice-model";
+
+export function createFakeToolChoiceModel(
+  options: FakeToolChoiceModelOptions = {},
+): FakeToolChoiceModel {
+  const model = options.model ?? DEFAULT_FAKE_TOOL_MODEL;
+  const calls: ToolSelectionRequest[] = [];
+  const pick = options.pick ?? ((): ToolUse[] => []);
+  const text = options.text ?? ((): string => "");
+
+  return {
+    model,
+    calls,
+    selectTool(request: ToolSelectionRequest): Promise<ToolSelectionResponse> {
+      calls.push(request);
+      const toolUses = pick(request);
+      return Promise.resolve({
+        toolUses,
+        text: text(request),
+        model,
+        stopReason: options.stopReason ?? (toolUses.length > 0 ? "tool_use" : "end_turn"),
       });
     },
   };
