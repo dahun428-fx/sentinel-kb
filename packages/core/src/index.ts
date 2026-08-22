@@ -23,3 +23,5 @@ export * from "./embedder/index.js";
 export * from "./retriever/index.js";
 export * from "./llm/index.js";
 export * from "./generator/index.js";
+// `facts`는 T-030에서 들어왔다 — sanitizer와 같은 성질(순수·무I/O)이라 배럴에 실린다.
+export * from "./facts/index.js";

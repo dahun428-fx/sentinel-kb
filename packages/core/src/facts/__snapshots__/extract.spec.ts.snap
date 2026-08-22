@@ -1,0 +1,766 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`고정 fixture 스냅샷 (Acceptance 2) > 패턴 아티클의 팩트·차트 전문 1`] = `
+{
+  "charts": [
+    {
+      "caption": "태그 빈도 — 소스 7건에서 태그 29종",
+      "data": {
+        "points": [
+          {
+            "label": "connection",
+            "value": 2,
+          },
+          {
+            "label": "mongodb",
+            "value": 2,
+          },
+          {
+            "label": "atlas",
+            "value": 1,
+          },
+          {
+            "label": "aws",
+            "value": 1,
+          },
+          {
+            "label": "cache",
+            "value": 1,
+          },
+          {
+            "label": "ci",
+            "value": 1,
+          },
+          {
+            "label": "contracts",
+            "value": 1,
+          },
+          {
+            "label": "credentials",
+            "value": 1,
+          },
+          {
+            "label": "deploy",
+            "value": 1,
+          },
+          {
+            "label": "dns",
+            "value": 1,
+          },
+          {
+            "label": "docker",
+            "value": 1,
+          },
+          {
+            "label": "esbuild",
+            "value": 1,
+          },
+          {
+            "label": "github-actions",
+            "value": 1,
+          },
+          {
+            "label": "monorepo",
+            "value": 1,
+          },
+          {
+            "label": "network-access",
+            "value": 1,
+          },
+          {
+            "label": "node",
+            "value": 1,
+          },
+          {
+            "label": "pnpm",
+            "value": 1,
+          },
+          {
+            "label": "pnpm-10",
+            "value": 1,
+          },
+          {
+            "label": "postinstall",
+            "value": 1,
+          },
+          {
+            "label": "rag",
+            "value": 1,
+          },
+          {
+            "label": "repo-finding",
+            "value": 1,
+          },
+          {
+            "label": "rrf",
+            "value": 1,
+          },
+          {
+            "label": "self-seed",
+            "value": 1,
+          },
+          {
+            "label": "spec-drift",
+            "value": 1,
+          },
+          {
+            "label": "spec-error",
+            "value": 1,
+          },
+          {
+            "label": "srv",
+            "value": 1,
+          },
+          {
+            "label": "t-002",
+            "value": 1,
+          },
+          {
+            "label": "threshold",
+            "value": 1,
+          },
+          {
+            "label": "zod",
+            "value": 1,
+          },
+        ],
+      },
+      "type": "bar",
+    },
+    {
+      "caption": "발생 시계열 — 일자별 신규 기록 7건",
+      "data": {
+        "points": [
+          {
+            "label": "2026-03-02",
+            "value": 1,
+          },
+          {
+            "label": "2026-03-16",
+            "value": 1,
+          },
+          {
+            "label": "2026-03-23",
+            "value": 1,
+          },
+          {
+            "label": "2026-04-06",
+            "value": 1,
+          },
+          {
+            "label": "2026-04-13",
+            "value": 1,
+          },
+          {
+            "label": "2026-04-27",
+            "value": 1,
+          },
+          {
+            "label": "2026-05-04",
+            "value": 1,
+          },
+        ],
+      },
+      "type": "line",
+    },
+    {
+      "caption": "재발 간격(일) — 6구간, 평균 10.51일",
+      "data": {
+        "points": [
+          {
+            "label": "1",
+            "value": 14.1,
+          },
+          {
+            "label": "2",
+            "value": 6.94,
+          },
+          {
+            "label": "3",
+            "value": 14.16,
+          },
+          {
+            "label": "4",
+            "value": 6.81,
+          },
+          {
+            "label": "5",
+            "value": 14.24,
+          },
+          {
+            "label": "6",
+            "value": 6.79,
+          },
+        ],
+      },
+      "type": "line",
+    },
+  ],
+  "facts": {
+    "citations": [
+      {
+        "kind": "error",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0002",
+        ],
+        "sections": [
+          "rootCause",
+        ],
+        "text": "ENOTFOUND",
+      },
+      {
+        "kind": "error",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0001",
+        ],
+        "sections": [
+          "symptom",
+        ],
+        "text": "Error: The package "@esbuild/darwin-arm64" could not be found, and is needed by esbuild",
+      },
+      {
+        "kind": "error",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0007",
+        ],
+        "sections": [
+          "symptom",
+        ],
+        "text": "MongoServerError: Authentication failed",
+      },
+      {
+        "kind": "error",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0002",
+        ],
+        "sections": [
+          "symptom",
+        ],
+        "text": "MongoServerSelectionError: Server selection timed out after 5000 ms",
+      },
+      {
+        "kind": "error",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0002",
+        ],
+        "sections": [
+          "symptom",
+        ],
+        "text": "MongoServerSelectionError: getaddrinfo ENOTFOUND _mongodb._tcp.cluster0.example.mongodb.net",
+      },
+      {
+        "kind": "command",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0002",
+        ],
+        "sections": [
+          "resolution",
+        ],
+        "text": "dig SRV _mongodb._tcp.cluster0.example.net",
+      },
+      {
+        "kind": "command",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0007",
+        ],
+        "sections": [
+          "resolution",
+        ],
+        "text": "docker compose exec api env",
+      },
+      {
+        "kind": "command",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0002",
+        ],
+        "sections": [
+          "resolution",
+        ],
+        "text": "nc -vz node0.example.net 27017",
+      },
+      {
+        "kind": "command",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0001",
+        ],
+        "sections": [
+          "resolution",
+        ],
+        "text": "pnpm approve-builds",
+      },
+      {
+        "kind": "command",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0001",
+        ],
+        "sections": [
+          "symptom",
+        ],
+        "text": "pnpm install",
+      },
+      {
+        "kind": "command",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0001",
+        ],
+        "sections": [
+          "resolution",
+        ],
+        "text": "pnpm install --force",
+      },
+      {
+        "kind": "command",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0008",
+        ],
+        "sections": [
+          "resolution",
+        ],
+        "text": "pnpm install --frozen-lockfile",
+      },
+    ],
+    "commonTags": [],
+    "counts": {
+      "divergences": 2,
+      "incidents": 5,
+      "records": 7,
+    },
+    "density": {
+      "citations": 12,
+      "records": 7,
+      "recordsWithoutEvidence": 2,
+      "signals": 8,
+      "timelineEntries": 8,
+    },
+    "distributions": {
+      "project": [
+        {
+          "count": 7,
+          "key": "sentinel-kb",
+        },
+      ],
+      "severity": [
+        {
+          "count": 2,
+          "key": "SEV1",
+        },
+        {
+          "count": 2,
+          "key": "SEV2",
+        },
+        {
+          "count": 3,
+          "key": "SEV3",
+        },
+        {
+          "count": 0,
+          "key": "NOTE",
+        },
+      ],
+      "tags": [
+        {
+          "count": 2,
+          "key": "connection",
+        },
+        {
+          "count": 2,
+          "key": "mongodb",
+        },
+        {
+          "count": 1,
+          "key": "atlas",
+        },
+        {
+          "count": 1,
+          "key": "aws",
+        },
+        {
+          "count": 1,
+          "key": "cache",
+        },
+        {
+          "count": 1,
+          "key": "ci",
+        },
+        {
+          "count": 1,
+          "key": "contracts",
+        },
+        {
+          "count": 1,
+          "key": "credentials",
+        },
+        {
+          "count": 1,
+          "key": "deploy",
+        },
+        {
+          "count": 1,
+          "key": "dns",
+        },
+        {
+          "count": 1,
+          "key": "docker",
+        },
+        {
+          "count": 1,
+          "key": "esbuild",
+        },
+        {
+          "count": 1,
+          "key": "github-actions",
+        },
+        {
+          "count": 1,
+          "key": "monorepo",
+        },
+        {
+          "count": 1,
+          "key": "network-access",
+        },
+        {
+          "count": 1,
+          "key": "node",
+        },
+        {
+          "count": 1,
+          "key": "pnpm",
+        },
+        {
+          "count": 1,
+          "key": "pnpm-10",
+        },
+        {
+          "count": 1,
+          "key": "postinstall",
+        },
+        {
+          "count": 1,
+          "key": "rag",
+        },
+        {
+          "count": 1,
+          "key": "repo-finding",
+        },
+        {
+          "count": 1,
+          "key": "rrf",
+        },
+        {
+          "count": 1,
+          "key": "self-seed",
+        },
+        {
+          "count": 1,
+          "key": "spec-drift",
+        },
+        {
+          "count": 1,
+          "key": "spec-error",
+        },
+        {
+          "count": 1,
+          "key": "srv",
+        },
+        {
+          "count": 1,
+          "key": "t-002",
+        },
+        {
+          "count": 1,
+          "key": "threshold",
+        },
+        {
+          "count": 1,
+          "key": "zod",
+        },
+      ],
+    },
+    "divergence": {
+      "byFramework": [
+        {
+          "count": 1,
+          "key": "rag-pipeline",
+        },
+        {
+          "count": 1,
+          "key": "typescript / zod v4",
+        },
+      ],
+      "byModel": [
+        {
+          "count": 2,
+          "key": "claude",
+        },
+      ],
+      "byTool": [
+        {
+          "count": 1,
+          "key": "implementer",
+        },
+        {
+          "count": 1,
+          "key": "spec-authoring",
+        },
+      ],
+      "correctionCategories": [
+        {
+          "count": 1,
+          "key": "spec",
+        },
+        {
+          "count": 0,
+          "key": "test",
+        },
+        {
+          "count": 0,
+          "key": "config",
+        },
+        {
+          "count": 0,
+          "key": "code",
+        },
+        {
+          "count": 1,
+          "key": "unclassified",
+        },
+      ],
+      "corrections": [
+        {
+          "category": "spec",
+          "marker": "specs/02-data-model.md",
+          "recordId": "aaaaaaaaaaaaaaaaaaaa0003",
+        },
+        {
+          "category": "unclassified",
+          "recordId": "aaaaaaaaaaaaaaaaaaaa0004",
+        },
+      ],
+      "count": 2,
+      "modelByCorrection": [
+        {
+          "column": "spec",
+          "count": 1,
+          "row": "claude",
+        },
+        {
+          "column": "unclassified",
+          "count": 1,
+          "row": "claude",
+        },
+      ],
+    },
+    "excluded": [
+      {
+        "reason": "injection-suspect",
+        "recordId": "aaaaaaaaaaaaaaaaaaaa0006",
+      },
+    ],
+    "factsVersion": 1,
+    "period": {
+      "firstAt": "2026-03-02T09:00:00.000Z",
+      "lastAt": "2026-05-04T10:00:00.000Z",
+      "spanDays": 63.04,
+    },
+    "recurrence": {
+      "intervalsDays": [
+        14.1,
+        6.94,
+        14.16,
+        6.81,
+        14.24,
+        6.79,
+      ],
+      "links": [
+        {
+          "recordId": "aaaaaaaaaaaaaaaaaaaa0002",
+          "targetRecordId": "aaaaaaaaaaaaaaaaaaaa0001",
+          "type": "recurrence_of",
+          "withinSourceSet": true,
+        },
+        {
+          "recordId": "aaaaaaaaaaaaaaaaaaaa0002",
+          "targetRecordId": "bbbbbbbbbbbbbbbbbbbb9999",
+          "type": "same_root_cause",
+          "withinSourceSet": false,
+        },
+      ],
+      "maxIntervalDays": 14.24,
+      "meanIntervalDays": 10.51,
+      "minIntervalDays": 6.79,
+      "occurrences": 7,
+      "spanDays": 63.04,
+    },
+    "signals": [
+      {
+        "kind": "path",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0003",
+        ],
+        "sections": [
+          "correction",
+        ],
+        "text": "packages/contracts/src/record.spec.ts",
+      },
+      {
+        "kind": "path",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0008",
+        ],
+        "sections": [
+          "resolution",
+        ],
+        "text": "pnpm-lock.yaml",
+      },
+      {
+        "kind": "path",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0001",
+        ],
+        "sections": [
+          "resolution",
+        ],
+        "text": "pnpm-workspace.yaml",
+      },
+      {
+        "kind": "path",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0003",
+        ],
+        "sections": [
+          "correction",
+          "expected",
+        ],
+        "text": "specs/02-data-model.md",
+      },
+      {
+        "kind": "metric",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0002",
+        ],
+        "sections": [
+          "prevention",
+        ],
+        "text": "30초",
+      },
+      {
+        "kind": "version",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0001",
+        ],
+        "sections": [
+          "rootCause",
+        ],
+        "text": "pnpm 10",
+      },
+      {
+        "kind": "version",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0001",
+        ],
+        "sections": [
+          "symptom",
+        ],
+        "text": "pnpm 10.x",
+      },
+      {
+        "kind": "version",
+        "recordCount": 1,
+        "recordIds": [
+          "aaaaaaaaaaaaaaaaaaaa0001",
+        ],
+        "sections": [
+          "symptom",
+        ],
+        "text": "pnpm 9",
+      },
+    ],
+    "sourceRecordIds": [
+      "aaaaaaaaaaaaaaaaaaaa0001",
+      "aaaaaaaaaaaaaaaaaaaa0002",
+      "aaaaaaaaaaaaaaaaaaaa0003",
+      "aaaaaaaaaaaaaaaaaaaa0004",
+      "aaaaaaaaaaaaaaaaaaaa0005",
+      "aaaaaaaaaaaaaaaaaaaa0007",
+      "aaaaaaaaaaaaaaaaaaaa0008",
+    ],
+    "timeline": [
+      {
+        "at": "2026-03-02T09:00:00.000Z",
+        "event": "created",
+        "recordId": "aaaaaaaaaaaaaaaaaaaa0001",
+        "severity": "SEV2",
+        "type": "incident",
+      },
+      {
+        "at": "2026-03-16T11:30:00.000Z",
+        "event": "created",
+        "recordId": "aaaaaaaaaaaaaaaaaaaa0002",
+        "severity": "SEV1",
+        "type": "incident",
+      },
+      {
+        "at": "2026-03-18T08:00:00.000Z",
+        "event": "updated",
+        "recordId": "aaaaaaaaaaaaaaaaaaaa0002",
+        "severity": "SEV1",
+        "type": "incident",
+      },
+      {
+        "at": "2026-03-23T10:00:00.000Z",
+        "event": "created",
+        "recordId": "aaaaaaaaaaaaaaaaaaaa0003",
+        "severity": "SEV2",
+        "type": "divergence",
+      },
+      {
+        "at": "2026-04-06T13:45:00.000Z",
+        "event": "created",
+        "recordId": "aaaaaaaaaaaaaaaaaaaa0004",
+        "severity": "SEV1",
+        "type": "divergence",
+      },
+      {
+        "at": "2026-04-13T09:15:00.000Z",
+        "event": "created",
+        "recordId": "aaaaaaaaaaaaaaaaaaaa0005",
+        "severity": "SEV3",
+        "type": "incident",
+      },
+      {
+        "at": "2026-04-27T15:00:00.000Z",
+        "event": "created",
+        "recordId": "aaaaaaaaaaaaaaaaaaaa0007",
+        "severity": "SEV3",
+        "type": "incident",
+      },
+      {
+        "at": "2026-05-04T10:00:00.000Z",
+        "event": "created",
+        "recordId": "aaaaaaaaaaaaaaaaaaaa0008",
+        "severity": "SEV3",
+        "type": "incident",
+      },
+    ],
+  },
+}
+`;
