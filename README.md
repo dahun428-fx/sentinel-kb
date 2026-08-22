@@ -7,4 +7,10 @@
 - 2차: Web UI (읽기 중심), HTTP API
 - 스택: Node/Fastify · MongoDB Atlas Vector Search · Claude API · Next.js · AWS EC2
 
+## 연결하기
+
+다른 프로젝트에서 이 지식보관소에 붙이려면 `docs/connect.md`를 따른다.
+`.mcp.json`(HTTP + stdio 두 전송)과 프로젝트 `CLAUDE.md`에 넣을 프로토콜 문구가 거기 있다.
+이 레포 루트의 `.mcp.json`이 자기 자신을 연결한 정본 예시다.
+
 자세한 계획은 `specs/` 참조. 개발 규칙은 `CLAUDE.md`.

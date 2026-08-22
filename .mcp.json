@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "sentinel-kb": {
+      "type": "http",
+      "url": "${SENTINEL_KB_URL}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SENTINEL_KB_KEY}"
+      }
+    },
+    "sentinel-kb-local": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": ["exec", "tsx", "packages/mcp/src/stdio.cli.ts"],
+      "env": {
+        "SENTINEL_KB_KEY": "${SENTINEL_KB_KEY}",
+        "API_KEYS": "${API_KEYS}",
+        "CORE_API_URL": "${CORE_API_URL}"
+      }
+    }
+  }
+}
