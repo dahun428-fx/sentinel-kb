@@ -20,6 +20,9 @@ importers:
       '@sentinel/core':
         specifier: workspace:*
         version: link:packages/core
+      '@sentinel/mcp':
+        specifier: workspace:*
+        version: link:packages/mcp
       '@sentinel/worker':
         specifier: workspace:*
         version: link:packages/worker
