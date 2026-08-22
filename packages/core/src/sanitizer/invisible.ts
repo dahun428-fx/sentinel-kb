@@ -30,23 +30,40 @@ const DEFAULT_IGNORABLE_RE = /\p{Default_Ignorable_Code_Point}/u;
 const BLANK_RENDERING_RE = /[⠀ᅠㅤﾠ]/u;
 
 /**
- * 제어문자. C0(U+0000–U+001F) 중 구조를 나르는 `\t`·`\n`·`\r`은 **남기고**,
- * 나머지와 DEL(U+007F)·C1(U+0080–U+009F)·U+FFF9–FFFB를 지운다.
+ * 서식 문자(`Cf`) **전체**. `Default_Ignorable`과 겹치지만 같지 않다 —
+ * `Cf`이면서 `Default_Ignorable`이 **아닌** 29종이 있고, 그 전부가 한때 플래그도 마스킹도 없이
+ * 통과했다(T-004 N-9): U+0600–0605·U+06DD·U+070F·U+0890·U+0891·U+08E2(아랍 문자 앞에 붙는
+ * prepended concatenation mark), U+110BD·U+110CD(카이티), U+13430–1343F(이집트 상형문자 서식 제어).
+ * 이들은 앞 글자에 얹히거나 다음 글자와 결합해 **자기 폭을 갖지 않으므로** 시크릿 한가운데
+ * 끼워 넣어도 사람 눈에는 시크릿이 그대로 보인다.
+ *
+ * `Default_Ignorable`만 보던 시절 U+FFF9–FFFB 세 개만 하드코딩으로 알고 있었다 —
+ * 그것들도 `Cf`다. 범주 전체를 덮으면 열거가 필요 없어지고 형제 문자가 더 나오지 않는다.
+ */
+const FORMAT_RE = /\p{Cf}/u;
+
+/**
+ * 제어문자(`Cc`) 전체 — C0(U+0000–U+001F) + DEL·C1(U+007F–U+009F).
+ * 구조를 나르는 `\t`·`\n`·`\r`만 `isIgnorable`이 따로 되살린다.
  *
  * `normalizeWithMap`이 성능을 위해 인쇄 가능 ASCII를 지름길로 통과시키는데, 제어문자까지
  * 함께 통과시키면 **프로브와 원문 양쪽에 남아 두 패스를 동시에 깬다**(T-004 N-7).
  * HTML 렌더에서는 결합 악센트보다 더 안 보인다.
- * `\n`을 남기는 이유는 mongo 규칙이 `[^:/@\n]`으로 줄 경계를 쓰기 때문이다 — 지우면 경계가 무너진다.
  */
-function isControl(char: string): boolean {
-  const codePoint = char.codePointAt(0);
-  if (codePoint === undefined) return false;
-  // 탭·개행·캐리지리턴은 구조를 나른다. 지우면 mongo 규칙의 줄 경계가 무너진다.
-  if (codePoint === 0x09 || codePoint === 0x0a || codePoint === 0x0d) return false;
-  if (codePoint <= 0x1f) return true;
-  if (codePoint >= 0x7f && codePoint <= 0x9f) return true;
-  return codePoint >= 0xfff9 && codePoint <= 0xfffb;
-}
+const CONTROL_RE = /\p{Cc}/u;
+
+/**
+ * 짝 없는 서로게이트(`Cs`). 올바른 텍스트에는 **원리적으로 등장하지 않는** 값이라
+ * 렌더러가 U+FFFD로 바꾸거나 통째로 버린다 — 즉 폭 없는 삽입과 같은 효과다.
+ * 실측으로 `AKIA\uD800IOSFODNN7EXAMPLE`이 플래그도 마스킹도 없이 통과했다.
+ *
+ * 정상적인 astral 문자는 서로게이트 **쌍**이고 `/u` 정규식은 그걸 코드포인트 하나로 보므로
+ * `\p{Cs}`에 걸리지 않는다(😀 = U+1F600은 `So`). 즉 이 항목이 지우는 것은 깨진 입력뿐이다.
+ *
+ * 결정 2는 `Cf`·`Cc`만 지목했지만, 결정 3의 독립 생성기가 `Cs`에서 같은 축의 구멍을
+ * 즉시 찾아냈다. 같은 근거(폭 없음·프로브는 매칭 전용 사본)가 그대로 적용된다.
+ */
+const LONE_SURROGATE_RE = /\p{Cs}/u;
 
 /**
  * 결합 표시 **전체**(`Mn` 비간격 + `Mc` 간격 + `Me` 둘러싸기).
@@ -71,13 +88,22 @@ const COMBINING_MARK_RE = /\p{M}/u;
 
 /**
  * 마스킹 프로브에서 제거할 문자 전체.
- * 위 세 집합의 합집합이며, 이것이 "보이지 않거나 폭을 차지하지 않는 것"의 실무적 정의다.
+ * 위 여섯 집합의 합집합이며, 이것이 "보이지 않거나 폭을 차지하지 않는 것"의 실무적 정의다.
+ *
+ * **범주 단위로만 넓힌다.** T-004에서 개별 문자를 열거하다 형제 문자를 네 번 놓쳤다
+ * (F-8 → N-2 → N-6 → N-9). 열거는 언제나 "지금 아는 것"에서 멈추므로,
+ * 유니코드 General_Category 전체를 덮는 쪽이 다음 형제를 미리 삼킨다.
+ * 보이는 공백(`Zs`·`Zl`·`Zp`)과 사용자 정의 영역(`Co`)은 **일부러 뺐다** —
+ * 자기 폭이나 글리프를 가져 시크릿을 눈에 보이게 끊으므로 일반 공백과 같은 취급이다.
  */
 export const IGNORABLE_RE = new RegExp(
   [
     DEFAULT_IGNORABLE_RE.source,
     BLANK_RENDERING_RE.source,
     COMBINING_MARK_RE.source,
+    FORMAT_RE.source,
+    CONTROL_RE.source,
+    LONE_SURROGATE_RE.source,
   ].join("|"),
   "u",
 );
@@ -95,9 +121,18 @@ export const IGNORABLE_RE = new RegExp(
 export const ZERO_WIDTH_RE = /[\u200B-\u200D\u2060\uFEFF]/g;
 
 
-/** 마스킹 프로브에서 이 문자를 만나면 프로브에 넣지 않는다. */
+/**
+ * 마스킹 프로브에서 이 문자를 만나면 프로브에 넣지 않는다.
+ *
+ * `\t`·`\n`·`\r`은 `Cc`지만 **되살린다.** 구조를 나르는 문자이고, 프로브에서 지우면
+ * 줄 단위로 나뉜 입력이 한 줄로 붙어 mongo 규칙의 authority 경계 판정이 무너진다.
+ * (URI 구조 파싱으로 바뀐 뒤에도 authority는 줄 안에서 끝나야 한다 — T-004 결정 1.)
+ */
 export function isIgnorable(char: string): boolean {
-  return IGNORABLE_RE.test(char) || isControl(char);
+  const codePoint = char.codePointAt(0);
+  if (codePoint === undefined) return false;
+  if (codePoint === 0x09 || codePoint === 0x0a || codePoint === 0x0d) return false;
+  return IGNORABLE_RE.test(char);
 }
 
 /** 프로브용. 위 판정에 걸리는 문자를 전부 제거한다. */

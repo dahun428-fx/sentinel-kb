@@ -25,7 +25,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { sanitize } from "./sanitize.js";
+import { DEFAULT_MAX_INPUT_CHARS, SanitizeInputTooLargeError, sanitize } from "./sanitize.js";
 
 const UPPER_ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const LOWER_ALPHA = "abcdefghijklmnopqrstuvwxyz".split("");
@@ -105,37 +105,152 @@ const mongoCredentialArb: fc.Arbitrary<string> = variableLengthFrom(KEY_CHARS, 2
 // 회피 변형 생성기 (B-1 회귀 고정)
 // ---------------------------------------------------------------------------
 
-const INVISIBLE_PROBE_RE = /\p{M}|\p{Default_Ignorable_Code_Point}/u;
-
 /**
- * 비가시 문자 표본을 **유니코드 속성에서 직접 뽑는다.**
+ * ## 표집을 구현에서 독립시킨다 (T-004 결정 3 / F-17)
  *
- * 하드코딩 목록을 쓰면 안 되는 이유가 T-004에서 세 번 증명됐다 — 목록은 언제나
- * "코드가 이미 처리하는 것"에서 역산되므로 형제 문자를 원리적으로 생성하지 못한다.
- * Me 결합 표시(N-6)와 C0 제어문자(N-7)가 정확히 그렇게 프로퍼티를 통과했다.
- * 여기서는 코드가 무엇을 지우는지와 **무관하게** 속성으로 표집하므로,
- * 다음번에 또 어떤 범주를 빠뜨리면 이 생성기가 먼저 잡는다.
+ * 이 생성기는 두 번 실패했다. 처음에는 하드코딩 목록이라 형제 문자(`Me`·C0)를 만들지 못했고,
+ * 고친 뒤에도 표집 조건이 `invisible.ts`의 구현 집합(`\p{M} | Default_Ignorable` + C0/C1)과
+ * **글자 그대로 같아서** 구현이 모르는 `\p{Cf}` 29종(N-9)을 그대로 통과시켰다.
+ * 목록을 유니코드 속성 표현으로 바꿨을 뿐 여전히 구현에서 역산돼 있었던 것이다.
+ *
+ * 그래서 여기서는 **구현이 무엇을 지우는지 보지 않고** 표집한다:
+ *
+ * 1. 유니코드 General_Category를 런타임 `\p{...}`로 직접 열거한다. `invisible.ts`를 import하지
+ *    않으므로 구현이 범주를 빠뜨려도 표본은 줄어들지 않는다.
+ * 2. 거기에 **전 평면 무작위 표집**을 섞는다. 범주 열거가 놓치는 축(예: `Lo`인데 빈칸으로
+ *    렌더되는 U+2800 계열)이 있어도 이쪽이 잡는다.
+ *
+ * 기대값을 가르는 기준은 구현이 아니라 **렌더링**이다:
+ *
+ * - `Cc`·`Cf`·`Cs`·`Mn`·`Mc`·`Me`·`Default_Ignorable` → 자기 폭도 글리프도 없거나(서식·제어),
+ *   앞 글자에 얹힌다(결합 표시). 시크릿 한가운데 끼워도 **사람 눈에는 시크릿이 그대로 보인다**
+ *   → 반드시 마스킹돼야 한다.
+ * - `Zs`·`Zl`·`Zp`(보이는 공백)·`Co`(사용자 정의 글리프)와 그 밖의 일반 문자 → 시크릿을
+ *   **눈에 보이게 끊는다.** 일반 공백을 넣은 것과 같으므로 마스킹을 요구하지 않는다.
+ *   대신 시크릿 **바깥**에 붙였을 때 마스킹을 깨뜨리지 않을 것을 요구한다.
+ *
+ * 이 분류는 구현 집합보다 넓다 — 실제로 `Cs`(짝 없는 서로게이트)에서 구현이 모르던
+ * 미탐을 즉시 찾아냈다. 넓은 쪽이 옳다: 표본이 구현을 넘어야 구멍을 찾을 수 있다.
  */
-function sampleInvisibleChars(): string[] {
-  const found: string[] = [];
-  const isTarget = (cp: number): boolean => {
-    // 구조를 나르는 공백은 제외한다 — 지워지지 않는 것이 정상이다.
-    if (cp === 0x09 || cp === 0x0a || cp === 0x0d) return false;
-    if (cp <= 0x1f || (cp >= 0x7f && cp <= 0x9f)) return true;
-    return INVISIBLE_PROBE_RE.test(String.fromCodePoint(cp));
-  };
-  // BMP 전체 + tag/variation-selector 보충면. 매 8번째만 표집해 목록을 적당히 유지한다.
-  for (let cp = 0; cp <= 0xffff; cp += 1) {
-    if (cp >= 0xd800 && cp <= 0xdfff) continue; // 서로게이트 단독은 문자가 아니다
-    if (cp % 8 === 0 && isTarget(cp)) found.push(String.fromCodePoint(cp));
-  }
-  for (let cp = 0xe0000; cp <= 0xe01ff; cp += 16) {
-    if (isTarget(cp)) found.push(String.fromCodePoint(cp));
-  }
-  return found;
+function categoryRe(name: string): RegExp {
+  return new RegExp(`^\\p{General_Category=${name}}$`, "u");
 }
 
-const INVISIBLE_CHARS = sampleInvisibleChars();
+/** 폭도 글리프도 없는 범주 — 끼워 넣어도 시크릿이 그대로 읽힌다. */
+const VANISHING_RE = new RegExp(
+  [
+    ...["Cc", "Cf", "Cs", "Mn", "Mc", "Me"].map((name) => `\\p{General_Category=${name}}`),
+    "\\p{Default_Ignorable_Code_Point}",
+  ].join("|"),
+  "u",
+);
+
+/** 자리를 차지하거나 글리프를 갖는 범주 — 시크릿을 눈에 보이게 끊는다. */
+const SEPARATING_CATEGORIES = ["Co", "Zs", "Zl", "Zp"] as const;
+
+/** 열거 대상 범주 전체. 표집을 여기서만 정하고 구현은 보지 않는다. */
+const SAMPLED_CATEGORIES = ["Cc", "Cf", "Cs", "Mn", "Mc", "Me", ...SEPARATING_CATEGORIES] as const;
+
+/** 열거 스윕에서 후보를 빠르게 거르는 합집합. 미할당 코드포인트가 대부분이라 이 한 번으로 끝난다. */
+const SEPARATOR_HINT_RE = new RegExp(
+  SEPARATING_CATEGORIES.map((name) => `\\p{General_Category=${name}}`).join("|"),
+  "u",
+);
+
+/**
+ * NFKD 정규화 후 ASCII 단어 문자가 되는지. 전각 `Ａ`·수학 알파벳 `𝐀`·원문자 `①`이 여기 걸린다.
+ * 이런 문자를 시크릿 옆에 붙이면 토큰 자체가 달라지므로 마스킹을 요구할 수 없다 —
+ * 구현의 좁힘을 베낀 것이 아니라 "글자를 덧붙였다"는 사실에서 나오는 제외다.
+ */
+function normalizesToWordChar(char: string): boolean {
+  return /[A-Za-z0-9_]/.test(char.normalize("NFKD"));
+}
+
+/** 구조를 나르는 공백과 일반 공백은 제외한다 — 지워지지 않는 것이 정상이다. */
+function isStructuralSpace(codePoint: number): boolean {
+  return codePoint === 0x09 || codePoint === 0x0a || codePoint === 0x0d || codePoint === 0x20;
+}
+
+/** 코드포인트를 표본 두 통 중 하나에 넣는다. 어디에도 안 맞으면 버린다. */
+function classify(codePoint: number, vanishing: string[], separating: string[]): void {
+  if (isStructuralSpace(codePoint)) return;
+  const char = String.fromCodePoint(codePoint);
+  if (VANISHING_RE.test(char)) {
+    vanishing.push(char);
+    return;
+  }
+  if (normalizesToWordChar(char)) return;
+  separating.push(char);
+}
+
+/** 범주별 표본 수를 맞춘다. 앞에서 N개를 자르면 한 블록에 쏠려 형제 문자를 못 만든다. */
+function spread<T>(items: readonly T[], limit: number): T[] {
+  if (items.length <= limit) return [...items];
+  const step = items.length / limit;
+  const out: T[] = [];
+  for (let i = 0; i < limit; i += 1) {
+    const item = items[Math.floor(i * step)];
+    if (item !== undefined) out.push(item);
+  }
+  return out;
+}
+
+const PER_CATEGORY_LIMIT = 64;
+const PER_CATEGORY_SWEEP_CAP = 4096;
+
+/**
+ * General_Category 열거. 전 평면을 한 번 훑고 범주별로 나눠 담는다.
+ * 범주마다 **같은 수**를 뽑아 큰 범주(`Mn`·`Cs`·`Co`)가 표본을 잠식하지 않게 한다 —
+ * `Cf`는 170여 자뿐이라 비율로 뽑으면 N-9 29종이 표본에서 사실상 사라진다.
+ */
+function sampleByCategory(): { vanishing: string[]; separating: string[] } {
+  const testers = SAMPLED_CATEGORIES.map((name) => ({ name, re: categoryRe(name) }));
+  const buckets = new Map<string, number[]>(SAMPLED_CATEGORIES.map((name) => [name, []]));
+
+  for (let cp = 0; cp <= 0x10ffff; cp += 1) {
+    const char = String.fromCodePoint(cp);
+    if (!VANISHING_RE.test(char) && !SEPARATOR_HINT_RE.test(char)) continue;
+    for (const { name, re } of testers) {
+      const bucket = buckets.get(name);
+      if (bucket === undefined || bucket.length >= PER_CATEGORY_SWEEP_CAP) continue;
+      if (re.test(char)) {
+        bucket.push(cp);
+        break;
+      }
+    }
+  }
+
+  const vanishing: string[] = [];
+  const separating: string[] = [];
+  for (const found of buckets.values()) {
+    for (const cp of spread(found, PER_CATEGORY_LIMIT)) classify(cp, vanishing, separating);
+  }
+  return { vanishing, separating };
+}
+
+/**
+ * 전 평면(BMP + astral) 균등 표집. 결정론을 위해 고정 시드 LCG를 쓴다 —
+ * 실행마다 표본이 달라지면 실패가 재현되지 않는다.
+ */
+function sampleAllPlanes(count: number): { vanishing: string[]; separating: string[] } {
+  const vanishing: string[] = [];
+  const separating: string[] = [];
+  let state = 0x5f3a_c91d;
+  for (let i = 0; i < count; i += 1) {
+    state = (state * 1_664_525 + 1_013_904_223) >>> 0;
+    classify(state % 0x110000, vanishing, separating);
+  }
+  return { vanishing, separating };
+}
+
+const BY_CATEGORY = sampleByCategory();
+const ALL_PLANES = sampleAllPlanes(600);
+
+/** 시크릿 안에 끼워도 시크릿이 그대로 읽히는 문자 — 마스킹이 유일한 방어선이다. */
+const INVISIBLE_CHARS = [...BY_CATEGORY.vanishing, ...ALL_PLANES.vanishing];
+
+/** 시크릿을 눈에 보이게 끊는 문자 — 바깥에 붙어도 마스킹을 깨면 안 된다. */
+const SEPARATING_CHARS = [...BY_CATEGORY.separating, ...ALL_PLANES.separating];
 
 /**
  * 시크릿 중간 임의 위치에 제로폭 문자 하나를 끼운다.
@@ -441,6 +556,37 @@ describe("sanitize — 프로퍼티: 원문 시크릿은 조각도 남지 않는
     );
   });
 
+  /**
+   * 표본의 나머지 절반 — 시크릿을 **눈에 보이게 끊는** 문자(보이는 공백·사용자 정의 글리프·
+   * 그 밖의 일반 문자)다. 이쪽에는 마스킹을 요구할 수 없다. 일반 공백을 끼운 것과 같아서
+   * 사람이 봐도 시크릿이 끊겨 보이기 때문이다. 대신 **바깥에 붙었을 때 마스킹을 깨지 않을 것**을
+   * 요구한다 — 경계 문자가 앵커를 무너뜨리는 실패 모드(N-1)는 가시 문자에서도 성립한다.
+   *
+   * AWS 액세스 키로만 확인한다. 40자 base64 규칙은 단어 경계가 아니라 문자 클래스 경계를 쓰므로
+   * base64 알파벳에 속한 구분자(`/`·`+`·`=`)가 붙으면 **정말로 다른 런**이 되어 마스킹하지 않는
+   * 것이 옳다 — 그건 회피가 아니라 값이 달라진 것이다.
+   */
+  it("시크릿을 끊는 가시 문자가 바깥에 붙어도 마스킹은 깨지지 않는다", () => {
+    fc.assert(
+      fc.property(
+        awsAccessKeyArb,
+        fc.constantFrom(...SEPARATING_CHARS),
+        fc.constantFrom("x", "q", "7"),
+        fc.boolean(),
+        (secret, separator, neighbour, atEnd) => {
+          const input = atEnd
+            ? `${secret}${separator}${neighbour}`
+            : `${neighbour}${separator}${secret}`;
+          const { text, flags } = sanitize(input, { maskEmail: false });
+
+          expectNoSecretFragment(text, secret);
+          expect(flags).toContain("secret-masked");
+        },
+      ),
+      { numRuns: 400 },
+    );
+  });
+
   it("여러 유형이 한 텍스트에 섞여도 전부 사라진다", () => {
     fc.assert(
       fc.property(
@@ -519,23 +665,47 @@ describe("sanitize — 프로퍼티: 불변식", () => {
   });
 
   /**
-   * ReDoS 회귀 고정. 이메일 규칙의 로컬파트가 무한 반복이면 100KB 입력에서
-   * 12초짜리 동기 블록이 생긴다 — `SANITIZE_MASK_EMAIL=true`인 순간 저장 API가 멈춘다.
-   * 여유를 크게 잡은 상한이다(실측은 100ms를 한참 밑돈다). CI 머신 편차를 흡수하려는 것이지
-   * 이 값이 성능 목표라는 뜻이 아니다.
+   * ReDoS·이차곡선 회귀 고정. 이메일 규칙의 로컬파트가 무한 반복이면 12초짜리 동기 블록이
+   * 생기고, 겹침 해소가 세그먼트 수에 이차면 `Bearer ` 런이 초 단위로 튄다(T-004 F-11/F-14).
+   * 둘 다 저장 경로의 **동기** 게이트에서 API를 통째로 멈춘다.
+   *
+   * 크기는 상한(`DEFAULT_MAX_INPUT_CHARS`)에 맞춘다 — 그보다 큰 입력은 이제 애초에 거절되므로
+   * 최악의 통과 가능 입력이 곧 이 크기다. `Bearer ` 런은 7바이트마다 세그먼트를 만드는,
+   * 실측으로 확인된 최악의 모양이다.
+   *
+   * 겹침 해소의 이차 곡선은 알고리즘이 아니라 이 상한으로 막는다 — 상한 안에서는 최악이
+   * 58ms다. 상한 500ms는 CI 머신 편차를 흡수하려는 값이지 성능 목표가 아니다.
    */
-  it("100KB 입력을 이메일 마스킹까지 켜고 선형 시간에 처리한다", () => {
+  it("상한 크기 입력을 이메일 마스킹까지 켜고 선형 시간에 처리한다", () => {
+    const size = DEFAULT_MAX_INPUT_CHARS;
     const inputs = [
-      "a.b_c-d%e+f".repeat(9100).slice(0, 100_000),
-      `${"x".repeat(50_000)}@${"y".repeat(200)} ${"aB3/+=".repeat(8000)}`.slice(0, 100_000),
-      "0123456789abcdef".repeat(6250),
+      "Bearer ".repeat(Math.ceil(size / 7)).slice(0, size),
+      "a.b_c-d%e+f".repeat(Math.ceil(size / 11)).slice(0, size),
+      `${"x".repeat(size / 2)}@${"y".repeat(200)} ${"aB3/+=".repeat(8000)}`.slice(0, size),
+      "0123456789abcdef".repeat(size / 16),
     ];
 
     for (const input of inputs) {
       const startedAt = performance.now();
       sanitize(input, { maskEmail: true });
 
-      expect(performance.now() - startedAt).toBeLessThan(1000);
+      expect(performance.now() - startedAt).toBeLessThan(500);
     }
+  });
+
+  /**
+   * 상한을 넘긴 입력은 **자르지 않고 던진다.** 조용히 자르면 잘려나간 부분의 시크릿을
+   * 검사하지 않은 채 호출자가 그 사실을 모르고 저장한다 (T-004 결정 4).
+   */
+  it("상한을 넘긴 입력은 어떤 내용이든 SanitizeInputTooLargeError로 거절한다", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 500 }), fc.string({ maxLength: 8 }), (over, filler) => {
+        const unit = filler === "" ? "x" : filler;
+        const input = unit.repeat(Math.ceil((DEFAULT_MAX_INPUT_CHARS + over) / unit.length));
+
+        expect(() => sanitize(input, { maskEmail: false })).toThrow(SanitizeInputTooLargeError);
+      }),
+      { numRuns: 50 },
+    );
   });
 });

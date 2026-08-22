@@ -161,44 +161,195 @@ function matchIndex(match: RegExpMatchArray): number {
  * 비번만 채워 붙여넣은 형태로, 트러블슈팅 기록에서 가장 흔한 유출 경로다.
  * 한쪽이 자리표시자라고 다른 쪽까지 통과시키면 그 비번이 그대로 저장된다.
  * 둘 다 실제 값이면 `user:pass` 전체를 라벨 하나로 합쳐 지운다.
+ *
+ * 경계를 어떻게 정하는지는 바로 아래 주석 블록에 있다 — 그 순서가 T-004에서 가장 여러 번
+ * 옆칸을 연 자리다.
  */
-// 문자 클래스에서 공백을 빼면 `<db user name>:realpw@host` 처럼 한쪽에 공백이 든 순간
-// 규칙 전체가 무발동해 **비밀번호까지 통과한다**(T-004 N-3). 개행만 배제하고 길이를 묶는다.
+// ## 왜 "authority 끝"이 아니라 "`@` 후보 + 호스트 모양"인가 (T-004 결정 1 개정)
 //
-// 공백을 허용한 대가로 `mongodb://localhost:27017 에서 실패, @team 에 공유` 같은 정상
-// 문장이 128자까지 삼켜져 **보존을 약속한 호스트가 지워진다**(T-004 F-15, 알려진 오탐).
+// userinfo와 산문을 **문자 클래스로** 가르려는 시도가 세 번 실패했다.
+// 공백을 배제하면 `<db user name>:realpw@host`에서 규칙이 통째로 무발동해 비밀번호가 통과했고
+// (N-3), 공백을 허용하니 `mongodb://localhost:27017 에서 실패, @team 에 공유` 같은 정상 문장의
+// **호스트가 지워졌다**(F-15). 호스트 룩어헤드로 그 오탐을 막으니 compose 서비스명
+// (`@mongo`·`@db`·`@localhost`)이 호스트로 인정되지 않아 비밀번호가 다시 샜다(N-8).
 //
-// 호스트 룩어헤드로 그 오탐을 막아 봤지만 **점 없는 호스트에서 비밀번호가 새는 회귀**가
-// 생겼다(T-004 N-8). `mongodb://root:example@mongo` 는 compose 서비스명이라 `.`·`:`·`/`가
-// 없다 — specs/06이 compose를 쓰므로 이 레포에서 가장 흔한 형태다.
-// 룩어헤드 변형 3종을 실측한 결과 **미탐과 오탐 중 하나만 고를 수 있었다.**
-// 시크릿 새니타이저의 위험 비대칭(미탐 > 오탐)에 따라 오탐 쪽을 택해 룩어헤드를 뺐다.
-// 근본 해결은 문자 클래스가 아니라 **URI 구조 파싱**이다 — T-004 BLOCKED 항목 1.
-const MONGO_URI_RE =
-  /\b(mongodb(?:\+srv)?:\/\/)([^:/@\n]{1,128}):([^/@\n]{1,128})@/gi;
+// 그래서 구조 파싱으로 갔는데, 첫 판(5차)은 **authority의 끝을 먼저 정하고 그 안에서
+// 마지막 `@`를 찾는** 순서였다. 이 순서가 새 구멍을 냈다(N-10): authority 종료 문자
+// (`/`·`?`·공백류)가 **비밀번호 안에** 들어 있으면 파서가 거기서 authority를 끝내
+// `@`를 못 찾고 **자격증명 전체가 플래그도 없이 평문으로 통과**한다.
+// `mongodb://appuser:Str0ngPass?x@cluster0.example.net/db`가 그대로 샜다.
+//
+// 순서를 뒤집는다. **경계 후보를 먼저 고르고, 그 뒤가 호스트처럼 보이는지로 검증한다.**
+// 비밀번호에 어떤 글자가 들어 있든 `@` 뒤의 호스트는 여전히 호스트 모양이므로
+// 판정 근거가 비밀번호 내용에 의존하지 않는다.
+//
+//   1. `mongodb://` | `mongodb+srv://` 스킴을 찾는다(대소문자 무시).
+//   2. 스킴 뒤부터 **줄 끝까지**(개행 전까지, 상한 `MAX_USERINFO_SCAN`) 훑는다.
+//   3. 그 구간의 `@`를 **뒤에서부터** 보며 뒤가 호스트 모양인지 검사한다:
+//      `[A-Za-z0-9._-]+(:\d{1,5})?` 또는 `\[IPv6\](:\d{1,5})?` 뒤에
+//      `/`·`?`·`#`·공백류·줄끝 중 하나가 와야 한다.
+//   4. 호스트 모양을 통과한 `@`에 대해 **userinfo 정당성**을 따진다(아래 두 갈래).
+//      통과하면 그게 경계고, 실패하면 다음 `@`로 계속 물러난다.
+//   5. userinfo를 **첫 `:`** 로 user/pass로 가르고 **각각** 판정한다
+//      (한쪽이 자리표시자여도 다른 쪽은 지운다).
+//
+// userinfo 정당성 검사가 F-15 오탐을 막는 **유일한** 방어선이다. 3번만으로는
+// `mongodb://localhost:27017 에서 문제 발생, @team 에 공유했다.`의 `@team`이 호스트 모양을
+// 통과해 userinfo = `localhost:27017 에서 문제 발생, `가 되고 호스트가 지워진다.
+//
+// **엄격 갈래**: RFC 3986 userinfo 문자집합 + 실무 예외 `?`·`/`·`@`.
+//   공백도 한글도 제어문자도 없다. `Str0ngPass?x`·`Str0ngPass/x`·`P@ssw0rdLong`이 여기 걸린다.
+//   (`?`·`/`는 RFC userinfo에 **없지만** 이스케이프 없이 들어오는 것이 현실이고,
+//    그게 N-10 회귀의 핵심 케이스다. `@`도 같은 이유 — `svc:P@ssw0rdLong@host`.)
+// **관대 갈래**: 공백이 있어도 되지만 **`:`가 반드시 있고**, 비밀번호 쪽은
+//   **후행 공백만 트림한 뒤 내부 공백이 남지 않아야** 한다.
+//   `<db user name>:realpw@host`(N-3)와 `appuser:Str0ngPass @host`(후행 공백)가 여기 걸리고,
+//   `localhost:27017 에서 문제 발생, `는 비밀번호 자리에 **내부** 공백이 있어 탈락한다(F-15).
+//
+// **개행은 명시적으로 포기한다.** `mongodb://user:pw\n@host`처럼 URI가 줄을 넘는 형태는
+// 산문과 구별할 구조적 근거가 없다 — 개행 하나만 허용해도 문단 전체가 userinfo 후보가 된다.
+// F-19(`:` 없는 형태 포기)와 같은 취급이다. `\r`는 개행으로 보지 않고 공백류로 다룬다.
+
+/**
+ * userinfo 경계를 찾는 스캔 상한(문자 수).
+ *
+ * 상한이 필요한 이유는 정확도가 아니라 **비용**이다. 스킴 매치마다 줄 끝까지 훑으면
+ * `mongodb://mongodb://…` 같은 입력에서 매치 수 × 줄 길이가 되어 이차로 튄다(F-11과 같은 축).
+ * 512자는 MongoDB 사용자명·비밀번호 실사용 길이(합쳐도 256자를 넘지 않는다)의 두 배다.
+ * 이 밖으로 밀려난 자격증명은 포기한다 — 개행 포기와 같은 성격의 명시적 한계다.
+ */
+const MAX_USERINFO_SCAN = 512;
+
+/** 공백류. JS `\s`는 NBSP·EN/EM SPACE·U+3000·U+205F·U+1680·U+2028/2029를 모두 덮는다. */
+const SPACE_RE = /\s/u;
+
+/**
+ * RFC 3986 userinfo 문자집합 + 퍼센트 인코딩 + 실무 예외(`?`·`/`·`@`).
+ * `unreserved = A-Za-z0-9-._~`, `sub-delims = !$&'()*+,;=`, 그리고 `:`·`%`.
+ * `?`·`/`는 RFC userinfo에 없지만 실무에서 이스케이프 없이 들어오므로 예외로 허용한다(N-10).
+ *
+ * **`@`는 넣지 않는다.** 넣으면 런이 비밀번호 안의 `@`를 삼키고, strict 갈래가 그 런의
+ * 마지막 `@`를 경계로 **즉시 반환**해 버린다. 비밀번호에 `@`가 있고 그 뒤에 이 집합 밖 문자
+ * (`#`·`[`·`{`·한글·이모지 등)가 오면 런이 진짜 경계 앞에서 끊겨
+ * **비밀번호 내부의 `@`가 경계로 뽑히고 나머지 비밀번호가 평문으로 남는다** (T-004 N-12).
+ * `flags`에는 `secret-masked`가 붙으므로 **"새니타이즈됨"으로 보이는데 비밀번호가 들어 있다.**
+ * `@`를 빼면 strict 런이 `@`에서 끊겨 strict가 실패하고, lenient가 올바른 마지막 `@`를 찾는다.
+ */
+const STRICT_USERINFO_RE = /[A-Za-z0-9\-._~%!$&'()*+,;=:?/]/;
+
+/** 개행 전까지가 한 줄이다. `\r`는 여기 포함하지 않는다 — 공백류로 다룬다. */
+function lineEndFrom(subject: string, from: number): number {
+  const newline = subject.indexOf("\n", from);
+  return newline < 0 ? subject.length : newline;
+}
+
+/**
+ * userinfo 경계(`@`의 위치)를 찾는다. 없으면 `-1`.
+ *
+ * 두 갈래를 순서대로 본다. **엄격이 먼저**인 이유는 그쪽이 `:` 없는 형태
+ * (`mongodb://svcuser@host`)까지 인정하는 더 넓은 판정이기 때문이다.
+ * 관대 갈래는 공백을 허용하는 대신 `:`와 "비밀번호에 내부 공백 없음"을 요구한다.
+ */
+/**
+ * `@` 뒤에 호스트가 **존재하는지**만 본다. 모양은 보지 않는다.
+ *
+ * 6차까지 `@` 뒤를 `[A-Za-z0-9._-]{1,255}(:\d{1,5})?` + 종료문자 열거로 검증했는데,
+ * 그 **열거가 여섯 번째 옆칸(N-11)**이었다 — 마크다운 백틱·괄호·한국어 마침표·
+ * 레플리카셋 쉼표·`$PORT` 보간이 전부 "호스트 아님"으로 판정돼 규칙이 무발동했고,
+ * 무발동은 **무플래그 평문 통과**를 뜻했다. 열거에 없는 문자 = 조용한 유출이라는 성질은
+ * 여섯 라운드 내내 제거되지 않았다.
+ *
+ * 그래서 모양 검증을 통째로 걷어냈다. F-15(정상 산문의 호스트 삭제) 방어는
+ * **userinfo 정당성 검사만으로 성립한다** — strict 런은 공백에서 끊기고,
+ * lenient는 비밀번호 내부 공백을 배제한다. 호스트 검증은 덧붙인 열거였을 뿐이다.
+ *
+ * 남긴 조건은 하나뿐이고 그것은 열거가 아니라 **구조적 최소**다:
+ * `@`가 스팬 맨 끝이면 뒤에 호스트가 존재할 수 없으므로 경계가 아니다
+ * (`...?appName=svc@` 같은 꼬리 `@`).
+ */
+function hasHostAfter(subject: string, at: number, spanEnd: number): boolean {
+  return at + 1 < spanEnd;
+}
+
+function findUserinfoEnd(subject: string, authorityStart: number): number {
+  const spanEnd = Math.min(lineEndFrom(subject, authorityStart), authorityStart + MAX_USERINFO_SCAN);
+
+  // --- 엄격 갈래 ---------------------------------------------------------
+  // userinfo에 공백이 없으므로 후보는 "허용 문자만으로 이뤄진 최대 런" 안의 `@`들이다.
+  // 런을 한 번만 구해 두면 후보마다 문자집합을 다시 훑지 않아도 된다(비용이 선형으로 남는다).
+  let strictEnd = authorityStart;
+  while (strictEnd < spanEnd && STRICT_USERINFO_RE.test(subject.charAt(strictEnd))) {
+    strictEnd += 1;
+  }
+  for (let i = strictEnd - 1; i >= authorityStart; i -= 1) {
+    if (subject.charAt(i) === "@" && hasHostAfter(subject, i, spanEnd)) return i;
+  }
+
+  // --- 관대 갈래 ---------------------------------------------------------
+  // `:`가 없으면 자격증명으로 보지 않는다(F-19). 사용자명 단독은 비밀번호보다 민감도가 낮고
+  // `mongodb://my user@host` 같은 형태를 산문과 구별할 근거가 없다.
+  const colon = subject.indexOf(":", authorityStart);
+  if (colon < 0 || colon >= spanEnd) return -1;
+
+  // 비밀번호 후보 구간 `[colon+1, p)`가 "후행 트림 후 내부 공백 없음"을 만족하는 `p`는
+  // **연속 범위**다: 첫 공백류 이전 전부, 그리고 그 공백류 런의 바로 끝.
+  // `@`는 공백류가 아니므로 후보는 `[colon+1, firstSpace)` 안의 `@`들 + 공백 런 끝의 `@` 하나다.
+  let firstSpace = colon + 1;
+  while (firstSpace < spanEnd && !SPACE_RE.test(subject.charAt(firstSpace))) firstSpace += 1;
+  let spaceRunEnd = firstSpace;
+  while (spaceRunEnd < spanEnd && SPACE_RE.test(subject.charAt(spaceRunEnd))) spaceRunEnd += 1;
+
+  // 뒤에서부터 — 후행 공백을 사이에 둔 `@`가 가장 오른쪽 후보다.
+  if (
+    spaceRunEnd > firstSpace &&
+    spaceRunEnd < spanEnd &&
+    subject.charAt(spaceRunEnd) === "@" &&
+    hasHostAfter(subject, spaceRunEnd, spanEnd)
+  ) {
+    return spaceRunEnd;
+  }
+  for (let i = firstSpace - 1; i > colon; i -= 1) {
+    if (subject.charAt(i) === "@" && hasHostAfter(subject, i, spanEnd)) return i;
+  }
+  return -1;
+}
+
+/** `mongodb://` · `mongodb+srv://` 스킴. 여기서 authority가 시작한다. */
+const MONGO_SCHEME_RE = /\bmongodb(?:\+srv)?:\/\//gi;
 
 const collectMongoCredentials: MaskRule = (probe) => {
   const segments: MaskSegment[] = [];
-  for (const match of probe.matchAll(MONGO_URI_RE)) {
-    const scheme = match[1];
-    const user = match[2];
-    const pass = match[3];
-    if (scheme === undefined || user === undefined || pass === undefined) continue;
+  for (const match of probe.matchAll(MONGO_SCHEME_RE)) {
+    const scheme = match[0];
+    if (scheme === undefined) continue;
 
-    const userStart = matchIndex(match) + scheme.length;
+    const authorityStart = matchIndex(match) + scheme.length;
+    const userinfoEnd = findUserinfoEnd(probe, authorityStart);
+    // `@`가 없으면 자격증명이 없는 URI다. `mongodb://localhost:27017/sentinel`은 그대로 둔다.
+    if (userinfoEnd < 0) continue;
+
+    const userinfo = probe.slice(authorityStart, userinfoEnd);
+    const colon = userinfo.indexOf(":");
+    // `:`이 없으면 사용자명만 있는 형태(`mongodb://svcuser@host`)다.
+    const user = colon < 0 ? userinfo : userinfo.slice(0, colon);
+    const pass = colon < 0 ? undefined : userinfo.slice(colon + 1);
+
+    const userStart = authorityStart;
     const userEnd = userStart + user.length;
-    const passStart = userEnd + 1;
-    const passEnd = passStart + pass.length;
-
-    const maskUser = !isPlaceholder(user);
-    const maskPass = !isPlaceholder(pass);
+    // 자리표시자 판정은 **후행 공백을 뺀** 값으로 한다. `<pass> @host`처럼 관대 갈래로 들어온
+    // 자리표시자가 후행 공백 때문에 실제 값으로 오인되지 않게 한다.
+    // 치환 구간은 그대로 후행 공백까지 삼킨다 — 자격증명 구간 안이라 남길 이유가 없다.
+    const trimmedPass = pass?.trimEnd();
+    const maskUser = user.length > 0 && !isPlaceholder(user);
+    const maskPass = trimmedPass !== undefined && trimmedPass.length > 0 && !isPlaceholder(trimmedPass);
 
     if (maskUser && maskPass) {
-      segments.push({ start: userStart, end: passEnd, kind: "db-credentials" });
+      // 둘 다 실제 값이면 `user:pass` 전체를 라벨 하나로 합쳐 지운다.
+      segments.push({ start: userStart, end: userinfoEnd, kind: "db-credentials" });
       continue;
     }
     if (maskUser) segments.push({ start: userStart, end: userEnd, kind: "db-credentials" });
-    if (maskPass) segments.push({ start: passStart, end: passEnd, kind: "db-credentials" });
+    if (maskPass) segments.push({ start: userEnd + 1, end: userinfoEnd, kind: "db-credentials" });
   }
   return segments;
 };
@@ -479,13 +630,35 @@ export function applyMasking(text: string, maskEmailEnabled: boolean): MaskingRe
   };
 }
 
-/** 한 좌표계에서 규칙을 돌려 겹치지 않는 구간을 모은다. 앞선 규칙이 이긴다. */
+/**
+ * 한 좌표계에서 규칙을 돌려 겹치지 않는 구간을 모은다. 앞선 규칙이 이긴다.
+ *
+ * `chosen.some` 전수 비교라 세그먼트 수에 **이차**다(T-004 F-11). 이 곡선은 알고리즘이 아니라
+ * `SANITIZE_MAX_INPUT_CHARS` 상한으로 막는다 — 상한 안에서는 최악(`Bearer ` 런 64KB)이
+ * 58ms로 측정됐고, 상한을 크게 올리면 다시 초 단위로 튄다(T-004 결정 4).
+ */
 function collectEdits(rules: readonly MaskRule[], subject: string): MaskSegment[] {
   const chosen: MaskSegment[] = [];
   for (const rule of rules) {
     for (const segment of rule(subject)) {
       if (segment.end <= segment.start) continue;
-      if (chosen.some((taken) => overlaps(taken, segment))) continue;
+
+      // 겹치면 **버리지 말고 확장한다.** 버리면 앞 규칙이 뒤 규칙의 시크릿을 앞부분만 덮었을 때
+      // 뒤 규칙 세그먼트가 통째로 폐기되고 **꼬리가 평문으로 남는다** —
+      // 과마스킹이 유출로 전환되는 경로다(T-004 N-12).
+      // 예: mongo 규칙이 `?api_key=tok`까지 삼키면 api-key 세그먼트가 버려져 값 꼬리가 남는다.
+      const hit = chosen.findIndex((taken) => overlaps(taken, segment));
+      if (hit >= 0) {
+        const taken = chosen[hit];
+        if (taken !== undefined) {
+          chosen[hit] = {
+            start: Math.min(taken.start, segment.start),
+            end: Math.max(taken.end, segment.end),
+            kind: taken.kind, // 라벨은 먼저 잡은 규칙(우선순위가 높은 쪽)의 것을 쓴다
+          };
+        }
+        continue;
+      }
       chosen.push(segment);
     }
   }
