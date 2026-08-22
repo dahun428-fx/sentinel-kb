@@ -1,6 +1,6 @@
 /**
  * `@sentinel/api` 배럴. HTTP 계약 구현은 specs/04-api.md를 따른다.
- * 검색(`/v1/search`)·생성(`/v1/answer`)·피드백은 후속 태스크에서 채운다.
+ * 생성(`/v1/answer`)·피드백은 후속 태스크에서 채운다.
  */
 import { PACKAGE_NAME as CORE_PACKAGE } from "@sentinel/core";
 
@@ -29,3 +29,13 @@ export {
   isBodySectionField,
   summarySourceField,
 } from "./record-fields.js";
+export {
+  buildSearchLogFields,
+  registerSearchRoutes,
+  SEARCH_LOG_EVENT,
+  SEARCH_ROUTE,
+  toSearchHit,
+  type BuildSearchLogInput,
+  type SearchLogFields,
+  type SearchRoutesDeps,
+} from "./search.js";

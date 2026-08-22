@@ -71,5 +71,36 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    /*
+     * `@sentinel/core/testing`은 **테스트 전용 표면**이다.
+     * `atlas-local.ts`가 `node:child_process`의 `spawnSync`로 임의 docker CLI 인자를 실행하고
+     * `MongoClient`를 연다 — 프로덕션 코드가 이걸 import하면 그대로 공격 표면이 된다.
+     *
+     * T-011이 이 헬퍼를 만들 때의 안전 근거는 "**어느 배럴에서도 export하지 않는다**"였고
+     * G5가 그걸 근거로 통과시켰다. T-012가 `packages/core/package.json`에 `./testing` 서브패스를
+     * 열면서 그 근거가 "메인 배럴 경유 불가"로 내려앉았다 — 실제로 지금은 새지 않지만
+     * **새는 것을 막는 장치가 없었다.** 이 zone이 그 격차를 메운다.
+     *
+     * 허용: `*.spec.ts` / `*.int.spec.ts` / `src/testing/**` 자신.
+     */
+    files: ["packages/*/src/**/*.ts", "scripts/**/*.ts", "tools/**/*.ts"],
+    ignores: ["**/*.spec.ts", "**/*.int.spec.ts", "**/src/testing/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@sentinel/core/testing", "**/testing/atlas-local*"],
+              message:
+                "테스트 전용 헬퍼다 — spawnSync로 docker CLI를 부른다. " +
+                "*.spec.ts / *.int.spec.ts에서만 import하라 (T-011 F-8, T-012 G5 B-2).",
+            },
+          ],
+        },
+      ],
+    },
+  },
   prettierConfig,
 );

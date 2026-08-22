@@ -6,13 +6,22 @@
  * 빈 문자열이 들어온다(T-003이 확인). 실제 env 읽기는 `server.ts`(컴포지션 루트)의 몫이다.
  */
 import { HealthResponse } from "@sentinel/contracts";
-import { SanitizeInputTooLargeError, type ResolvedSanitizeOptions } from "@sentinel/core";
-import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
+import {
+  SanitizeInputTooLargeError,
+  type ResolvedSanitizeOptions,
+  type Retriever,
+} from "@sentinel/core";
+import Fastify, {
+  type FastifyError,
+  type FastifyInstance,
+  type FastifyServerOptions,
+} from "fastify";
 import type { Db } from "mongodb";
 
 import { registerAuth } from "./auth.js";
 import { API_ERROR_CODES, HttpError, sendError } from "./errors.js";
 import { registerRecordRoutes } from "./records.js";
+import { registerSearchRoutes } from "./search.js";
 
 export interface AppOptions {
   readonly db: Db;
@@ -24,8 +33,26 @@ export interface AppOptions {
   readonly embeddingVersion: number;
   /** `/health`가 보고하는 서비스 버전. */
   readonly version: string;
+  /**
+   * `/v1/search`가 쓰는 하이브리드 검색기. **주면 라우트가 뜨고, 안 주면 뜨지 않는다.**
+   *
+   * 선택 의존인 이유는 검색을 하지 않는 소비자가 실제로 있기 때문이다 — 시드 적재
+   * (`scripts/seed.ts`)와 T-007의 records 통합 테스트는 `POST /v1/records`만 부른다.
+   * 필수로 만들면 그 호출부들이 **쓰지도 않을 embedder를 만들어야** 하고, 시드는
+   * Voyage 자격증명 없이는 돌지 못하게 된다.
+   *
+   * 운영에서 조용히 빠질 위험은 컴포지션 루트가 닫는다: `server.ts`는 이 값을 **항상**
+   * 만들어 넘긴다. 거기서 embedder 설정이 없으면 라우트가 404가 되는 게 아니라
+   * **부팅이 실패한다**(T-006 인계 패턴).
+   */
+  readonly retriever?: Retriever;
   readonly now?: () => Date;
-  readonly logger?: boolean;
+  /**
+   * `boolean` 외에 pino 옵션 객체도 받는다 — 테스트가 `stream`을 주입해 **실제로 나간
+   * 로그 줄**을 검사할 수 있어야 한다. 레이턴시 로깅(NFR-01)은 필드가 하나 빠져도
+   * 조용히 무의미해지므로, 형상만 단언하는 것으로는 부족하다.
+   */
+  readonly logger?: FastifyServerOptions["logger"];
 }
 
 /**
@@ -67,6 +94,10 @@ export function createApp(options: AppOptions): FastifyInstance {
     sanitizeOptions: options.sanitizeOptions,
     now: options.now ?? ((): Date => new Date()),
   });
+
+  if (options.retriever !== undefined) {
+    registerSearchRoutes(app, { retriever: options.retriever });
+  }
 
   app.setNotFoundHandler(async (request, reply) =>
     sendError(

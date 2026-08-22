@@ -170,7 +170,13 @@ function buildRegistry(): OpenAPIRegistry {
     path: "/v1/search",
     operationId: "searchRecords",
     summary: "하이브리드 검색",
-    description: "응답은 summary만 담고 본문은 담지 않는다 (NFR-03).",
+    description:
+      "응답은 summary만 담고 본문은 담지 않는다 (NFR-03). " +
+      "`limit`은 계약값이 이긴다 — 생략하면 5이고 RETRIEVAL_FINAL_K는 이 경로에 쓰이지 않는다. " +
+      "**`score`는 RRF 융합 점수(`Σ 1/(RRF_K + rank)`)이며 순위 결정 전용의 상대값이다 — " +
+      "유사도가 아니다.** RRF_K=60에서 상한은 2/61 ≈ 0.033(두 경로 모두 1위)이므로 " +
+      "백분율로 보여 주거나 절대 임계값과 비교하면 안 된다. 이 값은 같은 응답 안의 " +
+      "결과끼리 비교할 때만 의미가 있다. cosine 유사도는 이 응답에 실리지 않는다.",
     tags: ["search"],
     security: secured,
     request: {

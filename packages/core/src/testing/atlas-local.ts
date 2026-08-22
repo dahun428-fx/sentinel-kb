@@ -1,11 +1,16 @@
 /**
  * `mongodb/mongodb-atlas-local` 컨테이너 부팅 헬퍼. **테스트 전용이다** —
- * 어느 배럴에서도 export하지 않으므로 런타임 번들에 실리지 않는다.
+ * 메인 배럴(`@sentinel/core`)이 re-export하지 않으므로 런타임 번들에 실리지 않는다.
  * (`*.spec.ts`가 아니라 vitest가 테스트 파일로 수집하지도 않는다.)
  *
  * T-010(`db/search-indexes.int.spec.ts`)이 처음 썼고 T-011(`retriever/retrieve.int.spec.ts`)이
  * 두 번째 사용처다. 복붙 대신 여기로 뽑았다 — 부팅 게이트가 두 벌이 되면 한쪽만 고쳐지고
  * 다른 쪽이 간헐적으로 실패한다.
+ *
+ * T-012(`packages/api/src/search.int.spec.ts`)는 **다른 패키지**에서 세 번째로 쓴다. 그래서
+ * `package.json`에 `./testing` 서브패스를 열었다 — 상대 경로로 남의 패키지 소스를 찔러
+ * 들어가면 `tsc -b`의 프로젝트 참조 경계가 깨지고, 복붙하면 위 문단이 경고한 그 상태가 된다.
+ * **서브패스는 명시적으로 import한 곳에만 실린다**(메인 배럴은 그대로 비어 있다).
  *
  * ## 왜 게이트가 두 단계인가 (T-010 F-3/F-10, 실측)
  * atlas-local은 **mongod와 mongot(검색 프로세스) 두 개**를 띄우고 mongod가 먼저 붙는다.
