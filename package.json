@@ -20,6 +20,7 @@
     "db:seed": "tsx scripts/seed.cli.ts",
     "eval:retrieval": "tsx eval/retrieval/run.cli.ts",
     "eval:retrieval:check": "tsx eval/retrieval/check-baseline.cli.ts",
+    "eval:injection": "tsx eval/injection/run.cli.ts",
     "mcp:ping": "tsx scripts/mcp-ping.cli.ts",
     "format": "prettier --write ."
   },
