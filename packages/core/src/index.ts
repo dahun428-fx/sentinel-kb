@@ -1,6 +1,7 @@
 /**
  * `@sentinel/core` 배럴.
- * 도메인 로직 중 generator·llm/은 후속 태스크에서 채운다.
+ * `generator`·`llm`은 T-018에서 들어왔다 — 둘 다 mongodb를 끌고 오지 않는다.
+ * `llm`에는 아직 실 provider가 없다(인터페이스 + fake). 근거는 `llm/types.ts` D-2.
  * `retriever`는 mongodb를 import하지 않아(구조적 `RetrievalDbLike`) 여기 실려도 안전하다 (T-011).
  * specs/01-architecture.md 참조. `sanitizer`는 T-004에서 들어왔다 —
  * 외부 의존이 없는 순수 정규식 모듈이라 `./db`와 달리 배럴에 실어도 안전하다.
@@ -20,3 +21,5 @@ export * from "./sanitizer/index.js";
 export * from "./chunker/index.js";
 export * from "./embedder/index.js";
 export * from "./retriever/index.js";
+export * from "./llm/index.js";
+export * from "./generator/index.js";
