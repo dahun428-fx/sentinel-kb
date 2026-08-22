@@ -1,0 +1,23 @@
+{
+  // Next.js 전용 tsconfig. 루트 `tsc -b`가 참조하는 tsconfig.json과 분리한 이유:
+  // `next dev`/`next build`는 자기가 읽는 tsconfig를 자동으로 덮어쓴다(noEmit·moduleResolution 등).
+  // 그게 tsconfig.json이면 매 실행마다 composite 프로젝트 설정이 깨져 `pnpm typecheck`가 무너진다.
+  // next.config.mjs의 `typescript.tsconfigPath`가 Next를 이 파일로 보낸다.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Next이 생성하는 라우트 타입(.next/types)은 src 밖에 있다. 이 프로젝트는 emit하지
+    // 않으므로 rootDir을 패키지 루트로 넓혀도 산출물에는 영향이 없다.
+    "rootDir": ".",
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": true,
+    "allowJs": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "plugins": [{ "name": "next" }]
+  },
+  "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
