@@ -9,9 +9,15 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "node -e \"console.log('[@sentinel/worker] dev worker arrives in T-008 (embedding worker)')\""
+    "dev": "tsx src/worker.cli.ts",
+    "start": "tsx src/worker.cli.ts"
   },
   "dependencies": {
-    "@sentinel/core": "workspace:*"
+    "@sentinel/contracts": "workspace:*",
+    "@sentinel/core": "workspace:*",
+    "mongodb": "^6.12.0"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^10.1.4"
   }
 }
