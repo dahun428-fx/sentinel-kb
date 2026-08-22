@@ -1,0 +1,27 @@
+# 빌드 컨텍스트에서 빼는 것들. 여기가 새면 이미지가 무거워지는 것보다 먼저
+# **시크릿이 레이어에 박힌다** — `.env`가 첫 줄에 있는 이유다 (CLAUDE.md 금지사항).
+.env
+.env.*
+!.env.example
+
+.git
+.github
+.claude
+
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/*.tsbuildinfo
+
+# 테스트·eval·문서·IaC 는 런타임 이미지가 쓰지 않는다.
+docs
+eval
+infra
+specs
+**/e2e
+**/lint-fixtures
+**/*.spec.ts
+**/*.int.spec.ts
+playwright-report
+test-results

@@ -6,13 +6,38 @@
  * 빈 문자열이 들어온다(T-003이 확인). 실제 env 읽기는 `server.ts`(컴포지션 루트)의 몫이다.
  */
 import { HealthResponse } from "@sentinel/contracts";
-import { SanitizeInputTooLargeError, type ResolvedSanitizeOptions } from "@sentinel/core";
-import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
+import {
+  SanitizeInputTooLargeError,
+  type ChatModel,
+  type GeneratorConfig,
+  type ResolvedSanitizeOptions,
+  type Retriever,
+} from "@sentinel/core";
+import Fastify, {
+  type FastifyError,
+  type FastifyInstance,
+  type FastifyServerOptions,
+} from "fastify";
 import type { Db } from "mongodb";
 
+import { registerAnswerRoutes } from "./answer.js";
 import { registerAuth } from "./auth.js";
 import { API_ERROR_CODES, HttpError, sendError } from "./errors.js";
+import { registerFeedbackRoutes } from "./feedback.js";
+import { registerOpenApiRoute, trackRoutes, type RouteRef } from "./openapi.js";
 import { registerRecordRoutes } from "./records.js";
+import { registerSearchRoutes } from "./search.js";
+
+declare module "fastify" {
+  interface FastifyInstance {
+    /**
+     * 이 인스턴스에 실제로 등록된 라우트 목록(HEAD 제외). 드리프트 가드가 openapi 문서와
+     * 대조하는 **한쪽 근거**다. Fastify는 라우터를 열거하는 공개 API를 주지 않으므로
+     * (`hasRoute`는 존재 확인만 된다) `onRoute` 훅으로 모아 여기에 실어 둔다.
+     */
+    readonly registeredRoutes: readonly RouteRef[];
+  }
+}
 
 export interface AppOptions {
   readonly db: Db;
@@ -24,8 +49,46 @@ export interface AppOptions {
   readonly embeddingVersion: number;
   /** `/health`가 보고하는 서비스 버전. */
   readonly version: string;
+  /**
+   * `/v1/search`가 쓰는 하이브리드 검색기. **주면 라우트가 뜨고, 안 주면 뜨지 않는다.**
+   *
+   * 선택 의존인 이유는 검색을 하지 않는 소비자가 실제로 있기 때문이다 — 시드 적재
+   * (`scripts/seed.ts`)와 T-007의 records 통합 테스트는 `POST /v1/records`만 부른다.
+   * 필수로 만들면 그 호출부들이 **쓰지도 않을 embedder를 만들어야** 하고, 시드는
+   * Voyage 자격증명 없이는 돌지 못하게 된다.
+   *
+   * 운영에서 조용히 빠질 위험은 컴포지션 루트가 닫는다: `server.ts`는 이 값을 **항상**
+   * 만들어 넘긴다. 거기서 embedder 설정이 없으면 라우트가 404가 되는 게 아니라
+   * **부팅이 실패한다**(T-006 인계 패턴).
+   */
+  readonly retriever?: Retriever;
+  /**
+   * `/v1/answer`가 쓰는 생성 모델. **`retriever`와 함께 있어야 라우트가 뜬다** — 답변은
+   * 검색 없이는 근거가 없고, 근거 없는 생성은 NFR-02가 금지한다.
+   *
+   * **T-039부터 프로덕션 컴포지션 루트가 이 값을 만든다**(`server.ts`의 `createChatModel()`).
+   * 그전까지는 `packages/core/src/llm/`에 인터페이스와 fake만 있어 만들 수 없었고, 그래서
+   * `/v1/answer`가 테스트·eval에서만 떴다(T-019 F-8).
+   *
+   * 그럼에도 **선택** 의존으로 남긴다 — `retriever`와 같은 근거다. 시드 스크립트와 records
+   * 통합 테스트는 모델 없이 앱을 만드는 정당한 소비자이고, 필수로 만들면 그 호출부들이
+   * 쓰지도 않을 Anthropic 자격증명을 요구받는다. 운영에서 조용히 빠질 위험은 컴포지션 루트가
+   * 닫는다: 거기서 설정이 없으면 라우트가 404가 되는 게 아니라 **부팅이 실패한다**(T-039 D-4).
+   */
+  readonly chatModel?: ChatModel;
+  /**
+   * 생성 튜닝 파라미터(`SIMILARITY_THRESHOLD`·`ANSWER_MAX_TOKENS`). 생략하면 요청마다
+   * env에서 읽는다. **테스트와 eval 스윕이 임계값을 흔드는 지점**이고, 주입하지 않으면
+   * 게이트 테스트가 실행 환경의 env에 결합돼 조용히 뒤집힌다.
+   */
+  readonly generatorConfig?: GeneratorConfig;
   readonly now?: () => Date;
-  readonly logger?: boolean;
+  /**
+   * `boolean` 외에 pino 옵션 객체도 받는다 — 테스트가 `stream`을 주입해 **실제로 나간
+   * 로그 줄**을 검사할 수 있어야 한다. 레이턴시 로깅(NFR-01)은 필드가 하나 빠져도
+   * 조용히 무의미해지므로, 형상만 단언하는 것으로는 부족하다.
+   */
+  readonly logger?: FastifyServerOptions["logger"];
 }
 
 /**
@@ -40,6 +103,10 @@ export const PAYLOAD_TOO_LARGE_STATUS = 413;
 
 export function createApp(options: AppOptions): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false });
+
+  // **가장 먼저 단다.** `onRoute`는 훅 등록 뒤에 붙은 라우트만 통지하므로, 이 줄이 내려가면
+  // 그 위에서 등록된 라우트가 인벤토리에서 조용히 빠지고 가드가 그만큼 눈이 먼다.
+  app.decorate("registeredRoutes", trackRoutes(app));
 
   registerAuth(app, options.apiKeys);
 
@@ -62,11 +129,28 @@ export function createApp(options: AppOptions): FastifyInstance {
     );
   });
 
+  const now = options.now ?? ((): Date => new Date());
+
+  // specs/04:29 — contracts가 생성한 문서를 그대로 서빙. 인증 정책의 근거는 `openapi.ts`에 있다.
+  registerOpenApiRoute(app);
+
   registerRecordRoutes(app, {
     db: options.db,
     sanitizeOptions: options.sanitizeOptions,
-    now: options.now ?? ((): Date => new Date()),
+    now,
   });
+
+  if (options.retriever !== undefined) {
+    registerSearchRoutes(app, { retriever: options.retriever });
+    if (options.chatModel !== undefined) {
+      registerAnswerRoutes(app, {
+        retriever: options.retriever,
+        chatModel: options.chatModel,
+        ...(options.generatorConfig === undefined ? {} : { generatorConfig: options.generatorConfig }),
+      });
+    }
+  }
+  registerFeedbackRoutes(app, { db: options.db, now });
 
   app.setNotFoundHandler(async (request, reply) =>
     sendError(

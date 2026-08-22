@@ -1,0 +1,281 @@
+# ===========================================================================
+# sentinel-kb compose 베이스 (T-026, specs/06).
+#
+# 이 파일 하나로 로컬 전체 스택이 뜬다: `pnpm dev:compose`.
+# 프로덕션은 `docker-compose.prod.yml`을 **덧씌운다**(ECR 이미지·TLS·certbot·awslogs).
+#
+# 상태는 전부 Atlas다(specs/06 "상태" 행). 그래서 여기에 데이터 컨테이너가 없고,
+# 로컬도 `MONGODB_URI`로 Atlas를 본다. 볼륨은 인증서 하나뿐이다.
+# ===========================================================================
+name: sentinel-kb
+
+# ---------------------------------------------------------------------------
+# ⚠️ MCP와 core-api는 **같은 `API_KEYS`를 받아야 한다** (T-014 D-5, docs/connect.md §2).
+#
+# MCP는 자기 서비스 키를 들고 있지 않고 호출자 Bearer를 **그대로** core-api로 넘긴다
+# (confused deputy 방지). 두 값이 갈라지면 MCP 연결도 되고 도구 목록도 보이는데
+# **도구를 실제로 호출하는 순간에만** core-api가 401을 낸다. 즉 실패가 연결 시점이 아니라
+# 한참 뒤에 드러난다.
+#
+# **이 실패는 코드로 탐지할 수 없다** — 두 프로세스는 서로의 env를 모른다.
+# 그래서 앵커 하나를 두 서비스가 참조하는 이 구조가 유일한 방어선이고,
+# `tools/compose-contract.int.spec.ts`가 `docker compose config`의 **해소된 값**을 대조한다.
+# 이 앵커를 풀어 두 곳에 복붙하는 순간 그 방어선이 사라진다.
+# ---------------------------------------------------------------------------
+x-shared-auth: &shared-auth
+  API_KEYS: ${API_KEYS:?API_KEYS가 필요하다 — MCP와 core-api가 같은 값을 받아야 한다 (docs/connect.md §2)}
+
+x-mongo: &mongo
+  MONGODB_URI: ${MONGODB_URI:?MONGODB_URI가 필요하다 — 상태는 전부 Atlas다 (specs/06)}
+  MONGODB_DB: ${MONGODB_DB:-sentinel}
+  MONGODB_SERVER_SELECTION_TIMEOUT_MS: ${MONGODB_SERVER_SELECTION_TIMEOUT_MS:-5000}
+
+x-embedding: &embedding
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-voyage}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:?EMBEDDING_MODEL은 코드에 기본값이 없다 (NFR-06)}
+  EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+  EMBEDDING_VERSION: ${EMBEDDING_VERSION:-1}
+  EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+  VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-node-defaults: &node-defaults
+  restart: unless-stopped
+  logging: *logging
+  # OOM 킬은 재시작으로 자가치유된다. t3.small 2GiB에 컨테이너 5개라 여유가 없다 —
+  # 메모리 예산의 근거는 `docker/README.md` "메모리 예산" 절에 있다.
+  stop_grace_period: 20s
+
+services:
+  # -------------------------------------------------------------------------
+  # db-init — **compose up 이전에 검색 인덱스를 세운다** (T-010 인계 9).
+  #
+  # `pnpm db:search-indexes`는 기본 300초까지 블로킹하고 Atlas·atlas-local에서만 돈다.
+  # specs/06은 이 단계를 한 글자도 언급하지 않는데, **compose up 이전인지 이후인지가
+  # 첫 검색 성공을 가른다.** 인덱스가 PENDING인 채로 core-api가 뜨면 첫 `/v1/search`가
+  # "Index vec_idx not initialized"로 죽고, 그건 배포 실패가 아니라 "가끔 검색이 안 됨"으로
+  # 보고된다 — 가장 비싼 형태의 버그다.
+  #
+  # 그래서 one-shot 게이트로 둔다. core-api·worker가 이 컨테이너의 **정상 종료**를 기다린다.
+  # 멱등하므로 재기동마다 다시 돌아도 이미 READY면 즉시 끝난다.
+  # specs/06 런북에 이 단계를 신설하는 문면 정정이 필요하다(T-026 Findings F-9).
+  # -------------------------------------------------------------------------
+  db-init:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+      args:
+        SERVICE: core
+    image: sentinel-kb/db-init:local
+    command:
+      - sh
+      - -c
+      - >-
+        tsx packages/core/src/db/ensure-indexes.cli.ts &&
+        tsx packages/core/src/db/ensure-search-indexes.cli.ts
+    environment:
+      <<: [*mongo, *embedding]
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SEARCH_INDEX_READY_TIMEOUT_MS: ${SEARCH_INDEX_READY_TIMEOUT_MS:-300000}
+      SEARCH_INDEX_POLL_INTERVAL_MS: ${SEARCH_INDEX_POLL_INTERVAL_MS:-2000}
+    # one-shot이다. 성공하면 끝이고, 실패하면 의존 서비스가 뜨지 않는다.
+    restart: "no"
+    logging: *logging
+    mem_limit: 256m
+
+  # -------------------------------------------------------------------------
+  # core-api (Fastify) — /v1/*, /health
+  # -------------------------------------------------------------------------
+  core-api:
+    <<: *node-defaults
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+      args:
+        SERVICE: api
+    image: sentinel-kb/core-api:local
+    command: ["tsx", "packages/api/src/server.ts"]
+    environment:
+      <<: [*shared-auth, *mongo, *embedding]
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORE_API_PORT: "3001"
+      # 힙 상한을 mem_limit 아래로 못박는다. 이게 없으면 V8이 호스트 메모리(2GiB)를
+      # 기준으로 힙을 키우다 컨테이너 한도에 먼저 부딪혀 OOM-kill 당한다 — GC가
+      # 일할 기회조차 없이 죽는다 (T-025 F-2 인계).
+      NODE_OPTIONS: --max-old-space-size=288
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?core-api는 이 값이 없으면 부팅하지 않는다 (T-039 D-4)}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:?ANTHROPIC_MODEL은 코드에 기본값이 없다}
+      ANTHROPIC_TIMEOUT_MS: ${ANTHROPIC_TIMEOUT_MS:-8000}
+      ANTHROPIC_MAX_RETRIES: ${ANTHROPIC_MAX_RETRIES:-1}
+      ANSWER_MAX_TOKENS: ${ANSWER_MAX_TOKENS:-2048}
+      CHUNK_MAX_CHARS: ${CHUNK_MAX_CHARS:-1200}
+      SANITIZE_MASK_EMAIL: ${SANITIZE_MASK_EMAIL:-false}
+      SANITIZE_MAX_INPUT_CHARS: ${SANITIZE_MAX_INPUT_CHARS:-65536}
+      RETRIEVAL_VECTOR_K: ${RETRIEVAL_VECTOR_K:-20}
+      RETRIEVAL_TEXT_K: ${RETRIEVAL_TEXT_K:-20}
+      RETRIEVAL_FINAL_K: ${RETRIEVAL_FINAL_K:-8}
+      RRF_K: ${RRF_K:-60}
+      RETRIEVAL_NUM_CANDIDATES: ${RETRIEVAL_NUM_CANDIDATES:-200}
+      RETRIEVAL_CANDIDATE_OVERFETCH: ${RETRIEVAL_CANDIDATE_OVERFETCH:-4}
+      RETRIEVAL_MAX_CHUNKS_PER_RECORD: ${RETRIEVAL_MAX_CHUNKS_PER_RECORD:-2}
+      SIMILARITY_THRESHOLD: ${SIMILARITY_THRESHOLD:-0.62}
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 448m
+    memswap_limit: 896m
+
+  # -------------------------------------------------------------------------
+  # mcp — Streamable HTTP `/mcp`
+  # -------------------------------------------------------------------------
+  mcp:
+    <<: *node-defaults
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+      args:
+        SERVICE: mcp
+    image: sentinel-kb/mcp:local
+    command: ["tsx", "packages/mcp/src/http.cli.ts"]
+    environment:
+      # ↓ core-api와 **같은 앵커**다. 이 줄을 리터럴로 바꾸지 마라.
+      <<: *shared-auth
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MCP_PORT: "3002"
+      NODE_OPTIONS: --max-old-space-size=160
+      # compose 네트워크 안에서는 서비스 이름이 DNS 이름이다 (docs/connect.md §5).
+      CORE_API_URL: ${CORE_API_URL:-http://core-api:3001}
+      CORE_API_TIMEOUT_MS: ${CORE_API_TIMEOUT_MS:-10000}
+      CORE_API_MAX_ATTEMPTS: ${CORE_API_MAX_ATTEMPTS:-3}
+    depends_on:
+      core-api:
+        condition: service_healthy
+    # MCP 서버는 `/health`를 노출하지 않는다 — specs/07의 표면은 `/mcp` 하나뿐이고,
+    # 여기서 헬스 엔드포인트를 발명하면 스펙에 없는 표면이 생긴다. 그래서 TCP 수준으로만 본다.
+    # `/mcp`를 두드리는 것은 Bearer가 필요해 헬스체크에 시크릿을 넣게 되므로 하지 않는다.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const s=require('net').connect(3002,'127.0.0.1');s.on('connect',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 256m
+    memswap_limit: 512m
+
+  # -------------------------------------------------------------------------
+  # worker — 임베딩 잡 소비자
+  # -------------------------------------------------------------------------
+  worker:
+    <<: *node-defaults
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+      args:
+        SERVICE: worker
+    image: sentinel-kb/worker:local
+    command: ["tsx", "packages/worker/src/worker.cli.ts"]
+    environment:
+      <<: [*mongo, *embedding]
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_OPTIONS: --max-old-space-size=160
+      CHUNK_MAX_CHARS: ${CHUNK_MAX_CHARS:-1200}
+      EMBED_JOB_MAX_ATTEMPTS: ${EMBED_JOB_MAX_ATTEMPTS:-3}
+      EMBED_POLL_INTERVAL_MS: ${EMBED_POLL_INTERVAL_MS:-1000}
+      EMBED_RETRY_BACKOFF_MS: ${EMBED_RETRY_BACKOFF_MS:-2000}
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    # HTTP 표면이 없어 healthcheck를 달지 않는다. `exit 0`을 돌려주는 가짜 체크를 다느니
+    # 없는 편이 낫다 — 초록불이 아무것도 보증하지 않으면 그건 관측이 아니라 소음이다.
+    # 적체 관측은 specs/06 런북의 `jobs` status 집계로 한다.
+    mem_limit: 256m
+    memswap_limit: 512m
+
+  # -------------------------------------------------------------------------
+  # web (Next.js) — 읽기 UI
+  # -------------------------------------------------------------------------
+  web:
+    <<: *node-defaults
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    image: sentinel-kb/web:local
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      NODE_OPTIONS: --max-old-space-size=320
+      # MCP와 **같은 변수**를 쓴다. 둘 다 core-api를 소비하고, 주소가 갈라질 이유가 없다.
+      CORE_API_URL: ${CORE_API_URL:-http://core-api:3001}
+      # 웹은 서버 컴포넌트에서만 이 키를 쓴다 — NEXT_PUBLIC_ 접두사가 붙으면 번들에 실린다
+      # (`packages/web/src/client-safety.spec.ts`가 그걸 막는다).
+      CORE_API_KEY: ${CORE_API_KEY:?CORE_API_KEY가 필요하다 — core-api는 Bearer 인증을 요구한다 (NFR-04)}
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(()=>process.exit(0),()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 512m
+    memswap_limit: 1024m
+
+  # -------------------------------------------------------------------------
+  # nginx — 유일한 외부 표면
+  # -------------------------------------------------------------------------
+  nginx:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.nginx
+    image: sentinel-kb/nginx:local
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      NGINX_MODE: dev
+    ports:
+      # 로컬에서만 80을 매핑한다. prod 오버레이가 443으로 갈아끼운다.
+      - "${NGINX_HTTP_PORT:-8080}:80"
+    depends_on:
+      core-api:
+        condition: service_healthy
+      mcp:
+        condition: service_started
+      web:
+        condition: service_started
+    # 프록시 자신이 아니라 **프록시를 통과한 core-api**를 본다. specs/06 관측 행의
+    # "`/health` 모니터"가 실제로 재는 것과 같은 경로다.
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 48m

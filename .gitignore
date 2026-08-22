@@ -36,3 +36,6 @@ eval/reports/*
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# 에이전트 격리용 worktree — 커밋 대상이 아니다
+.claude/worktrees/

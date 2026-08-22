@@ -30,8 +30,35 @@ describe("의존 방향 경계 (import/no-restricted-paths)", () => {
     expect(ruleIds).toContain("import/no-restricted-paths");
   });
 
+  /**
+   * 형제 간선(`mcp → api`). specs/01의 의존 방향은 최상위 네 패키지(web/mcp/api/worker)가
+   * **서로를 모르는** 형태다. `tsc -b` 프로젝트 참조는 이 간선을 막지 못한다 —
+   * 참조 없이 import해도 빌드·lint·런타임이 전부 통과한다(T-014 검증). 이 규칙만이 막는다.
+   */
+  it("mcp → api import는 lint 에러다 — 형제 간선", async () => {
+    const ruleIds = await lintFixture("packages/mcp/lint-fixtures/violation-imports-api.ts");
+    expect(ruleIds).toContain("import/no-restricted-paths");
+  });
+
   it("허용 방향(core → contracts)은 lint 에러가 아니다", async () => {
     const ruleIds = await lintFixture("packages/core/src/index.ts");
+    expect(ruleIds).not.toContain("import/no-restricted-paths");
+  });
+
+  /**
+   * `scripts/`는 패키지가 아니라 **컴포지션 루트**다. 여러 패키지를 조립하는 것이 존재
+   * 이유이므로 형제 zone의 target에 넣지 않았다. 그 예외가 살아 있는지 확인한다 —
+   * zone을 넓히다가 조용히 깨뜨리면 시드 파이프라인이 lint에서 죽는다.
+   */
+  it("scripts는 컴포지션 루트라 여러 패키지를 조립해도 에러가 아니다", async () => {
+    /*
+     * 픽스처는 **형제 패키지를 둘 이상 실제로 조립하는 파일**이어야 한다.
+     * `seed.ts`는 `@sentinel/api`(createApp)와 `@sentinel/worker`(createEmbedWorker)를 함께 부른다 —
+     * 형제 zone이 `scripts/`까지 번지면 여기서 먼저 죽는다.
+     * (T-037 전에는 `seed.cli.ts`를 썼는데, 그 파일의 `@sentinel/api` import가 core로 옮겨가면서
+     *  형제 조립이 사라져 이 테스트가 **아무것도 지키지 않게 됐다.** 통과하지만 공허했다.)
+     */
+    const ruleIds = await lintFixture("scripts/seed.ts");
     expect(ruleIds).not.toContain("import/no-restricted-paths");
   });
 });

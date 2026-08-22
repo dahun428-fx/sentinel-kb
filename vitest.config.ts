@@ -11,14 +11,26 @@ export default defineConfig({
       {
         test: {
           name: "unit",
-          include: ["packages/*/src/**/*.spec.ts", "tools/*.spec.ts", "scripts/*.spec.ts"],
+          // `eval/**`는 T-013에서 들어왔다. eval 러너의 지표·회귀 가드는 순수 함수라
+          // 단위 테스트로 잠글 수 있고, 잠기지 않으면 "항상 통과하는 가드"가 된다.
+          include: [
+            "packages/*/src/**/*.spec.ts",
+            "tools/*.spec.ts",
+            "scripts/*.spec.ts",
+            "eval/**/*.spec.ts",
+          ],
           exclude: ["**/*.int.spec.ts", "**/node_modules/**", "**/dist/**"],
         },
       },
       {
         test: {
           name: "integration",
-          include: ["packages/*/src/**/*.int.spec.ts", "tools/*.int.spec.ts", "scripts/*.int.spec.ts"],
+          include: [
+            "packages/*/src/**/*.int.spec.ts",
+            "tools/*.int.spec.ts",
+            "scripts/*.int.spec.ts",
+            "eval/**/*.int.spec.ts",
+          ],
           exclude: ["**/node_modules/**", "**/dist/**"],
           passWithNoTests: true,
         },

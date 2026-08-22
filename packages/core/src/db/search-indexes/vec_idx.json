@@ -1,0 +1,19 @@
+{
+  "$source": "specs/02-data-model.md §인덱스 — chunks: Atlas Vector Search `vec_idx`",
+  "name": "vec_idx",
+  "collection": "chunks",
+  "type": "vectorSearch",
+  "definition": {
+    "fields": [
+      {
+        "type": "vector",
+        "path": "embedding",
+        "numDimensions": "${EMBEDDING_DIM}",
+        "similarity": "cosine"
+      },
+      { "type": "filter", "path": "meta.type" },
+      { "type": "filter", "path": "meta.project" },
+      { "type": "filter", "path": "embeddingVersion" }
+    ]
+  }
+}

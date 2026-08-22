@@ -1,0 +1,14 @@
+{
+  "$source": "specs/02-data-model.md §인덱스 — chunks: Atlas Search `text_idx`",
+  "name": "text_idx",
+  "collection": "chunks",
+  "type": "search",
+  "definition": {
+    "mappings": {
+      "dynamic": false,
+      "fields": {
+        "text": { "type": "string", "analyzer": "lucene.standard" }
+      }
+    }
+  }
+}

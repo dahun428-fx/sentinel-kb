@@ -9,9 +9,16 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "node -e \"console.log('[@sentinel/mcp] dev server arrives in T-014 (MCP skeleton)')\""
+    "dev": "tsx src/http.cli.ts",
+    "start": "tsx src/http.cli.ts",
+    "start:stdio": "tsx src/stdio.cli.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@sentinel/contracts": "workspace:*",
     "@sentinel/core": "workspace:*"
+  },
+  "devDependencies": {
+    "gpt-tokenizer": "^4.0.0"
   }
 }

@@ -1,0 +1,175 @@
+# ===========================================================================
+# 프로덕션 오버레이 (T-026, specs/06).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# 베이스와 달라지는 것만 담는다: ECR 이미지, TLS, certbot, awslogs 드라이버.
+# **라우팅·스트리밍·메모리 예산은 베이스와 같다** — 갈라지면 로컬에서 재현되지 않는
+# 프로덕션 전용 사고가 생긴다.
+# ===========================================================================
+
+x-awslogs: &awslogs
+  # specs/06 관측 행. 로그 그룹은 infra/ec2.tf가 만든다(`/{project}/{env}/app`).
+  driver: awslogs
+  options:
+    awslogs-region: ${AWS_REGION:?awslogs 드라이버에 리전이 필요하다}
+    awslogs-group: ${LOG_GROUP_NAME:?infra의 aws_cloudwatch_log_group 이름}
+    awslogs-create-group: "false"
+
+services:
+  db-init:
+    build: !reset null
+    image: ${ECR_REGISTRY:?ECR 레지스트리 호스트}/sentinel-kb-core-api:${IMAGE_TAG:?배포할 이미지 태그}
+    pull_policy: always
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP_NAME}
+        awslogs-create-group: "false"
+        awslogs-stream: db-init
+
+  core-api:
+    build: !reset null
+    image: ${ECR_REGISTRY}/sentinel-kb-core-api:${IMAGE_TAG}
+    pull_policy: always
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP_NAME}
+        awslogs-create-group: "false"
+        awslogs-stream: core-api
+
+  mcp:
+    build: !reset null
+    image: ${ECR_REGISTRY}/sentinel-kb-mcp:${IMAGE_TAG}
+    pull_policy: always
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP_NAME}
+        awslogs-create-group: "false"
+        awslogs-stream: mcp
+
+  worker:
+    build: !reset null
+    image: ${ECR_REGISTRY}/sentinel-kb-worker:${IMAGE_TAG}
+    pull_policy: always
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP_NAME}
+        awslogs-create-group: "false"
+        awslogs-stream: worker
+
+  web:
+    build: !reset null
+    image: ${ECR_REGISTRY}/sentinel-kb-web:${IMAGE_TAG}
+    pull_policy: always
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP_NAME}
+        awslogs-create-group: "false"
+        awslogs-stream: web
+
+  nginx:
+    build: !reset null
+    image: ${ECR_REGISTRY}/sentinel-kb-nginx:${IMAGE_TAG}
+    pull_policy: always
+    environment:
+      NGINX_MODE: prod
+      DOMAIN_NAME: ${DOMAIN_NAME:?TLS 인증서 경로와 server_name에 쓰인다}
+      NGINX_RELOAD_INTERVAL: ${NGINX_RELOAD_INTERVAL:-12h}
+    ports: !override
+      # SG 인바운드는 443 하나뿐이다(specs/06, infra/network.tf). 80은 호스트 안에서만 의미가 있다.
+      - "443:443"
+      - "127.0.0.1:80:80"
+    volumes:
+      - letsencrypt:/etc/letsencrypt:ro
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP_NAME}
+        awslogs-create-group: "false"
+        awslogs-stream: nginx
+
+  # -------------------------------------------------------------------------
+  # certbot — **DNS-01**이다. HTTP-01이 아니다.
+  #
+  # specs/06은 "SG 443만 인바운드"와 "Let's Encrypt(certbot)"를 동시에 요구하는데,
+  # **HTTP-01 챌린지는 80번 인바운드를 요구한다.** 둘은 양립하지 않는다(T-025 F-3).
+  # Route53이 이미 있으므로(infra/route53.tf) DNS-01로 해소한다 — 인바운드 포트를
+  # 하나도 열지 않고 발급되고, 와일드카드도 가능하다.
+  #
+  # ⚠️ 인스턴스 롤에 route53 권한이 **아직 없다**. infra/iam.tf에 추가가 필요하다
+  #    (T-026 Findings F-2). 그 전까지 이 서비스는 발급에 실패한다.
+  # -------------------------------------------------------------------------
+  certbot:
+    image: certbot/dns-route53:${CERTBOT_VERSION:-v5.1.0}
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        trap exit TERM
+        while :; do
+          certbot renew --dns-route53 --non-interactive --quiet \
+            --dns-route53-propagation-seconds "$${CERTBOT_DNS_PROPAGATION_SECONDS:-30}"
+          sleep 12h & wait $${!}
+        done
+    environment:
+      AWS_REGION: ${AWS_REGION}
+      CERTBOT_DNS_PROPAGATION_SECONDS: ${CERTBOT_DNS_PROPAGATION_SECONDS:-30}
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-work:/var/lib/letsencrypt
+    mem_limit: 128m
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP_NAME}
+        awslogs-create-group: "false"
+        awslogs-stream: certbot
+
+  # -------------------------------------------------------------------------
+  # certbot-init — 최초 발급. 닭-달걀 문제를 푸는 one-shot이다.
+  #
+  # nginx prod 블록은 `/etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem`이 없으면 뜨지 않고,
+  # certbot renew는 발급된 인증서가 없으면 아무것도 하지 않는다. 그래서 최초 1회는 이걸 돌린다:
+  #
+  #   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  #     --profile bootstrap run --rm certbot-init
+  #
+  # profile에 넣어 두었으므로 평상시 `up -d`에는 뜨지 않는다.
+  # -------------------------------------------------------------------------
+  certbot-init:
+    profiles: ["bootstrap"]
+    image: certbot/dns-route53:${CERTBOT_VERSION:-v5.1.0}
+    restart: "no"
+    command:
+      - certonly
+      - --dns-route53
+      - --non-interactive
+      - --agree-tos
+      - --keep-until-expiring
+      - --dns-route53-propagation-seconds
+      - "${CERTBOT_DNS_PROPAGATION_SECONDS:-30}"
+      - -m
+      - ${CERTBOT_EMAIL:?만료 알림 수신 주소가 필요하다}
+      - -d
+      - ${DOMAIN_NAME}
+    environment:
+      AWS_REGION: ${AWS_REGION}
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-work:/var/lib/letsencrypt
+
+volumes:
+  letsencrypt:
+  certbot-work:

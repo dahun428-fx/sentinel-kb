@@ -1,0 +1,3 @@
+# cp backend.hcl.example backend.hcl && terraform init -backend-config=backend.hcl
+# bucket 이름은 infra/bootstrap 의 output `state_bucket_name` 값이다.
+bucket = "sentinel-kb-tfstate-000000000000"

@@ -1,0 +1,10 @@
+# 의도적 위반: 포트를 변수 뒤로 숨겨 정적 판정을 회피한다.
+# 정적 스캔은 22 인지 알 수 없으므로 fail-closed 로 막아야 한다.
+# (자격증명이 있는 CI 에서는 --plan 모드가 실제 값으로 다시 판정한다.)
+resource "aws_vpc_security_group_ingress_rule" "hidden" {
+  security_group_id = aws_security_group.app.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = var.mystery_port
+  to_port           = var.mystery_port
+}

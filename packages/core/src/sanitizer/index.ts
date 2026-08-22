@@ -5,3 +5,9 @@
 export * from "./sanitize.js";
 export * from "./masking.js";
 export { detectInjection, toProbe, ZERO_WIDTH_THRESHOLD } from "./injection.js";
+export {
+  detectStructural,
+  hasMixedScriptWord,
+  EMITTED_CONTAINER_TAGS,
+  KNOWN_STRUCTURAL_GAPS,
+} from "./structural.js";

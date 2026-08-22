@@ -8,6 +8,7 @@
     { "path": "packages/worker" },
     { "path": "packages/web" },
     { "path": "tools" },
-    { "path": "scripts" }
+    { "path": "scripts" },
+    { "path": "eval" }
   ]
 }

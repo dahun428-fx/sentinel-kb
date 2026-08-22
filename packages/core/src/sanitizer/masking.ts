@@ -197,14 +197,33 @@ function matchIndex(match: RegExpMatchArray): number {
 // `mongodb://localhost:27017 에서 문제 발생, @team 에 공유했다.`의 `@team`이 호스트 모양을
 // 통과해 userinfo = `localhost:27017 에서 문제 발생, `가 되고 호스트가 지워진다.
 //
-// **엄격 갈래**: RFC 3986 userinfo 문자집합 + 실무 예외 `?`·`/`·`@`.
-//   공백도 한글도 제어문자도 없다. `Str0ngPass?x`·`Str0ngPass/x`·`P@ssw0rdLong`이 여기 걸린다.
-//   (`?`·`/`는 RFC userinfo에 **없지만** 이스케이프 없이 들어오는 것이 현실이고,
-//    그게 N-10 회귀의 핵심 케이스다. `@`도 같은 이유 — `svc:P@ssw0rdLong@host`.)
-// **관대 갈래**: 공백이 있어도 되지만 **`:`가 반드시 있고**, 비밀번호 쪽은
-//   **후행 공백만 트림한 뒤 내부 공백이 남지 않아야** 한다.
-//   `<db user name>:realpw@host`(N-3)와 `appuser:Str0ngPass @host`(후행 공백)가 여기 걸리고,
-//   `localhost:27017 에서 문제 발생, `는 비밀번호 자리에 **내부** 공백이 있어 탈락한다(F-15).
+// ## 판정을 뒤집는다 — fail-closed 단일 불변식 (T-004b, 포스트모템 §4.1 안 2)
+//
+// 8차까지 이 검사는 **두 갈래**였다(엄격: RFC userinfo 문자집합 / 관대: `:` 필수 + 내부 공백 배제).
+// 두 갈래 모두 **열거가 "탐지"**했고, 열거 밖 문자를 만나면 규칙이 무발동했다.
+// 무발동은 **무플래그 평문 통과**, 즉 fail-open이다. 여덟 라운드 내내 판정자만 바뀌고
+// (제로폭 목록 → userinfo 문자집합 → 호스트 룩어헤드 → authority 종결자 → 호스트 모양 →
+// strict 집합 → 갈래 진입 조건) 이 성질은 한 번도 제거되지 않아 매번 옆칸이 열렸다.
+// 마지막이 N-13이다: strict는 `@`를 못 찾고 관대는 `:`를 요구해, `:` 없는 사용자명
+// (`mongodb://<apikey>@host`·Atlas 이메일형)이 **어느 갈래에도 걸리지 않았다**.
+// 실측으로 ASCII 인쇄 가능 94자 중 **93자**가 이 축에서 샜다.
+//
+// 그래서 갈래를 없애고 **열거가 "면제"만 하게** 한다. 불변식은 하나다:
+//
+// > 스킴 뒤 같은 줄(상한 `MAX_USERINFO_SCAN`) 안에 `@`가 있으면 그 앞은 **자격증명 구간이다.**
+// > 예외는 하나 — **자격증명 자리에 내부 공백류가 있으면 산문으로 보고 면제한다.**
+// > ("자격증명 자리" = 첫 `:` 이후, `:`가 없으면 스킴 뒤 전부.
+// >  "내부" = 후행 공백을 트림하고도 남는 공백류.)
+//
+// 판정에 쓰는 문자 집합은 이제 `\s` 하나뿐이다. 열거 실수의 대가가 **유출에서 오탐으로**
+// 강등된다 — 위험 비대칭(위 23-25행)에 부합한다. 면제 조건이 F-15 방어선이다:
+// `localhost:27017 에서 문제 발생, `은 자격증명 자리에 **내부** 공백이 있어 면제된다.
+//
+// **알려진 한계(포스트모템 §4.4①).** 면제 경로는 여전히 무플래그 통과다 —
+// `mongodb://appuser:Str0ng Pass@host`(F-21)·NBSP 등 `Zs`(F-18)는 그대로 샌다.
+// 이 안에서는 원리적으로 닫을 수 없다(면제를 없애면 F-15가 재발한다). 닫으려면
+// 세 번째 출력 상태(`sanitize-ambiguous` 플래그)가 필요한데 그건 계약 변경이라
+// 스펙 개정 + 기존 레코드 마이그레이션을 동반한다. **리스크 등록부 항목이다.**
 //
 // **개행은 명시적으로 포기한다.** `mongodb://user:pw\n@host`처럼 URI가 줄을 넘는 형태는
 // 산문과 구별할 구조적 근거가 없다 — 개행 하나만 허용해도 문단 전체가 userinfo 후보가 된다.
@@ -223,33 +242,12 @@ const MAX_USERINFO_SCAN = 512;
 /** 공백류. JS `\s`는 NBSP·EN/EM SPACE·U+3000·U+205F·U+1680·U+2028/2029를 모두 덮는다. */
 const SPACE_RE = /\s/u;
 
-/**
- * RFC 3986 userinfo 문자집합 + 퍼센트 인코딩 + 실무 예외(`?`·`/`·`@`).
- * `unreserved = A-Za-z0-9-._~`, `sub-delims = !$&'()*+,;=`, 그리고 `:`·`%`.
- * `?`·`/`는 RFC userinfo에 없지만 실무에서 이스케이프 없이 들어오므로 예외로 허용한다(N-10).
- *
- * **`@`는 넣지 않는다.** 넣으면 런이 비밀번호 안의 `@`를 삼키고, strict 갈래가 그 런의
- * 마지막 `@`를 경계로 **즉시 반환**해 버린다. 비밀번호에 `@`가 있고 그 뒤에 이 집합 밖 문자
- * (`#`·`[`·`{`·한글·이모지 등)가 오면 런이 진짜 경계 앞에서 끊겨
- * **비밀번호 내부의 `@`가 경계로 뽑히고 나머지 비밀번호가 평문으로 남는다** (T-004 N-12).
- * `flags`에는 `secret-masked`가 붙으므로 **"새니타이즈됨"으로 보이는데 비밀번호가 들어 있다.**
- * `@`를 빼면 strict 런이 `@`에서 끊겨 strict가 실패하고, lenient가 올바른 마지막 `@`를 찾는다.
- */
-const STRICT_USERINFO_RE = /[A-Za-z0-9\-._~%!$&'()*+,;=:?/]/;
-
 /** 개행 전까지가 한 줄이다. `\r`는 여기 포함하지 않는다 — 공백류로 다룬다. */
 function lineEndFrom(subject: string, from: number): number {
   const newline = subject.indexOf("\n", from);
   return newline < 0 ? subject.length : newline;
 }
 
-/**
- * userinfo 경계(`@`의 위치)를 찾는다. 없으면 `-1`.
- *
- * 두 갈래를 순서대로 본다. **엄격이 먼저**인 이유는 그쪽이 `:` 없는 형태
- * (`mongodb://svcuser@host`)까지 인정하는 더 넓은 판정이기 때문이다.
- * 관대 갈래는 공백을 허용하는 대신 `:`와 "비밀번호에 내부 공백 없음"을 요구한다.
- */
 /**
  * `@` 뒤에 호스트가 **존재하는지**만 본다. 모양은 보지 않는다.
  *
@@ -271,47 +269,67 @@ function hasHostAfter(subject: string, at: number, spanEnd: number): boolean {
   return at + 1 < spanEnd;
 }
 
-function findUserinfoEnd(subject: string, authorityStart: number): number {
-  const spanEnd = Math.min(lineEndFrom(subject, authorityStart), authorityStart + MAX_USERINFO_SCAN);
-
-  // --- 엄격 갈래 ---------------------------------------------------------
-  // userinfo에 공백이 없으므로 후보는 "허용 문자만으로 이뤄진 최대 런" 안의 `@`들이다.
-  // 런을 한 번만 구해 두면 후보마다 문자집합을 다시 훑지 않아도 된다(비용이 선형으로 남는다).
-  let strictEnd = authorityStart;
-  while (strictEnd < spanEnd && STRICT_USERINFO_RE.test(subject.charAt(strictEnd))) {
-    strictEnd += 1;
-  }
-  for (let i = strictEnd - 1; i >= authorityStart; i -= 1) {
-    if (subject.charAt(i) === "@" && hasHostAfter(subject, i, spanEnd)) return i;
-  }
-
-  // --- 관대 갈래 ---------------------------------------------------------
-  // `:`가 없으면 자격증명으로 보지 않는다(F-19). 사용자명 단독은 비밀번호보다 민감도가 낮고
-  // `mongodb://my user@host` 같은 형태를 산문과 구별할 근거가 없다.
-  const colon = subject.indexOf(":", authorityStart);
-  if (colon < 0 || colon >= spanEnd) return -1;
-
-  // 비밀번호 후보 구간 `[colon+1, p)`가 "후행 트림 후 내부 공백 없음"을 만족하는 `p`는
-  // **연속 범위**다: 첫 공백류 이전 전부, 그리고 그 공백류 런의 바로 끝.
-  // `@`는 공백류가 아니므로 후보는 `[colon+1, firstSpace)` 안의 `@`들 + 공백 런 끝의 `@` 하나다.
-  let firstSpace = colon + 1;
-  while (firstSpace < spanEnd && !SPACE_RE.test(subject.charAt(firstSpace))) firstSpace += 1;
+/**
+ * `[credStart, limit)` 안에서 **가장 오른쪽의 정당한 경계 `@`**를 찾는다. 없으면 `-1`.
+ *
+ * "정당하다" = 자격증명 자리 `[credStart, at)`가 **후행 공백을 트림하고도 내부 공백류가 없다**.
+ * 그 조건을 만족하는 `at`은 **연속 범위**다: 첫 공백류 이전 전부, 그리고 그 공백류 런의 바로 끝.
+ * `@`는 공백류가 아니므로 후보는 `[credStart, firstSpace)` 안의 `@`들 + 공백 런 끝의 `@` 하나다.
+ * 그래서 후보마다 구간을 다시 훑지 않아도 되고 비용이 선형으로 남는다.
+ *
+ * `hasHostAfter`는 `limit`이 아니라 **`spanEnd`** 로 본다 — 호스트의 존재는 스팬의 성질이지
+ * 이 호출의 탐색 범위와는 무관하다.
+ */
+function findBoundaryIn(
+  subject: string,
+  credStart: number,
+  limit: number,
+  spanEnd: number,
+): number {
+  let firstSpace = credStart;
+  while (firstSpace < limit && !SPACE_RE.test(subject.charAt(firstSpace))) firstSpace += 1;
   let spaceRunEnd = firstSpace;
-  while (spaceRunEnd < spanEnd && SPACE_RE.test(subject.charAt(spaceRunEnd))) spaceRunEnd += 1;
+  while (spaceRunEnd < limit && SPACE_RE.test(subject.charAt(spaceRunEnd))) spaceRunEnd += 1;
 
   // 뒤에서부터 — 후행 공백을 사이에 둔 `@`가 가장 오른쪽 후보다.
   if (
     spaceRunEnd > firstSpace &&
-    spaceRunEnd < spanEnd &&
+    spaceRunEnd < limit &&
     subject.charAt(spaceRunEnd) === "@" &&
     hasHostAfter(subject, spaceRunEnd, spanEnd)
   ) {
     return spaceRunEnd;
   }
-  for (let i = firstSpace - 1; i > colon; i -= 1) {
+  for (let i = firstSpace - 1; i >= credStart; i -= 1) {
     if (subject.charAt(i) === "@" && hasHostAfter(subject, i, spanEnd)) return i;
   }
   return -1;
+}
+
+function findUserinfoEnd(subject: string, authorityStart: number): number {
+  const spanEnd = Math.min(lineEndFrom(subject, authorityStart), authorityStart + MAX_USERINFO_SCAN);
+
+  // 자격증명 자리는 **userinfo 안의** 첫 `:` 이후다. 여기서 중요한 것은 "첫 `:`"를 **어디에서**
+  // 읽느냐다 — 줄 전체에서 읽으면 사용자명에 `:`가 없을 때 **호스트의 포트 콜론**(`@mongo:27017`)
+  // 이나 **쿼리의 콜론**(`?t=a:b`)을 집어 `credStart`가 경계 `@`를 지나쳐 버린다.
+  // 그러면 오른쪽에 `@`가 남지 않아 무발동 → 무플래그 평문 통과다 (T-004 N-14, 실측 93/94).
+  //
+  // 그래서 `:`는 **경계 후보보다 왼쪽에서만** 유효하다. 첫 `:`의 위치 `colon`을 기준으로
+  // 경계가 있을 수 있는 곳은 두 군데뿐이고, 이 둘은 **구성상 배타적이며 전부**다:
+  //
+  //   1. `colon` **오른쪽** — 그 `:`가 userinfo의 `user:pass` 구분자인 경우.
+  //   2. `colon` **왼쪽**  — 그 `:`는 userinfo 것이 아니다(포트·쿼리). 구간 전체가 사용자명이다.
+  //
+  // 오른쪽이 항상 더 오른쪽 경계이므로 1을 먼저 보고, 없을 때만 2를 본다.
+  // **포트나 쿼리 문자를 특별 취급하지 않는다** — 판정에 쓰는 문자 집합은 여전히 `\s` 하나다.
+  const rawColon = subject.indexOf(":", authorityStart);
+  const colon = rawColon >= 0 && rawColon < spanEnd ? rawColon : -1;
+
+  if (colon >= 0) {
+    const afterColon = findBoundaryIn(subject, colon + 1, spanEnd, spanEnd);
+    if (afterColon >= 0) return afterColon;
+  }
+  return findBoundaryIn(subject, authorityStart, colon >= 0 ? colon : spanEnd, spanEnd);
 }
 
 /** `mongodb://` · `mongodb+srv://` 스킴. 여기서 authority가 시작한다. */
