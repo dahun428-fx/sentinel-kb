@@ -644,7 +644,12 @@ describe("sanitize — 프로퍼티: 불변식", () => {
         const ip = octets.join(".");
         const input = `${ip} 에서 온 요청만 통과했다.`;
 
-        expect(sanitize(input, { maskEmail: false })).toEqual({ text: input, flags: [] });
+        expect(sanitize(input, { maskEmail: false })).toEqual({
+          text: input,
+          flags: [],
+          masked: [],
+          injectionRules: [],
+        });
       }),
       { numRuns: 300 },
     );
@@ -658,7 +663,12 @@ describe("sanitize — 프로퍼티: 불변식", () => {
       fc.property(shaArb, (sha) => {
         const input = `커밋 ${sha} 에서 회귀가 시작됐다.`;
 
-        expect(sanitize(input, { maskEmail: false })).toEqual({ text: input, flags: [] });
+        expect(sanitize(input, { maskEmail: false })).toEqual({
+          text: input,
+          flags: [],
+          masked: [],
+          injectionRules: [],
+        });
       }),
       { numRuns: 300 },
     );

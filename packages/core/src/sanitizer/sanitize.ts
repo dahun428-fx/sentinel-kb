@@ -11,7 +11,7 @@
 import type { SanitizeFlag } from "@sentinel/contracts";
 
 import { detectInjection } from "./injection.js";
-import { applyMasking } from "./masking.js";
+import { applyMasking, type MaskKind } from "./masking.js";
 
 /** 호출자가 넘길 수 있는 옵션. 넘기지 않으면 env에서 읽는다. */
 export interface SanitizeOptions {
@@ -63,6 +63,21 @@ export interface SanitizeResult {
   readonly text: string;
   /** specs/02가 정의한 2종만 나온다. contracts의 `SanitizeFlag`를 그대로 쓴다. */
   readonly flags: SanitizeFlag[];
+  /**
+   * **실제로 마스킹된 종류.** specs/07 §3이 "마스킹이 발생하면 무엇이 마스킹됐는지
+   * 알려준다(조용히 삼키지 않음)"고 못박았는데, 예전 계약은 `{text, flags}`뿐이라
+   * 호출자가 그 경고를 채울 수단이 없었다(T-004 F-1 / T-002 F-6).
+   *
+   * 대안은 둘 다 나빴다. 본문에서 `[MASKED:...]` 라벨을 **재파싱**하는 것은 사용자가 그
+   * 문자열을 직접 적은 경우와 구별할 수 없고, API 계층에서 `applyMasking`을 다시 부르는 것은
+   * 게이트를 두 번 돌린다(비용도 두 배, 두 경로가 갈라질 여지도 생긴다).
+   * `applyMasking`이 이미 이 값을 계산해 반환하므로 **버리지 않고 흘려보내면 된다.**
+   *
+   * contracts 스키마가 아니라 core 내부 타입이라 계약 재개방(G3)이 아니다.
+   */
+  readonly masked: readonly MaskKind[];
+  /** 발화한 인젝션 규칙 id. `detectInjection`이 이미 돌려주던 값을 보존한다. */
+  readonly injectionRules: readonly string[];
 }
 
 /**
@@ -110,8 +125,9 @@ function resolveOptions(options: SanitizeOptions | undefined): ResolvedSanitizeO
  *
  * 플래그는 `secret-masked`(실제 치환이 일어남)와 `injection-suspect`(의심 패턴 발견)
  * 두 종뿐이다 — contracts가 닫아 둔 집합이며 늘리려면 스펙 변경(인간 승인)이 먼저다.
- * 어떤 종류가 마스킹됐는지는 본문 라벨(`[MASKED:aws-access-key]`)이 알려준다(specs/07 §3).
- * 구조화된 목록이 필요하면 `applyMasking`을 직접 부른다.
+ * 어떤 종류가 마스킹됐는지는 본문 라벨(`[MASKED:aws-access-key]`)과 함께
+ * `masked`·`injectionRules`로도 돌려준다 — specs/07 §3의 "무엇이 마스킹됐는지" 경고를
+ * 채우는 유일한 신뢰 가능한 출처다.
  *
  * @throws {SanitizeInputTooLargeError} 입력이 `maxInputChars`를 초과할 때.
  */
@@ -129,5 +145,5 @@ export function sanitize(text: string, options?: SanitizeOptions): SanitizeResul
   if (masked.length > 0) flags.push("secret-masked");
   if (injectionHits.length > 0) flags.push("injection-suspect");
 
-  return { text: maskedText, flags };
+  return { text: maskedText, flags, masked, injectionRules: injectionHits };
 }

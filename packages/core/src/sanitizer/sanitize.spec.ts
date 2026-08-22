@@ -333,7 +333,7 @@ describe("sanitize — 계약과 결정론", () => {
   });
 
   it("빈 문자열은 플래그 없이 통과한다", () => {
-    expect(sanitize("")).toEqual({ text: "", flags: [] });
+    expect(sanitize("")).toEqual({ text: "", flags: [], masked: [], injectionRules: [] });
   });
 
   it("applyMasking은 어떤 종류가 마스킹됐는지 알려준다 (specs/07 §3)", () => {

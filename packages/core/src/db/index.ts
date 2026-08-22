@@ -7,3 +7,4 @@
  */
 export * from "./client.js";
 export * from "./indexes.js";
+export * from "./records.js";
