@@ -66,6 +66,48 @@ export default tseslint.config(
               message:
                 "core는 HTTP·MCP·UI를 모른다 — api/mcp/worker/web을 import할 수 없다 (specs/01).",
             },
+            /*
+             * 형제 간선 금지 — specs/01의 의존 방향은 `web/mcp/api/worker → core → contracts`이고
+             * 최상위 네 패키지는 **서로를 모른다.** 각각은 core·contracts만 의존한다.
+             *
+             * 이 zone이 없던 동안 형제 import를 막는 장치는 **아무것도 없었다.**
+             * `tsc -b` 프로젝트 참조가 막아 준다는 통념은 T-014 검증에서 반증됐다 —
+             * 참조를 추가하지 않고 `packages/mcp`에서 `@sentinel/api`를 import해도
+             * `tsc -b`도 `eslint`도 통과하고 런타임도 정상이었다(패키지가 pnpm 워크스페이스로
+             * 이미 해석되기 때문이다). T-014 D-3의 "복제할 수밖에 없다"는 근거를 실제로
+             * 떠받치는 것은 이제 이 규칙이다.
+             *
+             * `scripts/`는 target이 아니다 — 의도적이다. `scripts/seed.cli.ts`가
+             * `@sentinel/api`를, `scripts/seed.ts`가 `@sentinel/api`·`@sentinel/worker`를
+             * 부르는 것은 정당하다. 그건 패키지가 아니라 **컴포지션 루트**이고,
+             * 여러 패키지를 조립하는 것이 존재 이유다.
+             */
+            {
+              target: "./packages/api",
+              from: ["./packages/mcp", "./packages/worker", "./packages/web"],
+              message:
+                "형제 패키지 간 import는 의존 방향 위반이다 — api는 core·contracts만 의존한다 (specs/01).",
+            },
+            {
+              target: "./packages/mcp",
+              from: ["./packages/api", "./packages/worker", "./packages/web"],
+              message:
+                "형제 패키지 간 import는 의존 방향 위반이다 — mcp는 core·contracts만 의존하고 " +
+                "core-api는 HTTP로 부른다 (specs/01, T-014 D-1·D-3).",
+            },
+            {
+              target: "./packages/worker",
+              from: ["./packages/api", "./packages/mcp", "./packages/web"],
+              message:
+                "형제 패키지 간 import는 의존 방향 위반이다 — worker는 core·contracts만 의존한다 (specs/01).",
+            },
+            {
+              target: "./packages/web",
+              from: ["./packages/api", "./packages/mcp", "./packages/worker"],
+              message:
+                "형제 패키지 간 import는 의존 방향 위반이다 — web은 core·contracts만 의존하고 " +
+                "core-api는 HTTP로 부른다 (specs/01).",
+            },
           ],
         },
       ],
