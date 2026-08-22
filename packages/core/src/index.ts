@@ -1,6 +1,7 @@
 /**
  * `@sentinel/core` 배럴.
- * 도메인 로직 중 retriever·generator·llm/은 후속 태스크에서 채운다.
+ * 도메인 로직 중 generator·llm/은 후속 태스크에서 채운다.
+ * `retriever`는 mongodb를 import하지 않아(구조적 `RetrievalDbLike`) 여기 실려도 안전하다 (T-011).
  * specs/01-architecture.md 참조. `sanitizer`는 T-004에서 들어왔다 —
  * 외부 의존이 없는 순수 정규식 모듈이라 `./db`와 달리 배럴에 실어도 안전하다.
  */
@@ -15,3 +16,4 @@ export { VERSION } from "./version.js";
 export * from "./sanitizer/index.js";
 export * from "./chunker/index.js";
 export * from "./embedder/index.js";
+export * from "./retriever/index.js";

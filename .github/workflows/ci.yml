@@ -15,9 +15,12 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      # 통합 테스트는 자체적으로 DB를 띄운다 — mongodb-memory-server 또는
+      # mongodb/mongodb-atlas-local 컨테이너(벡터·텍스트 검색용, specs/05 정정분).
+      # 외부 MONGODB_URI를 주입하지 않는다: 빈 secret이 들어가면 오히려 깨지고,
+      # 클라우드 Atlas 자격증명은 더 이상 필요 없다.
       - run: pnpm test:integration
         env:
-          MONGODB_URI: ${{ secrets.MONGODB_TEST_URI }}
           EMBEDDING_PROVIDER: fake
       - run: pnpm build
 

@@ -12,10 +12,11 @@
  *
  * testcontainers 대신 `docker` CLI를 직접 부른다: 컨테이너가 하나뿐이고 수명이 파일 하나에
  * 갇혀 있어 새 devDependency(전이 의존 포함)를 늘릴 만한 이득이 없다.
+ *
+ * T-011 정리: 컨테이너 기동·2단계 부팅 게이트는 `../testing/atlas-local.ts`로 뽑았다
+ * (T-011이 두 번째 사용처라 복붙하면 한쪽만 고쳐진다). **단언은 하나도 바뀌지 않았다.**
  */
-import { spawnSync } from "node:child_process";
-
-import { MongoClient, type Db, type Document } from "mongodb";
+import { type Db, type Document } from "mongodb";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
@@ -24,149 +25,38 @@ import {
   readVectorNumDimensions,
   waitForSearchIndexesReady,
 } from "./search-indexes.js";
+import {
+  ATLAS_LOCAL_BOOT_TIMEOUT_MS,
+  dockerAvailable,
+  pollUntilNonEmpty,
+  startAtlasLocal,
+  warnDockerMissing,
+  type AtlasLocalHandle,
+} from "../testing/atlas-local.js";
 
-const IMAGE = "mongodb/mongodb-atlas-local:latest";
 const CONTAINER_NAME = `sentinel-t010-${process.pid}`;
 const DB_NAME = "sentinel_t010_int";
 /** 테스트 전용 차원. 실제 모델 차원과 무관해야 env가 소스임이 드러난다. */
 const DIM = 4;
-/** 이미지 pull(~2GB)까지 감안한 부팅 상한. */
-const BOOT_TIMEOUT_MS = 600_000;
+const BOOT_TIMEOUT_MS = ATLAS_LOCAL_BOOT_TIMEOUT_MS;
 const QUERY_TIMEOUT_MS = 60_000;
-
-function docker(args: string[]): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync("docker", args, { encoding: "utf8" });
-  return {
-    status: result.status ?? -1,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-  };
-}
-
-function dockerAvailable(): boolean {
-  return docker(["info", "--format", "{{.ServerVersion}}"]).status === 0;
-}
 
 const HAS_DOCKER = dockerAvailable();
 if (!HAS_DOCKER) {
-  console.warn(
-    [
-      "",
-      "==============================================================",
-      "[T-010] search-indexes.int.spec.ts를 SKIP한다: docker 데몬에 닿지 못했다.",
-      `        이 파일은 ${IMAGE} 컨테이너가 있어야만 $vectorSearch를 검증할 수 있다.`,
-      "        skip은 '통과'가 아니다 — Acceptance 3은 이 환경에서 판정되지 않았다.",
-      "==============================================================",
-      "",
-    ].join("\n"),
-  );
+  warnDockerMissing("T-010", "search-indexes.int.spec.ts", "$vectorSearch");
 }
 
-let client: MongoClient | undefined;
+let handle: AtlasLocalHandle | undefined;
 let db: Db;
-
-async function connectWithRetry(uri: string, deadline: number): Promise<MongoClient> {
-  let lastError: unknown;
-  while (Date.now() < deadline) {
-    const candidate = new MongoClient(uri, { serverSelectionTimeoutMS: 2_000 });
-    try {
-      await candidate.connect();
-      await candidate.db(DB_NAME).admin().command({ ping: 1 });
-      return candidate;
-    } catch (error) {
-      lastError = error;
-      await candidate.close().catch(() => undefined);
-      await sleep(1_000);
-    }
-  }
-  throw new Error(`atlas-local 컨테이너에 연결하지 못했다: ${String(lastError)}`);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * atlas-local은 mongod와 **mongot(검색 프로세스)** 두 개를 띄운다. mongod가 먼저 붙기 때문에
- * ping이 통해도 검색은 아직 `Error connecting to localhost:27027 ... Connection refused`로 죽는다.
- * 컨테이너 부팅 레이스를 여기서 흡수하지 않으면 이 파일이 간헐적으로 실패한다(실측).
- *
- * 게이트: mongot이 살아 있으면 없는 인덱스를 향한 `$search`도 에러 없이 빈 결과를 준다.
- */
-async function waitForMongot(handle: Db, deadline: number): Promise<void> {
-  const probe = handle.collection("_mongot_probe");
-  await handle.createCollection("_mongot_probe").catch(() => undefined);
-  let lastError: unknown;
-
-  while (Date.now() < deadline) {
-    try {
-      await probe
-        .aggregate([{ $search: { index: "__not_created__", text: { query: "x", path: "y" } } }])
-        .toArray();
-      return;
-    } catch (error) {
-      lastError = error;
-      const message = error instanceof Error ? error.message : String(error);
-      // mongot이 답을 했다면(=인덱스 없음 류의 에러) 준비된 것이다.
-      if (!/connection refused|connecting to localhost/i.test(message)) return;
-      await sleep(500);
-    }
-  }
-  throw new Error(`mongot이 준비되지 않았다: ${String(lastError)}`);
-}
-
-function waitForHealthy(deadline: number): void {
-  while (Date.now() < deadline) {
-    const status = docker([
-      "inspect",
-      "--format",
-      "{{if .State.Health}}{{.State.Health.Status}}{{else}}nohealth{{end}}",
-      CONTAINER_NAME,
-    ])
-      .stdout.trim();
-    if (status === "healthy" || status === "nohealth") return;
-    if (status === "unhealthy") throw new Error("atlas-local 컨테이너가 unhealthy다");
-    spawnSync("sleep", ["1"]);
-  }
-  throw new Error("atlas-local 컨테이너가 제한 시간 안에 healthy가 되지 않았다");
-}
-
-/** 검색 인덱스는 READY 이후에도 새 문서를 반영하는 데 잠깐 걸린다 — 결과가 나올 때까지 폴링. */
-async function pollUntilNonEmpty(run: () => Promise<Document[]>): Promise<Document[]> {
-  const deadline = Date.now() + QUERY_TIMEOUT_MS;
-  let last: Document[] = [];
-  while (Date.now() < deadline) {
-    last = await run();
-    if (last.length > 0) return last;
-    await sleep(300);
-  }
-  return last;
-}
 
 beforeAll(async () => {
   if (!HAS_DOCKER) return;
-
-  docker(["rm", "-f", CONTAINER_NAME]);
-  const run = docker(["run", "-d", "--name", CONTAINER_NAME, "-P", IMAGE]);
-  if (run.status !== 0) {
-    throw new Error(`컨테이너 기동 실패: ${run.stderr || run.stdout}`);
-  }
-
-  const deadline = Date.now() + BOOT_TIMEOUT_MS / 2;
-  waitForHealthy(deadline);
-
-  const port = docker(["port", CONTAINER_NAME, "27017/tcp"]).stdout.trim().split("\n")[0];
-  const hostPort = port?.split(":").pop();
-  if (!hostPort) throw new Error(`포트 매핑을 읽지 못했다: ${String(port)}`);
-
-  client = await connectWithRetry(`mongodb://127.0.0.1:${hostPort}/?directConnection=true`, deadline);
-  db = client.db(DB_NAME);
-  await waitForMongot(db, deadline);
+  handle = await startAtlasLocal({ containerName: CONTAINER_NAME, dbName: DB_NAME });
+  db = handle.db;
 }, BOOT_TIMEOUT_MS);
 
 afterAll(async () => {
-  await client?.close().catch(() => undefined);
-  if (HAS_DOCKER) docker(["rm", "-f", CONTAINER_NAME]);
+  await handle?.stop();
 });
 
 /** 서버가 돌려주는 순서는 보장되지 않는다 — 이름으로 정렬해 단언을 안정화한다. */
@@ -284,6 +174,7 @@ describe.skipIf(!HAS_DOCKER)("READY 이후의 실제 쿼리 (Acceptance 3)", () 
           { $project: { _id: 0, text: 1, score: { $meta: "vectorSearchScore" } } },
         ])
         .toArray(),
+      QUERY_TIMEOUT_MS,
     );
 
     expect(hits).toHaveLength(1);
@@ -300,6 +191,7 @@ describe.skipIf(!HAS_DOCKER)("READY 이후의 실제 쿼리 (Acceptance 3)", () 
           { $project: { _id: 0, text: 1, score: { $meta: "searchScore" } } },
         ])
         .toArray(),
+      QUERY_TIMEOUT_MS,
     );
 
     expect(hits).toHaveLength(1);
@@ -307,7 +199,10 @@ describe.skipIf(!HAS_DOCKER)("READY 이후의 실제 쿼리 (Acceptance 3)", () 
   }, QUERY_TIMEOUT_MS + 10_000);
 
   it("meta.project filter가 실제로 걸러낸다", async () => {
-    const mine = await pollUntilNonEmpty(() => vectorSearchFiltered({ "meta.project": "sentinel-kb" }));
+    const mine = await pollUntilNonEmpty(
+      () => vectorSearchFiltered({ "meta.project": "sentinel-kb" }),
+      QUERY_TIMEOUT_MS,
+    );
     expect(mine.map((h) => h["meta"]?.["project"])).toEqual(["sentinel-kb"]);
 
     const other = await vectorSearchFiltered({ "meta.project": "bizcare-web" });
@@ -318,10 +213,16 @@ describe.skipIf(!HAS_DOCKER)("READY 이후의 실제 쿼리 (Acceptance 3)", () 
   }, QUERY_TIMEOUT_MS + 10_000);
 
   it("meta.type·embeddingVersion filter도 동작한다", async () => {
-    const incidents = await pollUntilNonEmpty(() => vectorSearchFiltered({ "meta.type": "incident" }));
+    const incidents = await pollUntilNonEmpty(
+      () => vectorSearchFiltered({ "meta.type": "incident" }),
+      QUERY_TIMEOUT_MS,
+    );
     expect(incidents.map((h) => h["meta"]?.["type"])).toEqual(["incident"]);
 
-    const v1 = await pollUntilNonEmpty(() => vectorSearchFiltered({ embeddingVersion: 1 }));
+    const v1 = await pollUntilNonEmpty(
+      () => vectorSearchFiltered({ embeddingVersion: 1 }),
+      QUERY_TIMEOUT_MS,
+    );
     expect(v1.length).toBeGreaterThan(0);
     expect(await vectorSearchFiltered({ embeddingVersion: 99 })).toEqual([]);
   }, QUERY_TIMEOUT_MS + 10_000);

@@ -40,3 +40,36 @@ M: M2 | deps: T-011
   이 라우트는 그 값을 응답에 싣지 않는다(SearchHit에 자리가 없다) — T-018/T-019가 쓴다.
   다만 **레이턴시 로깅(Scope)에 함께 남기면 임계값 튜닝의 근거가 된다.**
 - **`mongodb-atlas-local` 컨테이너로 통합 테스트가 가능하다**(specs/05 정정).
+
+## Findings (T-011에서 넘김)
+
+- **`retrieve()`는 core 도메인 타입 `RetrievedChunk`를 돌려준다 — `SearchHit`이 아니다.**
+  투영은 **이 태스크의 몫**이다. 매핑:
+  `{recordId, title, summary, section, score: fusedScore, type, project, flags}`.
+  **`text`(청크 본문)를 응답에 실으면 NFR-03 즉시 위반이다.** `SearchHit`이 `.strict()`라
+  스프레드하면 검증에서 죽는다 — 그게 방어선이니 우회하지 마라.
+  **Acceptance에 `SearchHit.parse()` 왕복을 넣어라**(G5 권고). 그러면 손으로 대조할 필요가 없다.
+
+- **⚠️ `SearchHit.score`에 무엇을 넣을지 스펙이 정하지 않았다.**
+  `RetrievedChunk`는 점수를 셋으로 쪼갠다 — `fusedScore`(RRF, **순위 결정 전용**),
+  `vectorScore`(원시 cosine, −1..1), `textScore`(BM25, 무제한).
+  `packages/contracts/src/api.ts`의 `SearchHit.score`는 `z.number()`뿐이라 척도 정의가 없다.
+  임의로 고르면 클라이언트에 **RRF 척도(k=60에서 최대 ≈0.033)**가 노출되거나 cosine이 노출되거나 갈린다.
+  **무엇을 싣든 그 척도를 openapi 설명에 명시하라.** MCP 도구(T-015)가 이 값을 그대로 보여준다.
+
+- **`retriever`는 `request.limit`을 클램프하지 않는다.** `SearchRequest.limit`(1–20)이 이미
+  계약으로 상한을 강제하므로 그대로 넘기면 된다. 다만 `RETRIEVAL_FINAL_K=8`이 기본값이고
+  `SearchRequest.limit`의 기본은 **5**다 — 둘 중 무엇이 이기는지 결정하고 근거를 남겨라.
+
+- **⚠️ 텍스트 경로가 `$search`에 자체 `limit`을 못 건다 — NFR-01 위험 (T-011 F-1, G5 R-4).**
+  `text_idx`는 `dynamic:false`에 `text` 단일 매핑이라(`specs/02:94`가 "path text"만 정했다)
+  `meta.type`·`meta.project`·`embeddingVersion`을 `$search`의 `compound.filter`로 걸 수 없다.
+  그래서 `$search → $match → $limit` 순서로 우회한다. 대가: **좁은 필터(작은 project) × 흔한 토큰이면
+  mongot이 매칭 전체를 mongod로 흘린다.** 도큐먼트 12건짜리 통합 테스트로는 절대 안 잡힌다.
+  **이 태스크의 Scope에 레이턴시 로깅이 있으므로, 여기가 실측할 지점이다** —
+  `NFR-01(검색 API p95 < 1.5s)`에 대해 재라. 근본 해결은 `text_idx`에 filter 필드 추가이고
+  그건 `specs/02` 개정(인간 승인)이 선행이다.
+
+- **`maxVectorScore`는 응답에 자리가 없다(SearchHit에 없다) — T-018/T-019가 쓴다.**
+  다만 **레이턴시 로깅에 함께 남기면 임계값 튜닝의 근거가 된다**(T-013이 이 값을 스윕한다).
+  원시 cosine 척도(−1..1)이고, 벡터 경로 0건이면 `null`이다.

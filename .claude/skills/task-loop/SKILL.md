@@ -17,6 +17,18 @@ PLAN → IMPLEMENT → VERIFY → (실패 시 최대 3회 IMPLEMENT 복귀) → 
 태스크 스펙 + refs + Context budget 파일만 읽는다. 계획 3–7줄 선언:
 건드릴 파일, 접근 방식, Acceptance를 어떻게 충족할지.
 
+**Context budget은 아래 셋을 항상 포함한다 — 태스크 파일에 안 적혀 있어도 그렇다.**
+1. 그 태스크의 `## Findings`가 **읽거나 고치라고 지시한 파일**
+2. CLAUDE.md가 요구하는 계약 파일 — 타입을 다루면 `packages/contracts/**`
+3. 태스크가 수정하는 코드의 **기존 테스트 파일**
+
+> 근거(T-010 R-1, T-011 R-5 — **같은 문제가 두 번 났다**): 태스크 파일이 스스로 모순되는 일이
+> 반복됐다. T-010은 Findings가 `embedder/config.ts` 분할을 지시하는데 budget이 `db/**`만 허용했고,
+> T-011은 Findings가 `db/search-indexes.int.spec.ts` 수정을 지시하는데 budget이 `retriever/**`만
+> 허용했다. 둘 다 구현자가 "중단 사유(budget 밖 파일이 반드시 필요)"에 해당했지만 밀어붙였고,
+> G5가 매번 "변경은 정당, 절차는 위반"으로 판정했다. **구현자 귀책이 아니라 스펙 생성 규약의 결함이다.**
+> 위 3항은 그 결함을 닫는다. 그래도 부족하면 그때는 **진짜 스펙 결함이니 멈춰라.**
+
 ### 2. IMPLEMENT
 implementer 에이전트. 최소 diff. 스코프 밖은 `## Findings`로 기록만.
 
