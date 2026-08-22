@@ -30,6 +30,9 @@ T-014는 도구 0개, T-015는 도구 5종만 다뤘고 둘 다 프롬프트를 
       기대 목록은 상수가 아니라 contracts 스키마의 `shape`에서 뽑는다 — 필드가 늘면 테스트가 먼저 죽는다
 - [ ] 질문 순서가 텍스트 안에서 강제된다: `symptom` < `rootCause` < `resolution` < `prevention`,
       `expected` < `actual` < `correction`, `search_knowledge` < `record_knowledge` (문자열 인덱스 비교)
+- [ ] 필수 절(순서 근거 / 검색 먼저 / 관측 / 종류 판별 / incident·divergence 갈래 / 제목·태그 /
+      저장 전 점검 / 저장)이 모두 존재한다. 필드 이름 단언만으로는 이 절들을 통째로 지워도
+      살아남는다(뮤테이션 실측 확인)
 - [ ] `prompts/list` 항목에 `arguments`가 없다 — 사용자 입력이 프롬프트 응답으로 들어가는 경로가 0이다 (NFR-05)
 - [ ] `tools/list`가 여전히 정확히 5개다 (프롬프트를 도구로 만들지 않았다는 증거)
 - [ ] stdio와 HTTP가 같은 `prompts/list`·`prompts/get`·`capabilities`를 낸다
