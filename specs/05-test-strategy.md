@@ -4,9 +4,20 @@
 | 계층 | 대상 | 도구 |
 |---|---|---|
 | Unit | chunker, RRF, 인용 파서, sanitizer, Zod 스키마 | Vitest |
-| Integration | Fastify 라우트 ↔ Mongo, MCP 계약 | Vitest + Atlas 테스트 클러스터(벡터) / mongodb-memory-server(그 외) |
+| Integration | Fastify 라우트 ↔ Mongo, MCP 계약 | Vitest + **mongodb-atlas-local(벡터·텍스트 검색)** / mongodb-memory-server(그 외) |
 | E2E | 검색→답변→인용 점프 (UI) | Playwright |
 | Eval | RAG 품질, 도구 선택, 인젝션 내성 | 자체 러너 |
+
+> **정정(M2 진입 시점, 인간 사후 비준 대상):** 원문은 벡터 검증에 **Atlas 테스트 클러스터**를
+> 요구했다. 그러나 `mongodb/mongodb-atlas-local` 컨테이너가 `$vectorSearch`·`$search`를
+> **로컬에서 그대로 지원한다** — 실측으로 확인했다(인덱스 생성 → READY 폴링 →
+> `$vectorSearch` cosine 점수 0.555, `$search` lucene 점수 0.630).
+> 따라서 **M2의 벡터 검색 통합 테스트는 클라우드 자격증명 없이 CI에서 돌 수 있다.**
+> 이는 T-010·T-011·T-012의 Acceptance를 전부 로컬에서 판정 가능하게 만든다.
+>
+> **다만 T-013(retrieval eval)은 여전히 실제 임베딩이 필요하다.** `FakeEmbedder`는 해시 기반이라
+> 의미 유사도가 0이고(T-006 F-8), `Recall@5 >= 0.8`을 측정할 수 없다.
+> 즉 경계는 "Atlas 유무"가 아니라 **"의미 있는 임베딩 유무"**다.
 
 ## 결정론 원칙
 LLM·임베딩 호출은 인터페이스로 격리하고 unit/integration에서는 fixture 목을 쓴다.
