@@ -1,0 +1,155 @@
+{
+  "_comment": "specs/05 Eval 3의 시나리오 20개. 정답 데이터이므로 점수를 올리려고 고치지 않는다 — 오답이 나오면 고칠 곳은 description(별도 태스크)이거나 이 파일의 '기대'가 틀렸다는 근거다. 스키마는 eval/tools/scenarios.ts.",
+  "scenarios": [
+    {
+      "id": "TS-01",
+      "prompt": "빌드 돌리다 이 스택트레이스가 떴는데 처음 봐. `Error: connect ECONNREFUSED 127.0.0.1:27017 at TCPConnectWrap.afterConnect` — 원인이 뭐고 어떻게 고치면 되는지 알려줘.",
+      "expectedTool": "suggest_resolution",
+      "requiredArgs": ["errorText"],
+      "boundary": "specs/05 Eval 3 예시. '처음 보는 스택트레이스'는 목록이 아니라 답을 원한다 — search_knowledge를 고르면 오답이다."
+    },
+    {
+      "id": "TS-02",
+      "prompt": "방금 Claude가 `client.records.bulkUpsert()`라는 없는 API를 만들어내서 코드가 통째로 안 돌았어. 실제로는 `POST /v1/records`를 반복 호출하는 게 맞았고 그렇게 고쳤어. 다음에 또 당하지 않게 남겨줘.",
+      "expectedTool": "record_knowledge",
+      "requiredArgs": ["type", "title", "expected", "actual", "correction"],
+      "expectedArgs": { "type": "divergence" },
+      "boundary": "specs/05 Eval 3 예시. AI 산출물이 의도와 벌어진 사례는 incident가 아니라 divergence다."
+    },
+    {
+      "id": "TS-03",
+      "prompt": "아까 목록에서 두 번째로 나온 68f0c4a1b2c3d4e5f6a7b8c9, 그 사례 전문 좀 보여줘.",
+      "expectedTool": "get_record",
+      "requiredArgs": ["recordId"],
+      "expectedArgs": { "recordId": "68f0c4a1b2c3d4e5f6a7b8c9" },
+      "boundary": "specs/05 Eval 3 예시. '전문'은 목록 도구가 아니라 get_record이고, recordId는 지어내지 않고 대화에 나온 값을 그대로 쓴다."
+    },
+    {
+      "id": "TS-04",
+      "prompt": "nginx 뒤에서 SSE 커넥션이 자꾸 끊기는데, 디버깅 시작하기 전에 이 지식보관소에 비슷한 사례가 있는지부터 확인해줘.",
+      "expectedTool": "search_knowledge",
+      "requiredArgs": ["query"],
+      "boundary": "CLAUDE.md 도그푸딩 프로토콜의 진입 도구 — 디버깅 '전에' 과거 사례를 먼저 찾는다."
+    },
+    {
+      "id": "TS-05",
+      "prompt": "해결책까지 정리해줄 필요는 없어. 관련 있어 보이는 과거 기록 목록만 뽑아줘. 어느 걸 볼지는 내가 고를게. 키워드는 'mongodb 연결 타임아웃'.",
+      "expectedTool": "search_knowledge",
+      "requiredArgs": ["query"],
+      "boundary": "경계: 목록이 필요한가(search_knowledge) 답이 필요한가(suggest_resolution). 여기서는 목록이라고 명시됐다."
+    },
+    {
+      "id": "TS-06",
+      "prompt": "`MongoServerSelectionError: Server selection timed out after 30000 ms` 이거 원인 가설이랑 해결 절차까지 한 번에 정리해줘. 후보 목록을 훑는 건 내가 하고 싶지 않아.",
+      "expectedTool": "suggest_resolution",
+      "requiredArgs": ["errorText"],
+      "boundary": "같은 경계의 반대편. 상위 도구가 답이다 — 목록만 주는 search_knowledge를 고르면 요청을 만족시키지 못한다."
+    },
+    {
+      "id": "TS-07",
+      "prompt": "recordId 68f0c4a1b2c3d4e5f6a7b8ca 이거 하나만 볼 건데, 요약 말고 resolution 절차 전체가 필요해.",
+      "expectedTool": "get_record",
+      "requiredArgs": ["recordId"],
+      "expectedArgs": { "recordId": "68f0c4a1b2c3d4e5f6a7b8ca" },
+      "boundary": "경계: 목록만(search_knowledge) vs 전문(get_record). recordId를 이미 들고 있으면 다시 검색할 이유가 없다."
+    },
+    {
+      "id": "TS-08",
+      "prompt": "recordId는 몰라. '워커가 임베딩 큐를 비우다 OOM으로 죽었다' 비슷한 기록이 있었던 것 같은데 찾아줘.",
+      "expectedTool": "search_knowledge",
+      "requiredArgs": ["query"],
+      "boundary": "같은 경계의 반대편. recordId가 없으면 get_record를 부를 수 없다 — id를 지어내서 부르는 것이 이 시나리오가 잡으려는 실패다."
+    },
+    {
+      "id": "TS-09",
+      "prompt": "고쳤다. proxy_buffering이 켜져 있어서 SSE 하트비트가 모였다 한꺼번에 나갔던 거였고, off로 바꾸고 read timeout을 300초로 늘렸더니 정상이야. 다음 사람이 같은 데서 헤매지 않게 기록해줘.",
+      "expectedTool": "record_knowledge",
+      "requiredArgs": ["type", "title", "symptom", "resolution"],
+      "expectedArgs": { "type": "incident" },
+      "boundary": "핵심 루프의 마지막 칸(해결 직후 기록). 사람이 겪고 고친 장애이므로 incident다."
+    },
+    {
+      "id": "TS-10",
+      "prompt": "아까 'SSE 버퍼링'으로 검색해서 받은 68f0c4a1b2c3d4e5f6a7b8c9 기록, 그대로 적용해서 해결됐어. 도움이 됐다고 표시해줘.",
+      "expectedTool": "give_feedback",
+      "requiredArgs": ["recordId", "query", "helped"],
+      "expectedArgs": { "helped": "true" },
+      "boundary": "필수 인자 판정의 핵심. `query`는 HTTP 계약상 필수인데 specs/07:35의 인자 목록에는 빠져 있다(T-015 F-2) — 이 시나리오가 그 누락을 드러낸다."
+    },
+    {
+      "id": "TS-11",
+      "prompt": "'mongodb 연결 타임아웃'으로 찾아서 열어본 68f0c4a1b2c3d4e5f6a7b8ca는 결국 헛다리였어. 원인이 완전히 달랐거든. 검색 품질에 반영되게 남겨줘.",
+      "expectedTool": "give_feedback",
+      "requiredArgs": ["recordId", "query", "helped"],
+      "expectedArgs": { "helped": "false" },
+      "boundary": "부정 피드백도 같은 도구다. `helped:false`를 남기지 않으면 검색 품질 신호가 한쪽으로만 쌓인다."
+    },
+    {
+      "id": "TS-12",
+      "prompt": "이 함수 이름 `doStuff2`보다 나은 게 있을까? 하는 일은 청크 배열을 임베딩 배치로 묶는 거야.",
+      "expectedTool": null,
+      "requiredArgs": [],
+      "boundary": "도구 없음이 정답. 지식보관소와 무관한 순수 코드 질문이다 — 무엇이든 부르면 오답이다."
+    },
+    {
+      "id": "TS-13",
+      "prompt": "방금 준 목록 중 1번 요약만 봐도 뭘 해야 할지 알겠어. 전문까지는 필요 없고, 바로 적용해볼게.",
+      "expectedTool": null,
+      "requiredArgs": [],
+      "boundary": "도구 없음이 정답. '전문은 필요 없다'가 명시됐다 — get_record를 반사적으로 부르는 습관을 잡는다."
+    },
+    {
+      "id": "TS-14",
+      "prompt": "README에 오타가 하나 있어. `pnpm eval:tools`가 `pnpm eval:tool`로 적혀 있는데 고쳐줘.",
+      "expectedTool": null,
+      "requiredArgs": [],
+      "boundary": "도구 없음이 정답. 파일 편집 요청이라 도구 목록 다섯 개 전부가 무관하다."
+    },
+    {
+      "id": "TS-15",
+      "prompt": "AI가 짜준 코드에서 터진 거긴 한데, 파보니까 코드는 맞았고 원인은 nginx의 proxy_read_timeout 60초였어. 설정 바꿔서 해결했고 기록해줘.",
+      "expectedTool": "record_knowledge",
+      "requiredArgs": ["type", "title", "symptom", "resolution"],
+      "expectedArgs": { "type": "incident" },
+      "boundary": "type 판별. 'AI가 짜준 코드'라는 표현에 끌려 divergence를 고르면 오답이다 — 산출물이 의도와 벌어진 게 아니라 인프라 장애다."
+    },
+    {
+      "id": "TS-16",
+      "prompt": "에이전트가 낸 결과물이 돌긴 도는데 스펙과 다르게 설계했어. 스펙은 RRF 융합을 요구했는데 벡터 점수만 쓰는 코드를 냈고, 내가 스펙대로 다시 고쳤어. 남겨줘.",
+      "expectedTool": "record_knowledge",
+      "requiredArgs": ["type", "title", "expected", "actual", "correction"],
+      "expectedArgs": { "type": "divergence" },
+      "boundary": "type 판별의 반대편. 에러가 나지 않았어도 '의도와 벌어짐'이면 divergence다."
+    },
+    {
+      "id": "TS-17",
+      "prompt": "divergence 기록만 훑어보고 싶어. '버전 가정을 잘못한 사례' 쪽으로 목록 뽑아줘.",
+      "expectedTool": "search_knowledge",
+      "requiredArgs": ["query", "type"],
+      "expectedArgs": { "type": "divergence" },
+      "boundary": "선택 인자를 '써야 하는' 시나리오. 종류를 좁히라고 명시했는데 비우면 요청과 다른 결과가 온다."
+    },
+    {
+      "id": "TS-18",
+      "prompt": "bizcare-web에서 `PayloadTooLargeError: request entity too large`가 났어. 어떻게 고치는지 알려줘.",
+      "expectedTool": "suggest_resolution",
+      "requiredArgs": ["errorText"],
+      "boundary": "project는 선택 인자다 — 프로젝트 이름이 언급됐다고 해서 필수 인자로 세지 않는다. 필수는 errorText 하나다."
+    },
+    {
+      "id": "TS-19",
+      "prompt": "방금 연 기록에 `recurrence_of 68f0c4a1b2c3d4e5f6a7b8cb` 링크가 붙어 있네. 원래 사건이 뭐였는지 거슬러 올라가줘.",
+      "expectedTool": "get_record",
+      "requiredArgs": ["recordId"],
+      "expectedArgs": { "recordId": "68f0c4a1b2c3d4e5f6a7b8cb" },
+      "boundary": "get_record description이 약속한 관계 추적 경로. 링크에 적힌 recordId를 그대로 넣어야 한다."
+    },
+    {
+      "id": "TS-20",
+      "prompt": "아까 잘못 저장한 기록 68f0c4a1b2c3d4e5f6a7b8c9 있잖아, 그거 내용 좀 고치거나 안 되면 지워줘.",
+      "expectedTool": null,
+      "requiredArgs": [],
+      "boundary": "도구 없음이 정답. 수정·삭제 도구는 존재하지 않는다(record_knowledge description이 명시) — 새 기록을 만들어 덮는 것은 요청과 다른 일이다."
+    }
+  ]
+}
