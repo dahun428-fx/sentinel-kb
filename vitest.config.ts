@@ -11,14 +11,14 @@ export default defineConfig({
       {
         test: {
           name: "unit",
-          include: ["packages/*/src/**/*.spec.ts", "tools/*.spec.ts"],
+          include: ["packages/*/src/**/*.spec.ts", "tools/*.spec.ts", "scripts/*.spec.ts"],
           exclude: ["**/*.int.spec.ts", "**/node_modules/**", "**/dist/**"],
         },
       },
       {
         test: {
           name: "integration",
-          include: ["packages/*/src/**/*.int.spec.ts", "tools/*.int.spec.ts"],
+          include: ["packages/*/src/**/*.int.spec.ts", "tools/*.int.spec.ts", "scripts/*.int.spec.ts"],
           exclude: ["**/node_modules/**", "**/dist/**"],
           passWithNoTests: true,
         },

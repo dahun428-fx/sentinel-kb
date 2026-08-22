@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "Docker Compose에서 localhost로 Mongo에 붙어 ECONNREFUSED 127.0.0.1:27017",
+  "severity": "SEV3",
+  "tags": ["docker", "docker-compose", "networking", "mongodb", "econnrefused", "12-factor"],
+  "symptom": "docker compose up 후 api 컨테이너가 부팅 직후 죽는다. 에러 원문: 'MongoNetworkError: connect ECONNREFUSED 127.0.0.1:27017'. 호스트에서 mongosh로는 잘 붙는다. 재현: .env의 MONGODB_URI를 mongodb://localhost:27017/sentinel 로 둔 채 compose로 기동한다.",
+  "rootCause": "컨테이너 안의 localhost는 그 컨테이너 자신이다. 호스트나 다른 컨테이너가 아니다. compose 네트워크에서는 서비스명이 DNS 이름으로 해석되므로 mongo 서비스는 mongodb://mongo:27017로 접근해야 한다. 로컬 개발용 .env를 그대로 컨테이너에 주입한 것이 원인이다.",
+  "resolution": "compose 파일에서 api 서비스의 environment로 MONGODB_URI=mongodb://mongo:27017/sentinel 을 명시해 .env 값을 덮어썼다. depends_on에 condition: service_healthy 를 추가해 mongo가 뜨기 전에 api가 붙어 죽는 경합도 함께 없앴다.",
+  "prevention": "호스트명은 환경마다 다른 값이므로 코드·기본값이 아니라 환경 변수로만 주입한다(12-factor). .env.example에는 로컬 값이 아니라 형식을 적고, compose는 자기 값을 명시적으로 덮어쓴다. 서비스 간 의존은 depends_on만으로 부족하고 헬스체크 조건이 필요하다."
+}

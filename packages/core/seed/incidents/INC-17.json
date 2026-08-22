@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "MongoDB 드라이버 6에서 findOneAndUpdate 반환 형상이 바뀌어 .value가 undefined",
+  "severity": "SEV2",
+  "tags": ["mongodb", "nodejs-driver", "breaking-change", "findoneandupdate", "upgrade", "v6"],
+  "symptom": "드라이버를 5에서 6으로 올린 뒤 갱신 경로가 전부 깨진다. 에러 원문: \"TypeError: Cannot read properties of undefined (reading '_id')\" — result.value._id 접근 지점. 갱신 자체는 DB에 반영돼 있다. 재현: const r = await col.findOneAndUpdate(f, u, {returnDocument:'after'}); r.value 를 읽는다.",
+  "rootCause": "드라이버 6부터 findOneAndUpdate/Delete/Replace가 기본적으로 ModifyResult 래퍼가 아니라 도큐먼트 자체(또는 null)를 반환한다. 예전 형상이 필요하면 includeResultMetadata: true 를 명시해야 한다. 타입 정의도 함께 바뀌었지만 result를 any나 느슨한 제네릭으로 받는 코드에서는 컴파일러가 잡지 못했다.",
+  "resolution": "호출부를 새 형상에 맞춰 const updated = await col.findOneAndUpdate(...); if (updated === null) ... 로 바꿨다. 컬렉션 핸들을 타입 있는 헬퍼(recordsCollection(db))로 감싸 반환 타입이 도큐먼트 타입으로 좁혀지게 해, 다음 번 형상 변경은 컴파일 타임에 드러나게 했다.",
+  "prevention": "드라이버·SDK 메이저 업그레이드는 단독 PR로 하고 CHANGELOG의 breaking 항목을 하나씩 대조한다. DB 핸들을 any나 Collection<Document>로 받지 않는다 — 타입이 넓으면 라이브러리의 형상 변경이 런타임까지 숨는다. 갱신 경로에는 '갱신된 도큐먼트를 다시 읽어 단언'하는 통합 테스트를 둔다."
+}

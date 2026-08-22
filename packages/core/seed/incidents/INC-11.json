@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "Fastify 에러 핸들러 미등록으로 프레임워크 에러가 계약과 다른 형상으로 새어 나감",
+  "severity": "SEV2",
+  "tags": ["fastify", "error-handling", "api-contract", "json-parse", "http"],
+  "symptom": "정상 경로는 {error:{code,message}} 형상인데, 깨진 JSON을 보내면 {statusCode:400, error:'Bad Request', message:'Unexpected token } in JSON at position 42'} 가 돌아온다. 클라이언트의 err.error.code 접근이 undefined가 되어 에러 분기가 통째로 죽는다. 재현: curl -X POST /v1/records -H 'content-type: application/json' -d '{\"title\":' 처럼 잘린 바디를 보낸다.",
+  "rootCause": "Fastify의 기본 에러 직렬화는 {statusCode, error, message}다. 애플리케이션 예외만 감싸고 프레임워크가 만드는 4xx(파싱 실패, 지원하지 않는 content-type, 빈 바디)를 감싸지 않으면 응답 계약이 두 가지가 된다. 계약 테스트가 정상 경로만 덮고 있어 오래 드러나지 않았다.",
+  "resolution": "app.setErrorHandler를 등록해 모든 에러를 한 출구로 모았다. HttpError는 그대로, statusCode가 4xx인 프레임워크 에러는 VALIDATION_FAILED 코드로 감싸고, 5xx는 내부 메시지를 지우고 고정 문구로 바꿨다(스택·쿼리 조각 유출 방지). setNotFoundHandler도 같은 형상으로 맞췄다.",
+  "prevention": "에러 응답 계약은 정상 경로가 아니라 오류 경로에서 검증한다. 통합 테스트에 깨진 JSON, 빈 바디, 잘못된 content-type, 없는 경로, 인증 실패 다섯 케이스를 고정으로 넣는다. 응답 형상은 Zod 스키마 하나로 파싱해 단언한다."
+}

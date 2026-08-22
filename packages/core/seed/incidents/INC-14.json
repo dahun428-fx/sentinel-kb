@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "정규식 유니코드 속성 이스케이프에 u 플래그 누락으로 SyntaxError",
+  "severity": "SEV3",
+  "tags": ["javascript", "regex", "unicode", "u-flag", "syntaxerror", "sanitizer"],
+  "symptom": "모듈 로드 시점에 프로세스가 죽는다. 에러 원문: \"SyntaxError: Invalid regular expression: /\\p{Cf}/: Invalid escape\". 테스트 파일 하나가 아니라 그 모듈을 import하는 전부가 함께 죽어 원인 파악이 늦어졌다. 재현: new RegExp('\\\\p{Cf}') 를 플래그 없이 만든다.",
+  "rootCause": "\\p{...} 유니코드 속성 이스케이프는 u 또는 v 플래그가 있을 때만 유효하다. 플래그가 없으면 \\p 는 리터럴 p 로 해석되다가 중괄호 때문에 Invalid escape가 된다. 리터럴로 쓴 정규식은 에디터가 잡아 주지만 문자열로 조립해 new RegExp에 넘기면 런타임까지 숨는다.",
+  "resolution": "모든 유니코드 속성 정규식에 u 플래그를 명시했다. 문자열 조립이 필요한 곳은 조립 함수 한 곳으로 모아 플래그를 그 함수가 붙이도록 했다. u 플래그가 붙으면 이스케이프 규칙이 엄격해지므로 \\- 같은 불필요한 이스케이프도 함께 정리해야 했다.",
+  "prevention": "정규식을 문자열로 조립하지 않는다. 불가피하면 조립 지점을 하나로 모으고 그 함수에 플래그를 고정한다. 유니코드를 다루는 정규식은 리터럴 + u 플래그를 기본으로 하고, 개별 문자 열거 대신 속성 클래스를 쓴다."
+}

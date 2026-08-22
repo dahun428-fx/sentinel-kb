@@ -2,10 +2,9 @@
   "type": "incident",
   "title": "eval 리포트를 CI 아티팩트로만 저장 — 90일 후 시계열 소멸하는 설계",
   "severity": "SEV3",
-  "tags": ["ci", "github-actions", "artifact-retention", "eval", "audit-a4"],
-  "project": "sentinel-kb",
-  "symptom": "정책 문서는 'eval 리포트를 날짜별로 저장소에 커밋해 시계열을 남긴다'고 정의했으나, nightly 워크플로는 upload-artifact만 수행. 기본 보존 기간(90일) 이후 품질 추이 데이터가 소멸하는 구성.",
+  "tags": ["ci", "github-actions", "artifact-retention", "eval", "audit-a4", "self-seed"],
+  "symptom": "정책 문서는 'eval 리포트를 날짜별로 저장소에 커밋해 시계열을 남긴다'고 정의했으나, nightly 워크플로는 actions/upload-artifact만 수행. 기본 보존 기간(90일) 이후 품질 추이 데이터가 소멸하는 구성. 재현: .github/workflows의 nightly 잡을 열어 upload-artifact 뒤에 커밋 스텝이 있는지 본다.",
   "rootCause": "워크플로 작성 시 정책 문서를 대조하지 않고 관성적으로 artifact 업로드 패턴을 사용. 문서와 CI 구성 간 대조 검증이 없었음.",
-  "resolution": "워크플로에 git commit/push 스텝을 추가해 리포트를 저장소에 누적하도록 수정.",
+  "resolution": "워크플로에 git commit/push 스텝을 추가해 eval/reports/YYYY-MM-DD-*.json을 저장소에 누적하도록 수정.",
   "prevention": "보존 기간이 있는 저장 수단(CI 아티팩트, 임시 버킷)에 장기 자산을 두지 않는다. 정책 문서의 '커밋한다/보존한다'류 서술은 워크플로 파일과 대조하는 드리프트 검사 항목으로 등록한다."
 }

@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "pnpm 워크스페이스 루트 스크립트가 @sentinel/* 를 못 찾음 — 루트는 링크 대상이 아니다",
+  "severity": "SEV3",
+  "tags": ["pnpm", "workspace", "module-resolution", "monorepo", "scripts", "err-module-not-found"],
+  "symptom": "패키지 안에서는 잘 도는 import가 루트 scripts/에 둔 파일에서만 죽는다. 에러 원문: \"Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@sentinel/api' imported from /repo/scripts/seed.ts\". ls node_modules 를 보면 루트에는 @sentinel 디렉토리 자체가 없다. 재현: pnpm-workspace.yaml의 packages 글롭이 packages/* 뿐인 레포에서 루트 파일이 워크스페이스 패키지를 이름으로 import한다.",
+  "rootCause": "pnpm은 각 워크스페이스 패키지의 package.json에 선언된 의존만 그 패키지의 node_modules에 심링크한다. 루트는 워크스페이스 패키지들의 부모일 뿐 자동으로 모든 패키지를 링크받지 않는다. Node의 해석은 파일 위치에서 상위로 올라가며 node_modules를 찾으므로 루트 파일은 루트 node_modules만 본다.",
+  "resolution": "루트 package.json의 devDependencies에 필요한 워크스페이스 패키지를 workspace:* 프로토콜로 명시하고 pnpm install을 다시 돌렸다. 설치 로그에 '+ @sentinel/api 0.0.0 <- packages/api' 처럼 링크가 찍히면 성공이다. 상대 경로 import(../packages/api/src/...)로 우회하지 않았다 — 그러면 패키지의 exports 경계를 무시하게 되어 내부 파일에 직접 결합된다.",
+  "prevention": "루트 스크립트도 하나의 소비자로 취급해 의존을 명시한다. 워크스페이스 패키지를 이름으로 부르면 exports 필드가 경계를 지켜 주지만, 상대 경로로 부르면 그 경계가 사라진다. 루트에 TS 스크립트를 두면 tsconfig 프로젝트로도 등록해야 typecheck가 그 파일을 실제로 검사한다."
+}

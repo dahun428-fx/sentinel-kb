@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "청크 upsert 유니크 키에 seq가 빠져 긴 섹션의 두 번째 청크가 첫 청크를 덮어씀",
+  "severity": "SEV1",
+  "tags": ["mongodb", "upsert", "unique-index", "chunking", "data-loss", "e11000"],
+  "symptom": "1200자를 넘는 symptom을 가진 레코드를 임베딩하면 청크가 3개 생성돼야 하는데 1개만 남는다. 인덱스를 유니크로 바꾼 뒤에는 대신 잡이 실패한다. 에러 원문: 'MongoServerError: E11000 duplicate key error collection: sentinel.chunks index: recordId_1_section_1_embeddingVersion_1 dup key'. 재현: CHUNK_MAX_CHARS=200으로 낮추고 400자짜리 symptom을 가진 레코드를 인제스트한다.",
+  "rootCause": "upsert 필터를 {recordId, section, embeddingVersion}으로 잡았다. 같은 섹션이 여러 청크로 분할되면 세 청크가 모두 같은 키를 갖게 되어, 유니크 인덱스가 없을 때는 마지막 청크가 앞의 것을 덮어쓰고(본문 소실), 유니크 인덱스가 있을 때는 두 번째 쓰기가 E11000으로 죽는다. 섹션 내 분할 순번이라는 차원이 키에서 통째로 빠져 있었다.",
+  "resolution": "chunks 도큐먼트에 seq(0부터의 섹션 내 순번) 필드를 추가하고 유니크 인덱스를 {recordId:1, section:1, seq:1, embeddingVersion:1}로 재생성했다. 기존 인덱스는 dropIndex 후 createIndex로 교체했고, 손상된 청크는 해당 레코드를 재큐잉해 복구했다. 인제스트는 upsert 후 이번 세대의 키 집합에 없는 같은 세대 청크를 삭제하도록 바꿔(고아 청크 삭제) 본문이 줄어든 경우의 꼬리 청크도 정리했다.",
+  "prevention": "upsert 키를 정할 때 '이 키가 같은 두 도큐먼트가 정당하게 존재할 수 있는가'를 먼저 묻는다. 분할·반복이 있는 데이터는 순번이 반드시 키에 들어간다. 유니크 인덱스를 먼저 걸어 두면 덮어쓰기(조용한 데이터 소실)가 E11000(시끄러운 실패)로 강등된다 — 유니크 인덱스는 제약이 아니라 관측 장치다."
+}

@@ -1,0 +1,10 @@
+{
+  "type": "incident",
+  "title": "GitHub Actions에서 없는 시크릿이 빈 문자열로 주입돼 통합 테스트가 엉뚱한 DB를 봄",
+  "severity": "SEV2",
+  "tags": ["github-actions", "secrets", "ci", "integration-test", "mongodb", "silent-failure"],
+  "symptom": "CI의 integration 스텝이 로컬과 다른 지점에서 실패하거나, 더 나쁘게는 통과해 버린다. 로그에는 'MongoNetworkError: connect ECONNREFUSED 127.0.0.1:27017' 또는 아무 에러 없이 0개 테스트 통과. 재현: 워크플로에 env: MONGODB_URI: ${{ secrets.MONGODB_TEST_URI }} 를 쓰고, 그 시크릿을 레포에 등록하지 않은 채 돌린다.",
+  "rootCause": "GitHub Actions는 존재하지 않는 시크릿을 참조하면 에러를 내지 않고 빈 문자열을 넣는다. 테스트 코드가 process.env.MONGODB_URI ?? 'mongodb://localhost:27017' 처럼 폴백을 두고 있어, 빈 문자열은 nullish가 아니므로 폴백도 타지 않고 그대로 접속 시도로 갔다. 오설정이 조용한 기본값으로 흡수된 것이 근본 원인이다.",
+  "resolution": "통합 테스트가 env에 의존하는 것을 그만두고 mongodb-memory-server를 테스트 파일 안에서 직접 띄우도록 바꿨다. server.getUri()만 쓰므로 CI 시크릿이 아예 필요 없다. env를 읽어야 하는 코드 경로에는 빈 문자열을 미설정으로 취급하고 즉시 던지는 검사를 넣었다.",
+  "prevention": "'설정이 없으면 로컬 기본값'이라는 폴백은 CI에서 반드시 잘못된 대상을 가리킨다. 필수 설정은 폴백 없이 부팅에서 던진다. 문자열 env는 ?? 가 아니라 트림 후 빈 문자열 검사로 판정한다. 통합 테스트는 외부 시크릿 없이 도는 것을 원칙으로 한다."
+}

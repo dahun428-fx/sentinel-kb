@@ -1,0 +1,14 @@
+{
+  "type": "divergence",
+  "title": "잡 큐에 리스 필드가 없어 running 상태로 죽은 워커의 잡이 영구 좀비가 됨",
+  "severity": "SEV1",
+  "tags": ["job-queue", "mongodb", "lease", "zombie", "crash-recovery", "t-003", "repo-finding"],
+  "expected": "임베딩 잡 큐는 워커가 죽어도 잡을 잃지 않아야 한다. 데이터 모델 문서는 jobs의 상태를 pending/running/failed/dead/done으로 정의했고, 이는 '진행 중'과 '대기 중'을 구분해 중복 처리를 막으려는 설계다.",
+  "actual": "설계된 것은 상태 전이뿐이고 회수 장치가 없었다. claimedBy·leaseExpiresAt 같은 리스 필드가 없어서, 워커가 잡을 running으로 바꾼 직후 프로세스가 죽으면 그 잡을 되살릴 주체가 어디에도 없다. 폴링 쿼리가 {status:'pending'}만 보므로 그 잡은 영원히 집히지 않고, 해당 레코드는 embeddingVersion 0인 채로 남아 검색되지 않는다. 실패를 세는 attempts는 있는데 실패를 감지하는 장치가 없는 비대칭이다. 게다가 failed에서 pending으로 되돌리는 재큐잉의 주체도 어느 문서에도 배정돼 있지 않았다.",
+  "context": {
+    "model": "claude",
+    "tool": "implementer 에이전트 (task-loop T-003 → T-008로 인계)",
+    "framework": "typescript / mongodb 드라이버 6, packages/worker/src/jobs.ts"
+  },
+  "correction": "두 가지를 명시했더니 설계가 닫혔다. (1) 상태 기계를 그릴 때 각 상태마다 '이 상태에서 프로세스가 죽으면 누가 되살리는가'를 한 줄씩 적게 했다 — running에만 답이 없다는 것이 그 즉시 드러난다. 상태 목록은 이 질문을 강제하지 않지만 전이표는 강제한다. (2) 소비 루프가 잡 하나를 완전히 끝낸 뒤에만 종료 플래그를 다시 보도록 구현을 못박고, 종료 후 running 카운트가 0인지를 통합 테스트가 직접 세게 했다. '진행 중 잡이 끝났다'는 단언은 클레임 직후 이탈 경로를 잡지 못하므로 상태 자체를 세는 것이 유일한 방어다. 실제로 이 단언이 없던 동안 해당 뮤턴트가 검증에서 살아남았다. 남은 리스 기반 회수는 JobSchema가 strict라 계약 재개방(인간 승인)이 필요하다는 것까지 스펙에 적어 결정을 미결로 명시했다."
+}
