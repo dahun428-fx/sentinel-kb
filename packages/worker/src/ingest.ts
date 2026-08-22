@@ -13,6 +13,7 @@
 import type { ChunkMeta, ChunkSchema, RecordSchema } from "@sentinel/contracts";
 import { RecordSchema as RecordDocumentSchema } from "@sentinel/contracts";
 import { chunkRecord, type Embedder, type SectionChunk } from "@sentinel/core";
+import { toContractRecord } from "@sentinel/core/db";
 import { ObjectId, type Db, type Filter } from "mongodb";
 
 import { WORKER_ERROR_CODES, WorkerError } from "./errors.js";
@@ -183,7 +184,7 @@ function toChunkMeta(record: RecordSchema): ChunkMeta {
 
 /**
  * record 로드 + DB 경계 매핑. specs/02가 "ObjectId↔string 매핑은 DB 경계의 책임"이라고
- * 명시했으므로 여기서 hex 문자열로 바꾼 뒤 contracts 스키마로 검증한다.
+ * 명시했으므로 hex 문자열로 바꾼 뒤 contracts 스키마로 검증한다.
  * 검증을 건너뛰면 형상이 깨진 도큐먼트가 chunker까지 흘러가 `undefined` 섹션을 조용히
  * 스킵하고 **본문 없는 청크**를 만든다 — 검색에서만 뒤늦게 드러나는 종류의 손상이다.
  */
@@ -207,19 +208,5 @@ async function loadRecord(db: Db, recordId: ObjectId): Promise<RecordSchema> {
   return parsed.data;
 }
 
-/** `_id`와 `relations[].targetRecordId`를 24자 hex로 낮춘다. 나머지 필드는 그대로 통과시킨다. */
-function toContractRecord(document: Record<string, unknown>): unknown {
-  const { _id, relations, ...rest } = document;
-  return {
-    ...rest,
-    _id: _id instanceof ObjectId ? _id.toHexString() : _id,
-    relations: Array.isArray(relations) ? relations.map(toContractRelation) : relations,
-  };
-}
-
-function toContractRelation(relation: unknown): unknown {
-  if (typeof relation !== "object" || relation === null) return relation;
-  const { targetRecordId, ...rest } = relation as { targetRecordId?: unknown };
-  if (!(targetRecordId instanceof ObjectId)) return relation;
-  return { ...rest, targetRecordId: targetRecordId.toHexString() };
-}
+// 매핑 자체는 `@sentinel/core/db`에 있다. T-007이 같은 변환을 쓰게 되면서 소비자가 둘이 됐고,
+// T-008 F-4가 "그 시점에 판단하라"고 미뤄 둔 승격 시점이 거기였다.
