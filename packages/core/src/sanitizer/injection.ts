@@ -21,6 +21,7 @@
  */
 
 import { ZERO_WIDTH_RE, stripInvisible } from "./invisible.js";
+import { detectStructural } from "./structural.js";
 
 
 /**
@@ -109,16 +110,25 @@ const INJECTION_PATTERNS: readonly InjectionPattern[] = [
 
 /**
  * 매칭된 규칙 id 목록. 비어 있으면 인젝션 의심 아님.
- * 반환 순서는 `INJECTION_PATTERNS` 선언 순서로 고정된다(결정론).
+ * 반환 순서는 `INJECTION_PATTERNS` → 구조 규칙 → 제로폭 순으로 고정된다(결정론).
+ *
+ * 위 자연어 규칙과 `structural.ts`의 구조 규칙은 **성질이 다르다.**
+ * 전자는 언어가 하나 늘 때마다 규칙이 하나 필요하고 없으면 조용히 통과한다(T-021 F-1).
+ * 후자는 판정 근거가 Unicode 속성과 이 시스템 자신의 출력 문자열이라 언어와 무관하다.
+ * 섞어 두면 그 차이가 안 보이므로 파일을 갈라 놓았다 — `structural.ts` 서두 참조.
  */
 export function detectInjection(text: string): readonly string[] {
   const probe = toProbe(text);
   const hits = INJECTION_PATTERNS.filter(({ pattern }) => pattern.test(probe)).map(({ id }) => id);
 
+  // 구조 신호도 프로브를 본다. 전각 `＜system＞`·제로폭 삽입으로 태그를 쪼개는 우회를
+  // `toProbe`가 이미 접어 주므로 그 위에 서면 된다(T-040 Scope).
+  const structural = detectStructural(probe);
+
   // 제로폭 검사만 원문을 본다 — 프로브는 이미 제로폭을 지운 상태다.
   const zeroWidthCount = text.match(ZERO_WIDTH_RE)?.length ?? 0;
   if (zeroWidthCount > ZERO_WIDTH_THRESHOLD) {
-    return [...hits, "zero-width-abuse"];
+    return [...hits, ...structural, "zero-width-abuse"];
   }
-  return hits;
+  return [...hits, ...structural];
 }
