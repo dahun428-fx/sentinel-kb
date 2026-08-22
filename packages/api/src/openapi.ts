@@ -81,9 +81,9 @@ export interface PendingOperation {
  * 유예를 늘리는 것도 지우는 것도 리뷰어의 눈에 보이는 명시적 행위가 된다.
  */
 export const PENDING_OPERATIONS: readonly PendingOperation[] = [
-  { key: "POST /v1/search", task: "T-012" },
+  // T-012(/v1/search)와 T-022(/v1/feedback)는 통합 브랜치에서 실제로 라우트가 섰다.
+  // `stalePending`이 그 사실을 알려서 이 두 줄을 지웠다 — 자정 장치가 설계대로 작동한 첫 사례다.
   { key: "POST /v1/answer", task: "T-019" },
-  { key: "POST /v1/feedback", task: "T-022" },
 ];
 
 /**

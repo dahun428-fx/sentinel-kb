@@ -13,7 +13,8 @@ import { ObjectId, type Db, type MongoClient } from "mongodb";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createApp } from "./app.js";
-import { parseApiKeys } from "./auth.js";
+// T-037이 `parseApiKeys`를 `@sentinel/core`로 승격했다(인증 복제 회수).
+import { parseApiKeys } from "@sentinel/core";
 import {
   APPROVED_EVAL_CASE_FILTER,
   EVAL_CASE_CANDIDATE_FILTER,

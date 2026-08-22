@@ -15,7 +15,8 @@ import type { Db } from "mongodb";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "./app.js";
-import { parseApiKeys } from "./auth.js";
+// T-037이 `parseApiKeys`를 `@sentinel/core`로 승격했다(인증 복제 회수).
+import { parseApiKeys } from "@sentinel/core";
 import {
   diffOperations,
   documentedOperations,
@@ -36,6 +37,24 @@ const DB_STUB = { collection: () => ({}) } as unknown as Db;
 const API_KEYS = parseApiKeys("key-alpha:sentinel-kb");
 const AUTH = { authorization: "Bearer key-alpha" };
 
+/**
+ * **retriever를 반드시 주입한다.** `/v1/search`는 `createApp`에서 조건부로 등록되므로
+ * 주입하지 않으면 문서가 약속한 라우트가 실재하지 않고, 드리프트 가드가 그것을
+ * "미구현"으로 보고한다. 프로덕션 컴포지션 루트(`server.ts`)는 **항상** 주입하므로
+ * 여기서도 그 배선을 재현해야 가드가 운영 표면을 판정한다.
+ *
+ * (이 사실 자체가 통합에서 드러난 설계 지점이다 — 문서화된 API 표면이 런타임 배선에
+ *  의존한다. `server.ts` 배선을 검증하는 테스트는 아직 없다: T-012 G5 지적.)
+ */
+const RETRIEVER_STUB = {
+  retrieve: async () => ({
+    hits: [],
+    maxVectorScore: null,
+    vectorCandidateCount: 0,
+    textCandidateCount: 0,
+  }),
+} as unknown as NonNullable<Parameters<typeof createApp>[0]["retriever"]>;
+
 function makeApp() {
   return createApp({
     db: DB_STUB,
@@ -43,6 +62,7 @@ function makeApp() {
     sanitizeOptions: { maskEmail: false, maxInputChars: 65_536 },
     embeddingVersion: 7,
     version: "0.0.1-test",
+    retriever: RETRIEVER_STUB,
   });
 }
 
@@ -128,7 +148,7 @@ describe("드리프트 가드", () => {
 
   /**
    * 유예가 **실재하는 시차**만 덮는지 확인한다. 유예를 끄면 아직 라우트가 없는
-   * 세 오퍼레이션이 그대로 드러나야 한다 — 초록이 유예 덕분임을 못박는 대조군이다.
+   * 오퍼레이션이 그대로 드러나야 한다 — 초록이 유예 덕분임을 못박는 대조군이다.
    * 이 목록이 줄어들면(=라우트가 생기면) `stalePending`이 먼저 실패시킨다.
    */
   it("유예를 끄면 아직 구현되지 않은 오퍼레이션이 드러난다", () => {
@@ -139,11 +159,7 @@ describe("드리프트 가드", () => {
       { pending: [] },
     );
 
-    expect(report.documentedButNotRouted).toEqual([
-      "POST /v1/answer",
-      "POST /v1/feedback",
-      "POST /v1/search",
-    ]);
+    expect(report.documentedButNotRouted).toEqual(["POST /v1/answer"]);
   });
 
   /**
