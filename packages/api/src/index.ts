@@ -13,6 +13,21 @@ export { createApp, PAYLOAD_TOO_LARGE_STATUS, type AppOptions } from "./app.js";
 // 소비자(`scripts/seed.cli.ts`)가 core를 직접 부르는 편이 의존 방향을 그대로 드러낸다.
 export { resolveProject, PUBLIC_PATHS } from "./auth.js";
 export { API_ERROR_CODES, HttpError, type ApiErrorCode } from "./errors.js";
+export {
+  diffOperations,
+  documentedOperations,
+  normalizePath,
+  OPENAPI_ROUTE,
+  PENDING_OPERATIONS,
+  registerOpenApiRoute,
+  routeKey,
+  trackRoutes,
+  UNDOCUMENTED_ROUTES,
+  type DiffOptions,
+  type DriftReport,
+  type PendingOperation,
+  type RouteRef,
+} from "./openapi.js";
 export { decodeCursor, encodeCursor, type ListCursor } from "./cursor.js";
 export {
   buildSummary,

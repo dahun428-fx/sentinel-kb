@@ -20,8 +20,20 @@ import type { Db } from "mongodb";
 
 import { registerAuth } from "./auth.js";
 import { API_ERROR_CODES, HttpError, sendError } from "./errors.js";
+import { registerOpenApiRoute, trackRoutes, type RouteRef } from "./openapi.js";
 import { registerRecordRoutes } from "./records.js";
 import { registerSearchRoutes } from "./search.js";
+
+declare module "fastify" {
+  interface FastifyInstance {
+    /**
+     * 이 인스턴스에 실제로 등록된 라우트 목록(HEAD 제외). 드리프트 가드가 openapi 문서와
+     * 대조하는 **한쪽 근거**다. Fastify는 라우터를 열거하는 공개 API를 주지 않으므로
+     * (`hasRoute`는 존재 확인만 된다) `onRoute` 훅으로 모아 여기에 실어 둔다.
+     */
+    readonly registeredRoutes: readonly RouteRef[];
+  }
+}
 
 export interface AppOptions {
   readonly db: Db;
@@ -68,6 +80,10 @@ export const PAYLOAD_TOO_LARGE_STATUS = 413;
 export function createApp(options: AppOptions): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false });
 
+  // **가장 먼저 단다.** `onRoute`는 훅 등록 뒤에 붙은 라우트만 통지하므로, 이 줄이 내려가면
+  // 그 위에서 등록된 라우트가 인벤토리에서 조용히 빠지고 가드가 그만큼 눈이 먼다.
+  app.decorate("registeredRoutes", trackRoutes(app));
+
   registerAuth(app, options.apiKeys);
 
   app.get("/health", async (_request, reply) => {
@@ -88,6 +104,9 @@ export function createApp(options: AppOptions): FastifyInstance {
       }),
     );
   });
+
+  // specs/04:29 — contracts가 생성한 문서를 그대로 서빙. 인증 정책의 근거는 `openapi.ts`에 있다.
+  registerOpenApiRoute(app);
 
   registerRecordRoutes(app, {
     db: options.db,
