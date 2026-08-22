@@ -1,0 +1,265 @@
+/*
+ * 읽기 UI 최소 스타일. UI는 보조 산출물이므로(CLAUDE.md) 장식이 아니라
+ * 가독성·대비·포커스 가시성에만 쓴다 — Lighthouse 접근성 기준의 실체가 그것이다.
+ */
+
+:root {
+  --bg: #ffffff;
+  --fg: #14171a;
+  --muted: #55606b; /* #ffffff 대비 약 7:1 — WCAG AA 본문 기준 충족 */
+  --line: #d0d7de;
+  --accent: #0a4d8c; /* #ffffff 대비 약 8:1 */
+  --warn-bg: #fff4e5;
+  --warn-fg: #7a3e00; /* --warn-bg 대비 약 7:1 */
+  --info-bg: #eef4fb;
+  --info-fg: #1f3d5c;
+  --target: #fff8c4;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171a;
+    --fg: #f2f4f6;
+    --muted: #b6c0ca;
+    --line: #39434d;
+    --accent: #93c5fd;
+    --warn-bg: #3a2a12;
+    --warn-fg: #ffd9a3;
+    --info-bg: #17293c;
+    --info-fg: #cfe2f7;
+    --target: #4a4320;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+a {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--bg);
+  padding: 0.5rem 1rem;
+  z-index: 10;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+.shell {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+}
+
+.site-header {
+  border-bottom: 1px solid var(--line);
+}
+
+.site-header .shell {
+  padding-bottom: 1rem;
+}
+
+.site-title {
+  font-size: 1.125rem;
+  margin: 0;
+}
+
+.site-nav ul {
+  display: flex;
+  gap: 1rem;
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+h1 {
+  font-size: 1.6rem;
+  line-height: 1.35;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin-top: 2rem;
+}
+
+h3 {
+  font-size: 1.05rem;
+  margin-bottom: 0.25rem;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* 검색 폼 ------------------------------------------------------------- */
+
+.search-form {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.field label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.field input,
+.field select {
+  font: inherit;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.field-row {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+button[type="submit"] {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.55rem 1.1rem;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+  justify-self: start;
+  cursor: pointer;
+}
+
+/* 결과 목록 ----------------------------------------------------------- */
+
+.result-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.result-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+}
+
+.result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0 0 0.35rem;
+}
+
+.badge {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.05rem 0.55rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.rank {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.summary {
+  margin: 0.35rem 0 0;
+}
+
+/* 경고 ---------------------------------------------------------------- */
+
+.notice {
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin: 0.5rem 0;
+  border: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.notice-warning {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: currentColor;
+}
+
+.notice-info {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+
+.notice-title {
+  font-weight: 700;
+  margin-right: 0.35rem;
+}
+
+/* 상세 ---------------------------------------------------------------- */
+
+.record-section {
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+  margin-top: 1.5rem;
+  scroll-margin-top: 1rem;
+}
+
+.record-section:target {
+  background: var(--target);
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.body-text {
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.citation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.error-box {
+  border: 1px solid currentColor;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: 8px;
+  padding: 1rem;
+}

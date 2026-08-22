@@ -2,8 +2,17 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    // 이 패키지만 번들러 해석을 쓴다. Next.js는 `next/navigation` 같은 확장자 없는
+    // 서브패스를 번들러 규칙으로 노출하고, next에는 exports 맵이 없어서 NodeNext(ESM)
+    // 해석으로는 그 서브패스를 못 찾는다. 웹은 Node가 아니라 Next 번들러가 돌리는
+    // 코드이므로 해석 규칙도 거기에 맞춘다 — tsconfig.next.json과 같은 규칙이 된다.
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "jsxImportSource": "react"
   },
   "include": ["src"],
-  "references": [{ "path": "../core" }]
+  "references": [{ "path": "../core" }, { "path": "../contracts" }]
 }
