@@ -127,10 +127,22 @@ describe("Acceptance 1 — MCP SDK 클라이언트로 initialize", () => {
     }
   });
 
-  it("도구가 0개여도 tools/list가 응답한다 (빈 배열)", async () => {
+  /**
+   * T-014에서는 "도구가 0개여도 tools/list가 응답한다(빈 배열)"였다. T-014의 `server.ts`가
+   * 남긴 회수 지시대로 T-015에서 **실제 도구 목록**으로 바뀐다 —
+   * 도구 5개가 등록된 지금 "빈 배열"은 통과할 수 없는 것이 아니라 **사실이 아닌** 단언이다.
+   */
+  it("tools/list가 specs/07의 도구 5개를 그대로 광고한다", async () => {
     const client = await connectHttp();
     try {
-      await expect(client.listTools()).resolves.toEqual({ tools: [] });
+      const { tools } = await client.listTools();
+      expect(tools.map((tool) => tool.name)).toEqual([
+        "search_knowledge",
+        "get_record",
+        "record_knowledge",
+        "suggest_resolution",
+        "give_feedback",
+      ]);
     } finally {
       await client.close();
     }

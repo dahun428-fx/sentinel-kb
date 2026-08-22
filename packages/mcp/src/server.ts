@@ -16,6 +16,7 @@ import { VERSION } from "@sentinel/core";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { CoreApiClient } from "./core-api-client.js";
+import { registerAllTools } from "./tools/index.js";
 
 export const SERVER_NAME = "sentinel-kb";
 
@@ -54,55 +55,17 @@ export interface McpContext {
 export type McpServerFactory = (context: McpContext) => McpServer;
 
 /**
- * 도구를 등록한다. **T-014는 아무것도 등록하지 않는다** — 도구 구현은 T-015의 몫이다
- * (태스크 Out of scope). 자리를 미리 만들어 두는 이유는 T-015가 전송·인증 코드를
- * 건드리지 않고 이 함수 하나만 채우면 되게 하기 위함이다.
- */
-/* eslint-disable @typescript-eslint/no-unused-vars --
- * 인자를 지금 쓰지 않지만 시그니처는 남긴다. T-015가 전송·인증 코드를 건드리지 않고
- * 이 본문만 채우게 하려는 것이고, 시그니처가 없으면 T-015가 `createMcpServer`를 고치게 되어
- * "두 전송이 같은 팩토리에서 나온다"는 Acceptance 3의 불변식이 손대는 대상이 된다. */
-function registerTools(server: McpServer, context: McpContext): void {
-  // T-015: search_knowledge / get_record / record_knowledge / suggest_resolution / give_feedback
-}
-/* eslint-enable @typescript-eslint/no-unused-vars */
-
-/**
- * 도구가 0개여도 `tools/list`가 **응답하게** 만든다 (태스크 Scope: "도구 0개 상태로
- * initialize/tools list 응답").
- *
- * SDK의 `McpServer`는 첫 도구가 등록될 때 비로소 `tools` capability와 `tools/list`
- * 핸들러를 단다. 도구가 0개면 클라이언트는 capability도 못 보고 `tools/list`에
- * "Method not found"를 받는다. 저수준 `setRequestHandler`로 직접 달면 T-015가
- * 도구를 등록하는 순간 `assertCanSetRequestHandler`가 "이미 존재한다"며 던진다.
- *
- * 그래서 **공개 API만으로** 해결한다: 도구를 하나 등록했다가 곧바로 제거한다.
- * 등록 부수효과로 capability와 핸들러가 초기화되고, 제거 후 목록은 비어 있다.
- *
- * ---
- * ## ⚠️ T-015에서 **회수할 것** (삭제 대상 스캐폴딩)
- *
- * 이 관용구가 존재하는 이유는 **도구가 0개라는 것 하나뿐이다.** T-015가 실제 도구 5개를
- * `registerTools`에 등록하면 capability와 핸들러는 그쪽에서 이미 초기화되고,
- * 이 함수는 **등록했다가 지우는 no-op**만 남는다 — 아무것도 지키지 않으면서 매 요청
- * (HTTP는 요청마다 서버를 새로 만든다) 실행되는 죽은 코드다.
- *
- * T-015 체크리스트: 도구를 등록한 뒤 `createMcpServer`에서 `ensureToolListing` 호출과
- * 이 함수, 그리고 `mcp-transports.int.spec.ts`의 "내부 부트스트랩 도구가 새지 않는다"
- * 테스트를 **함께** 지운다. 도구 0개 테스트("빈 배열")도 그때 실제 도구 목록으로 바뀐다.
- */
-function ensureToolListing(server: McpServer): void {
-  const placeholder = server.registerTool(
-    "__bootstrap__",
-    { description: "내부 부트스트랩용. 즉시 제거되며 클라이언트에 노출되지 않는다." },
-    () => ({ content: [] }),
-  );
-  placeholder.remove();
-}
-
-/**
  * MCP 서버를 만든다. **모든 전송이 이 함수를 통해서만 서버를 얻는다.**
  * 다른 곳에서 `new McpServer(...)`를 부르면 두 전송의 도구 목록이 갈라질 수 있다.
+ *
+ * ---
+ * ## T-014 스캐폴딩 회수 (T-015)
+ *
+ * T-014에는 `ensureToolListing`이 있었다 — 도구를 하나 등록했다 지워서 `tools` capability와
+ * `tools/list` 핸들러를 초기화하는 관용구였고, 존재 이유는 **도구가 0개라는 것 하나뿐**이었다.
+ * 이제 `registerAllTools`가 도구 5개를 등록하므로 capability와 핸들러는 그쪽에서 서고,
+ * 그 함수는 매 요청(HTTP는 요청마다 서버를 새로 만든다) 실행되는 죽은 코드가 된다.
+ * T-014가 주석으로 남긴 회수 지시에 따라 함수와 호출을 함께 지웠다.
  */
 export function createMcpServer(context: McpContext): McpServer {
   const server = new McpServer(
@@ -114,8 +77,19 @@ export function createMcpServer(context: McpContext): McpServer {
     },
   );
 
-  registerTools(server, context);
-  ensureToolListing(server);
+  const registered = registerAllTools(server, context);
+  /**
+   * **상한을 부팅에서 강제한다.** `MAX_TOOLS`가 테스트에서만 읽히면 프로덕션 코드는
+   * 그 상수를 지키지 않아도 멀쩡히 돈다 — 6번째 도구를 등록해도 통합 테스트를 돌리기
+   * 전까지 아무 일도 일어나지 않는다. 여기서 죽이면 6번째 도구는 **모든** 경로에서 죽는다.
+   * `!==`인 이유는 Acceptance 1이 "5개 정확히"이기 때문이다(5개 미만도 계약 위반이다).
+   */
+  if (registered !== MAX_TOOLS) {
+    throw new Error(
+      `MCP 도구가 ${String(registered)}개 등록됐다. specs/07-mcp.md는 정확히 ${String(MAX_TOOLS)}개로 못박았고, ` +
+        "신규 도구는 스펙 개정 + 인간 승인 사항이다(CLAUDE.md 금지 사항).",
+    );
+  }
 
   return server;
 }

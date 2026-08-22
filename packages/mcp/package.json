@@ -17,5 +17,8 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@sentinel/contracts": "workspace:*",
     "@sentinel/core": "workspace:*"
+  },
+  "devDependencies": {
+    "gpt-tokenizer": "^4.0.0"
   }
 }
