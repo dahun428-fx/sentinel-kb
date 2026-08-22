@@ -51,6 +51,14 @@ describe("@sentinel/contracts smoke", () => {
         "DivergenceRecord",
         "RecordSchema",
         "RecordSummary",
+        // article.ts — T-029(specs/08 §1·§2·§5.1). 이 목록에 손을 대는 것이
+        // "공개 계약을 늘린다"는 **명시적 행위**여야 한다는 것이 이 테스트의 취지다.
+        "ArticleKind",
+        "ArticleStatus",
+        "ChartKind",
+        "ChartSpec",
+        "ArticleEdit",
+        "ArticleSchema",
         // chunk.ts
         "ChunkMeta",
         "ChunkSchema",
