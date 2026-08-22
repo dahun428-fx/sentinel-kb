@@ -12,3 +12,4 @@ export const DEFAULT_SEVERITY = Severity.parse("NOTE");
 
 export { VERSION } from "./version.js";
 export * from "./chunker/index.js";
+export * from "./embedder/index.js";
