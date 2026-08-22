@@ -31,7 +31,13 @@ import type { McpContext } from "../server.js";
 import { errorResult, textResult, toToolError } from "./result.js";
 import { parseRecord, readSanitizeWarning } from "./wire.js";
 
-const inputSchema = {
+/**
+ * `record_knowledge`가 받는 필드 전부. **export하는 이유는 T-038이다** —
+ * `postmortem-interview` 프롬프트가 이 필드를 하나도 빠뜨리지 않았는지 테스트가 검사하는데,
+ * 기대 목록을 테스트에 상수로 베껴 두면 여기 필드가 늘어도 아무 데서도 울지 않는다.
+ * 여기서 뽑아 쓰면 **에이전트가 채울 수 있는 칸이 늘어나는 순간 프롬프트 테스트가 먼저 죽는다.**
+ */
+export const RECORD_KNOWLEDGE_INPUT_SCHEMA = {
   type: RecordType.describe(
     "incident=장애·버그를 겪고 고친 사례. divergence=AI 에이전트 산출물이 의도와 벌어진 사례. 이 값에 따라 아래 섹션 필드 중 어느 쪽이 필수인지가 갈린다.",
   ),
@@ -91,7 +97,11 @@ function issueLines(error: { issues: readonly { path: PropertyKey[]; message: st
 export function registerRecordKnowledge(server: McpServer, context: McpContext): void {
   server.registerTool(
     "record_knowledge",
-    { title: "트러블슈팅 기록 저장", description: RECORD_KNOWLEDGE_DESCRIPTION, inputSchema },
+    {
+      title: "트러블슈팅 기록 저장",
+      description: RECORD_KNOWLEDGE_DESCRIPTION,
+      inputSchema: RECORD_KNOWLEDGE_INPUT_SCHEMA,
+    },
     async (args) => {
       // 미지정 필드를 **키 자체로 넣지 않는다.** `CreateRecordInput`은 `.strict()`라
       // `symptom: undefined`가 divergence 갈래에서 "미승인 키"로 거부된다.

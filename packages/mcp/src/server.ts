@@ -16,6 +16,7 @@ import { VERSION } from "@sentinel/core";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { CoreApiClient } from "./core-api-client.js";
+import { assertPromptBodyLoaded, MAX_PROMPTS, registerAllPrompts } from "./prompts/index.js";
 import { registerAllTools } from "./tools/index.js";
 
 export const SERVER_NAME = "sentinel-kb";
@@ -88,6 +89,25 @@ export function createMcpServer(context: McpContext): McpServer {
     throw new Error(
       `MCP 도구가 ${String(registered)}개 등록됐다. specs/07-mcp.md는 정확히 ${String(MAX_TOOLS)}개로 못박았고, ` +
         "신규 도구는 스펙 개정 + 인간 승인 사항이다(CLAUDE.md 금지 사항).",
+    );
+  }
+
+  /**
+   * **프롬프트 등록 (T-038).** specs/07의 `## Prompts` 절은 `postmortem-interview` 1개를
+   * 계약으로 정하는데 T-014·T-015 어느 쪽 Scope에도 없어 `prompts` capability가 서지 않았다.
+   *
+   * `tools`와 달리 스캐폴딩(T-014 F-7의 `ensureToolListing`)이 필요 없다 — 그 관용구는
+   * **도구가 0개**여서 있었고, 여기서는 프롬프트를 실제로 1개 등록하므로 SDK가
+   * `registerPrompt` → `setPromptRequestHandlers()` 경로에서 capability를 정상적으로 단다.
+   *
+   * 프롬프트는 **도구가 아니다.** 도구 수는 위 가드가 5로 잠근 채 그대로다.
+   */
+  assertPromptBodyLoaded();
+  const prompts = registerAllPrompts(server);
+  if (prompts !== MAX_PROMPTS) {
+    throw new Error(
+      `MCP 프롬프트가 ${String(prompts)}개 등록됐다. specs/07-mcp.md는 정확히 ${String(MAX_PROMPTS)}개` +
+        "(`postmortem-interview`)로 못박았다. 신규 프롬프트는 스펙 개정 + 인간 승인 사항이다.",
     );
   }
 
