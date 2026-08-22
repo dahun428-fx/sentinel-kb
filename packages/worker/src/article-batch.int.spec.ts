@@ -160,6 +160,41 @@ describe("Acceptance 2 — 멱등성", () => {
     );
   });
 
+  /**
+   * 위 테스트만으로는 부족하다. 멱등성을 지키는 장치가 둘이라(결정론적 `_id`와 상위집합 억제)
+   * `_id` 유도가 깨져도 억제 규칙이 중복을 가려 준다 — 실제로 `_id`를 무작위로 바꾸는
+   * 뮤테이션이 위 테스트를 통과했다. 여기서 두 장치를 **떼어 놓고** 각각 확인한다.
+   */
+  it("저장된 모든 후보의 `_id`가 (유형, 정렬된 소스 집합) 해시와 일치한다", async () => {
+    await insertSeedRecords();
+    await runArticleTriggerBatch({ db, now: () => NOW });
+
+    const articles = await storedArticles();
+    expect(articles.length).toBeGreaterThan(0);
+    for (const article of articles) {
+      const expected = articleId(
+        article["kind"] as "case" | "pattern" | "divergence-report" | "digest",
+        (article["sourceRecordIds"] as ObjectId[]).map((id) => id.toHexString()),
+      );
+      expect((article["_id"] as ObjectId).toHexString()).toBe(expected.toHexString());
+    }
+  });
+
+  it("억제 규칙이 꺼진 상태에서도 재실행이 중복을 만들지 않는다", async () => {
+    await insertSeedRecords();
+    await runArticleTriggerBatch({ db, now: () => NOW });
+    const before = await storedArticles();
+
+    // rejected는 "열린" 상태가 아니므로 상위집합 억제가 적용되지 않는다.
+    // 즉 이 재실행에서 중복을 막는 것은 오직 결정론적 `_id`뿐이다.
+    await articlesCollection(db).updateMany({}, { $set: { status: "rejected" } });
+
+    const second = await runArticleTriggerBatch({ db, now: () => NOW });
+    expect(second.skippedSuperseded).toBe(0);
+    expect(second.inserted).toBe(0);
+    expect(await storedArticles()).toHaveLength(before.length);
+  });
+
   it("`_id`가 소스 집합에서 유도되므로 순서가 달라도 같은 문서다", async () => {
     const ids = [new ObjectId().toHexString(), new ObjectId().toHexString()];
     expect(articleId("pattern", ids)).toEqual(articleId("pattern", [...ids].reverse()));
