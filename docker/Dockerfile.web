@@ -1,0 +1,65 @@
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# web (Next.js) 이미지 (T-026).
+#
+# node 서비스들과 달리 **빌드 스테이지가 있다** — `next build`가 실제 산출물을 만들고,
+# 그 빌드는 `@types/react` 같은 devDependency를 요구한다. 그래서 builder는 full install,
+# runtime은 `--prod` 설치 + `.next` 산출물만 가져간다.
+#
+# ⚠️ `next.config.mjs`에 `output: "standalone"`이 없다. 있으면 runtime이 Next의 최소 서버
+#    번들만 담아 이미지가 크게 줄지만, 그건 `packages/**` 수정이라 이 태스크 범위 밖이다
+#    (T-026 Findings F-4). 지금은 prod node_modules를 통째로 들고 간다.
+# ---------------------------------------------------------------------------
+ARG NODE_VERSION=22.22.2
+
+FROM node:${NODE_VERSION}-alpine AS base
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /repo
+
+FROM base AS manifests
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/core/package.json      packages/core/
+COPY packages/api/package.json       packages/api/
+COPY packages/mcp/package.json       packages/mcp/
+COPY packages/worker/package.json    packages/worker/
+COPY packages/web/package.json       packages/web/
+
+# ---------------------------------------------------------------------------
+FROM manifests AS builder
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter "@sentinel/web..."
+
+COPY tsconfig.base.json ./
+COPY packages/contracts/ packages/contracts/
+COPY packages/core/      packages/core/
+COPY packages/web/       packages/web/
+
+# `next build`는 NEXT_PUBLIC_* 외의 env를 산출물에 굽지 않는다. CORE_API_KEY 같은 서버
+# 전용 값은 런타임에 주입된다 — `packages/web/src/lib/env.ts`가 요청 시점에 읽는다.
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN pnpm --filter @sentinel/web build
+
+# ---------------------------------------------------------------------------
+FROM manifests AS runtime
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --prod --filter "@sentinel/web..."
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY --from=builder /repo/packages/contracts/src packages/contracts/src
+COPY --from=builder /repo/packages/core/src      packages/core/src
+COPY --from=builder /repo/packages/web/src       packages/web/src
+COPY --from=builder /repo/packages/web/.next     packages/web/.next
+# `public/`은 아직 없다 — 생기면 여기 한 줄이 늘어난다.
+COPY --from=builder /repo/packages/web/next.config.mjs \
+                    /repo/packages/web/next-env.d.ts \
+                    /repo/packages/web/tsconfig.next.json \
+                    packages/web/
+
+USER node
+WORKDIR /repo/packages/web
+CMD ["node_modules/.bin/next", "start", "--port", "3000", "--hostname", "0.0.0.0"]

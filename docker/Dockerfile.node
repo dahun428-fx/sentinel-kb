@@ -1,0 +1,80 @@
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# core-api / mcp / worker / db-init 공용 런타임 이미지 (T-026).
+#
+# ## 왜 컴파일 스테이지가 없는가
+# 워크스페이스 패키지는 **소스를 노출한다** (`"main": "./src/index.ts"`). `tsc -b`로
+# dist를 만들어도 `@sentinel/core` import는 여전히 `src/index.ts`로 해소되므로 순수 node로는
+# 뜨지 않는다. exports 맵을 dist로 돌리는 것은 `packages/**` 수정이라 이 태스크 범위 밖이다.
+# → 런타임은 dev와 **같은 방식**(tsx)으로 돈다. 실행 경로가 하나뿐이라 "로컬은 되는데
+#   컨테이너는 안 된다"가 실행기 차이로 생기지 않는다.
+#
+# ## 이미지 무게 (T-014 F-3 인계)
+# `@modelcontextprotocol/sdk`는 전이 의존 91개를 끌고 오고 `express`·`jose`·
+# `pkce-challenge`는 이 레포에서 **한 줄도 실행되지 않는다.** 그런데 그 셋은 SDK의
+# `dependencies`에 **선언된 런타임 의존**이다 — `--prod`도 `pnpm deploy`도 걷어내지 못하고,
+# 걷어내면 SDK의 import 그래프가 깨진다. 즉 **SDK 쪽 변경(optional peer / subpath exports)
+# 없이는 줄일 수 없다.** 이 이미지가 실제로 걷어내는 것은 devDependency 쪽이다:
+# vitest·playwright·typescript·eslint·mongodb-memory-server(+ 그 MongoDB 바이너리).
+# 그쪽이 훨씬 크다.
+# ---------------------------------------------------------------------------
+ARG NODE_VERSION=22.22.2
+
+FROM node:${NODE_VERSION}-alpine AS base
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /repo
+
+# ---------------------------------------------------------------------------
+# deps — 대상 서비스와 그 워크스페이스 조상만, prod 의존만 설치한다.
+# 매니페스트를 먼저 복사해 소스 변경이 install 레이어를 무효화하지 않게 한다.
+# ---------------------------------------------------------------------------
+FROM base AS deps
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# 6개를 전부 복사한다 — 하나라도 빠지면 워크스페이스가 lockfile과 어긋나
+# `--frozen-lockfile`이 거절한다.
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/core/package.json      packages/core/
+COPY packages/api/package.json       packages/api/
+COPY packages/mcp/package.json       packages/mcp/
+COPY packages/worker/package.json    packages/worker/
+COPY packages/web/package.json       packages/web/
+
+# `api` | `mcp` | `worker` | `core`
+ARG SERVICE
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    test -n "$SERVICE" \
+    && pnpm install --frozen-lockfile --prod --filter "@sentinel/${SERVICE}..."
+
+# ---------------------------------------------------------------------------
+# runtime
+# ---------------------------------------------------------------------------
+FROM base AS runtime
+
+# tsx는 루트 devDependency라 `--prod` 설치에 딸려 오지 않는다. 그래서 여기서 명시 설치하는데,
+# **버전이 lockfile과 갈라지면 컨테이너만 다른 트랜스파일러로 도는 상태**가 되고 아무도
+# 눈치채지 못한다. `tools/docker-contract.spec.ts`가 이 기본값을 pnpm-lock.yaml과 대조한다.
+ARG TSX_VERSION=4.23.12
+RUN npm install --global --no-fund --no-audit "tsx@${TSX_VERSION}" \
+    && npm cache clean --force
+
+ARG SERVICE
+ENV NODE_ENV=production
+
+COPY --from=deps /repo/node_modules ./node_modules
+COPY --from=deps /repo/packages ./packages
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+
+# 소스. contracts·core는 모든 서비스의 조상이라 항상 들어간다.
+COPY packages/contracts/src packages/contracts/src
+COPY packages/core/src      packages/core/src
+# `core`가 SERVICE면 아래 줄이 같은 디렉터리를 덮어쓸 뿐 문제가 되지 않는다.
+COPY packages/${SERVICE}/src packages/${SERVICE}/src
+
+# 루트 사용자로 돌 이유가 없다. node 이미지는 uid 1000 `node`를 이미 갖고 있다.
+USER node
+
+# 기본 명령은 서비스별 compose에서 덮어쓴다.
+CMD ["node", "--version"]

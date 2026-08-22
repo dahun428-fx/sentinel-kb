@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# nginx 이미지 (T-026). ECR 레포 5개 중 하나다(infra/ecr.tf, T-025).
+#
+# 설정을 **이미지에 굽는다** — 호스트 bind mount로 넘기지 않는다. mount로 넘기면
+# "배포된 이미지"와 "실제로 돌던 설정"이 갈라지고, 롤백(직전 이미지 태그로 `compose up -d`,
+# specs/06 런북)이 설정을 되돌리지 못한다.
+# ---------------------------------------------------------------------------
+ARG NGINX_VERSION=1.29-alpine
+
+FROM nginx:${NGINX_VERSION}
+
+# envsubst(gettext)는 nginx:alpine에 이미 들어 있다. 명시적으로 확인해 두면
+# 베이스 이미지가 바뀌었을 때 런타임이 아니라 빌드에서 깨진다.
+RUN command -v envsubst >/dev/null
+
+COPY nginx/snippets/  /etc/nginx/snippets/
+COPY nginx/available/ /etc/nginx/available/
+COPY nginx/conf.d/    /etc/nginx/conf.d/
+
+COPY docker/nginx-entrypoint.d/ /docker-entrypoint.d/
+RUN chmod 0755 /docker-entrypoint.d/*.sh
+
+# 베이스 이미지의 default.conf는 우리 라우팅과 `/`를 두고 충돌한다.
+RUN rm -f /etc/nginx/conf.d/default.conf
+
+EXPOSE 80 443
