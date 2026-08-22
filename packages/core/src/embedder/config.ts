@@ -30,6 +30,25 @@ function isProvider(value: string): value is EmbeddingProvider {
   return (EMBEDDING_PROVIDERS as readonly string[]).includes(value);
 }
 
+/**
+ * `EMBEDDING_DIM` **하나만** 읽는 경로. `readEmbedderConfig`에서 떼어냈다 (T-006 F-4, T-010).
+ *
+ * 벡터 인덱스 정의(`vec_idx.numDimensions`)는 임베딩 provider도 세대도 알 필요가 없고
+ * 오직 차원만 필요하다. 인덱스 부트스트랩 스크립트는 임베딩 자격증명 없이 도는 환경
+ * (배포 파이프라인·DBA 콘솔)에서도 돌아야 하는데, `readEmbedderConfig`를 그대로 부르면
+ * `EMBEDDING_PROVIDER`·`EMBEDDING_VERSION`까지 유효해야 통과해 무관한 이유로 막힌다.
+ *
+ * 파싱 규칙·에러 코드는 `readEmbedderConfig`와 **같은 함수를 공유한다** — 두 경로가
+ * `EMBEDDING_DIM`을 다르게 해석하면 인덱스와 벡터의 차원 대조 자체가 무의미해진다.
+ */
+export function readEmbeddingDim(env: NodeJS.ProcessEnv = process.env): number {
+  return readPositiveInt(
+    env["EMBEDDING_DIM"],
+    EMBEDDER_ERROR_CODES.DIM_INVALID,
+    "EMBEDDING_DIM은 양의 정수여야 한다. 모델이 정하는 값이라 기본값을 두지 않는다(NFR-06).",
+  );
+}
+
 /** provider 무관 공통 설정. provider별 자격증명은 각 provider 모듈이 읽는다. */
 export function readEmbedderConfig(env: NodeJS.ProcessEnv = process.env): EmbedderConfig {
   const rawProvider = env["EMBEDDING_PROVIDER"]?.trim();
@@ -43,11 +62,7 @@ export function readEmbedderConfig(env: NodeJS.ProcessEnv = process.env): Embedd
 
   return {
     provider: rawProvider,
-    dim: readPositiveInt(
-      env["EMBEDDING_DIM"],
-      EMBEDDER_ERROR_CODES.DIM_INVALID,
-      "EMBEDDING_DIM은 양의 정수여야 한다. 모델이 정하는 값이라 기본값을 두지 않는다(NFR-06).",
-    ),
+    dim: readEmbeddingDim(env),
     version: readPositiveInt(
       env["EMBEDDING_VERSION"],
       EMBEDDER_ERROR_CODES.VERSION_INVALID,

@@ -9,7 +9,12 @@ import { createFakeEmbedder } from "./fake.js";
 import { createVoyageEmbedder, readVoyageCredentials } from "./voyage.js";
 import type { Embedder, FetchLike, SleepFn } from "./types.js";
 
-export { MAX_EMBEDDING_BATCH_SIZE, EMBEDDING_PROVIDERS, readEmbedderConfig } from "./config.js";
+export {
+  MAX_EMBEDDING_BATCH_SIZE,
+  EMBEDDING_PROVIDERS,
+  readEmbedderConfig,
+  readEmbeddingDim,
+} from "./config.js";
 export type { EmbedderConfig, EmbeddingProvider } from "./config.js";
 export { createFakeEmbedder, deterministicVector } from "./fake.js";
 export type { FakeEmbedderOptions } from "./fake.js";

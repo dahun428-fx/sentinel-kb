@@ -16,6 +16,7 @@
     "build": "tsc -b",
     "dev": "pnpm -r --parallel dev",
     "db:indexes": "tsx packages/core/src/db/ensure-indexes.cli.ts",
+    "db:search-indexes": "tsx packages/core/src/db/ensure-search-indexes.cli.ts",
     "db:seed": "tsx scripts/seed.cli.ts",
     "format": "prettier --write ."
   },
