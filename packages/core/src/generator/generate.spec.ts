@@ -12,9 +12,11 @@ import { GENERATOR_DEFAULTS, type GeneratorConfig } from "./config.js";
 import { makeChunk, makeRetrieval } from "./fixtures.js";
 import { GATE_OUTCOMES } from "./gate.js";
 import {
+  GROUNDING_VIOLATION_MESSAGE,
   NOT_FOUND_MESSAGE,
   SKIP_REASONS,
   buildGateLogFields,
+  buildGroundingLogFields,
   generateAnswer,
 } from "./generate.js";
 
@@ -281,7 +283,12 @@ describe("generateAnswer — 호출 형상", () => {
   });
 
   it("모델 응답과 모델 식별자를 결과에 싣는다", async () => {
-    const model = createFakeChatModel({ model: "test-model", reply: () => "  답변 본문  " });
+    // T-020: 인용이 없으면 §5 검증에 걸려 재생성·제거 경로로 간다. 이 테스트가 재는 것은
+    // trim과 모델 식별자이므로 픽스처를 §5를 만족하는 답변으로 둔다(단언은 그대로).
+    const model = createFakeChatModel({
+      model: "test-model",
+      reply: () => "  답변 본문 [REC-rec-1#resolution]  ",
+    });
     const result = await generateAnswer({
       query: "질의",
       retrieval: makeRetrieval({ maxVectorScore: 0.9 }),
@@ -291,7 +298,7 @@ describe("generateAnswer — 호출 형상", () => {
 
     expect(result.found).toBe(true);
     if (!result.found) return;
-    expect(result.answer).toBe("답변 본문");
+    expect(result.answer).toBe("답변 본문 [REC-rec-1#resolution]");
     expect(result.model).toBe("test-model");
   });
 
@@ -305,5 +312,189 @@ describe("generateAnswer — 호출 형상", () => {
         config,
       }),
     ).rejects.toBeInstanceOf(LlmError);
+  });
+});
+
+// ================================================================ 인용 후처리 검증 (T-020)
+
+/**
+ * specs/03 §5. **게이트 뒤·응답 앞**에서 주장 문장의 인용을 검증하고, 위반 시 1회 재생성,
+ * 재차 위반이면 문장을 제거하고 `groundingViolation:true`를 남긴다.
+ *
+ * 픽스처의 기본 청크는 `rec-1#resolution`이므로 유효 인용은 `[REC-rec-1#resolution]` 하나다.
+ */
+const CITATION = "[REC-rec-1#resolution]";
+
+/** n번째 호출에 무엇을 답할지 스크립트로 박은 fake. 재생성 경로는 이것 없이는 관측되지 않는다. */
+function scriptedModel(replies: string[]): ReturnType<typeof createFakeChatModel> {
+  let index = 0;
+  return createFakeChatModel({
+    reply: () => {
+      const reply = replies[Math.min(index, replies.length - 1)] ?? "";
+      index += 1;
+      return reply;
+    },
+  });
+}
+
+async function answer(model: ReturnType<typeof createFakeChatModel>) {
+  return generateAnswer({
+    query: "커넥션 풀 고갈",
+    retrieval: makeRetrieval({ maxVectorScore: 0.9 }),
+    model,
+    config,
+  });
+}
+
+describe("generateAnswer — 인용 후처리 검증 (specs/03 §5)", () => {
+  it("주장 문장에 유효 인용이 있으면 재생성하지 않는다", async () => {
+    const model = scriptedModel([`풀 상한을 올렸다 ${CITATION}.`]);
+    const result = await answer(model);
+
+    expect(model.calls).toHaveLength(1);
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    expect(result.grounding).toEqual({
+      violation: false,
+      regenerated: false,
+      claimSentences: 1,
+      citedSentences: 1,
+      removedSentences: 0,
+      unknownCitations: [],
+    });
+  });
+
+  /** **재생성 0회 뮤테이션은 여기서 죽는다.** */
+  it("위반이면 정확히 1회 재생성한다", async () => {
+    const model = scriptedModel(["풀 상한을 올렸다.", `풀 상한을 올렸다 ${CITATION}.`]);
+    const result = await answer(model);
+
+    expect(model.calls).toHaveLength(2);
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    expect(result.grounding.regenerated).toBe(true);
+    expect(result.grounding.violation).toBe(false);
+    expect(result.answer).toBe(`풀 상한을 올렸다 ${CITATION}.`);
+  });
+
+  it("재생성은 직전 답변과 사용 가능한 인용을 실어 보낸다 — 재추첨이 아니다", async () => {
+    const model = scriptedModel(["풀 상한을 올렸다.", `풀 상한을 올렸다 ${CITATION}.`]);
+    await answer(model);
+
+    const retry = model.calls[1];
+    expect(retry?.messages).toHaveLength(3);
+    expect(retry?.messages[1]?.role).toBe("assistant");
+    expect(retry?.messages[1]?.content).toBe("풀 상한을 올렸다.");
+    expect(retry?.messages[2]?.content).toContain(CITATION);
+  });
+
+  it("재생성해도 위반이면 2회로 멈춘다 — 무한 재시도가 아니다", async () => {
+    const model = scriptedModel([
+      `풀 상한을 올렸다 ${CITATION}. 재시작하면 된다.`,
+      `풀 상한을 올렸다 ${CITATION}. 재시작하면 된다.`,
+    ]);
+    await answer(model);
+
+    expect(model.calls).toHaveLength(2);
+  });
+
+  /** **`groundingViolation` 미로깅 뮤테이션이 여기서 죽는다.** */
+  it("재차 위반이면 문장을 제거하고 groundingViolation:true를 남긴다", async () => {
+    const model = scriptedModel([`풀 상한을 올렸다 ${CITATION}. 재시작하면 된다.`]);
+    const result = await answer(model);
+
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    expect(result.answer).toBe(`풀 상한을 올렸다 ${CITATION}.`);
+    expect(result.grounding.violation).toBe(true);
+    expect(result.grounding.removedSentences).toBe(1);
+    expect(buildGroundingLogFields(result.grounding)).toMatchObject({
+      groundingViolation: true,
+      groundingRegenerated: true,
+      groundingRemovedSentences: 1,
+    });
+  });
+
+  /** **지어낸 recordId 통과 뮤테이션이 여기서 죽는다** (Acceptance 1). */
+  it("컨텍스트에 없는 ID를 인용한 문장은 제거된다", async () => {
+    const invented = "[REC-68f0c4a1b2c3d4e5f6a7b8c9#resolution]";
+    const model = scriptedModel([`풀 상한을 올렸다 ${CITATION}. 인덱스를 다시 만들었다 ${invented}.`]);
+    const result = await answer(model);
+
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    expect(result.answer).not.toContain(invented);
+    expect(result.grounding.unknownCitations).toEqual([invented]);
+    expect(buildGroundingLogFields(result.grounding).groundingUnknownCitations).toBe(1);
+  });
+
+  /**
+   * **T-019 M5b가 죽는 지점.** 인용 마커 0개 답변이 `found:true` + `citations:[...]`로
+   * 나가던 상태다. 제거 후 근거에 묶인 주장이 없으면 답변이 아니다.
+   */
+  it("인용이 하나도 없는 답변은 재생성 뒤에도 found:false다 (M5b)", async () => {
+    const model = scriptedModel(["커넥션 풀 상한을 올리면 해결된다. 애플리케이션을 재시작하라."]);
+    const result = await answer(model);
+
+    expect(model.calls).toHaveLength(2);
+    expect(result).toMatchObject({
+      found: false,
+      suggestRecord: true,
+      skipReason: SKIP_REASONS.GROUNDING_VIOLATION,
+      message: GROUNDING_VIOLATION_MESSAGE,
+    });
+    expect(result.gate.passed).toBe(true);
+    if (result.found) return;
+    // 임계값 미달과 **구별된다** — 유사 사례는 있었고, 못 만든 것은 답이다.
+    expect(result.message).not.toBe(NOT_FOUND_MESSAGE);
+  });
+
+  it("제목·인사만 남는 경우도 found:false다 — 인용 배열만 그럴듯한 응답을 막는다", async () => {
+    const model = scriptedModel(["## 원인 가설\n커넥션 풀이 고갈됐다."]);
+    const result = await answer(model);
+
+    expect(result.found).toBe(false);
+    if (result.found) return;
+    expect(result.skipReason).toBe(SKIP_REASONS.GROUNDING_VIOLATION);
+    expect(result.grounding?.violation).toBe(true);
+  });
+
+  it("게이트에서 끝난 요청의 grounding 로그 필드는 false가 아니라 null이다", async () => {
+    const result = await generateAnswer({
+      query: "무관한 질의",
+      retrieval: makeRetrieval({ maxVectorScore: 0.3 }),
+      model: createFakeChatModel(),
+      config,
+    });
+
+    expect(result.found).toBe(false);
+    if (result.found) return;
+    expect(result.grounding).toBeNull();
+    expect(buildGroundingLogFields(result.grounding)).toEqual({
+      groundingViolation: null,
+      groundingRegenerated: null,
+      groundingClaimSentences: null,
+      groundingCitedSentences: null,
+      groundingRemovedSentences: null,
+      groundingUnknownCitations: null,
+    });
+  });
+
+  /** 재생성 지시문에 청크 본문이 섞이면 NFR-03이 재생성 경로에서만 조용히 깨진다. */
+  it("재생성 지시문에 청크 본문이 실리지 않는다 (NFR-03)", async () => {
+    const body = "커넥션 풀 상한을 20으로 올리고 애플리케이션을 재시작했다.";
+    const model = scriptedModel(["인용 없는 답변이다.", `다시 썼다 ${CITATION}.`]);
+    await generateAnswer({
+      query: "질의",
+      retrieval: makeRetrieval({
+        hits: [makeChunk({ text: body })],
+        maxVectorScore: 0.9,
+      }),
+      model,
+      config,
+    });
+
+    const instruction = model.calls[1]?.messages[2]?.content ?? "";
+    expect(instruction).not.toContain(body);
   });
 });

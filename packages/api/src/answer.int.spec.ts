@@ -234,7 +234,13 @@ describe("게이트는 스트림 시작 앞에 있다 (T-018 F-2)", () => {
 
 describe("SSE 스트리밍 (Acceptance 1)", () => {
   it("청크 단위로 도착하고 완료 이벤트로 끝난다", async () => {
-    const answer = `${"해결 절차를 자세히 적는다. ".repeat(20)}[REC-${RECORD_ID}#resolution]`;
+    /*
+     * **모든 문장에 인용이 붙어 있다.** T-020이 specs/03 §5 검증을 `generateAnswer` 안에
+     * 넣은 뒤로, 마지막 문장에만 인용을 단 답변은 앞 19문장이 위반이라 제거된다 —
+     * 그러면 이 테스트가 재려는 것(청크 분할·재조립)이 아니라 문장 제거를 재게 된다.
+     * 픽스처를 §5를 만족하는 답변으로 바꾼 것이고, 단언은 그대로다.
+     */
+    const answer = `${"해결 절차를 자세히 적는다 [REC-".concat(RECORD_ID, "#resolution]. ").repeat(20)}`.trim();
     const { app, logs } = makeHarness(
       makeRetriever(),
       createFakeChatModel({ reply: () => answer }),
@@ -464,6 +470,114 @@ describe("인용과 본문 경계", () => {
     // hits가 0건이면 컨텍스트도 0건이라 generateAnswer가 먼저 no-usable-context로 막는다.
     // 어느 쪽이든 **인용 없는 답변은 나가지 않는다**는 것이 판정 대상이다.
     expect(response.json()).not.toMatchObject({ found: true });
+  });
+});
+
+// ================================================================ 인용 후처리 검증 (T-020)
+
+/**
+ * **specs/03 §5가 HTTP 표면에서 실제로 이행되는지** 본다. 단위 테스트는 core의 판정과
+ * 로그 필드 생성을 각각 잠그지만, 그 둘이 라우트에서 **이어져 있는지**는 여기서만 보인다.
+ *
+ * T-019가 남긴 M5b가 이 describe의 존재 이유다: 인용 마커가 0개인 답변이
+ * `found:true` + `citations:[...]`로 나가던 상태를 실측으로 재현하고 죽인다.
+ */
+describe("인용 후처리 검증 (specs/03 §5, T-020)", () => {
+  it("인용 마커가 0개인 답변은 found:true로 나가지 않는다 (T-019 M5b)", async () => {
+    const { app, model, logs } = makeHarness(
+      makeRetriever(),
+      createFakeChatModel({ reply: () => "커넥션 풀 상한을 올리면 해결된다. 재시작하라." }),
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/answer",
+      headers: AUTH,
+      payload: { query: CORPUS_TEXT },
+    });
+
+    // 게이트는 통과했다(코퍼스와 같은 질의라 cosine 1.0). 막은 것은 §5 검증이다.
+    expect(answerLog(logs)?.["gatePassed"]).toBe(true);
+    expect(response.json()).not.toMatchObject({ found: true });
+    // 1회 재생성이 실제로 일어났다 — 스펙이 요구한 그 한 번이다.
+    expect(model.calls).toHaveLength(2);
+  });
+
+  /** **`groundingViolation`이 조용히 지나가지 않는다** — 실제로 나간 로그 줄을 읽는다. */
+  it("groundingViolation이 실제 로그 줄에 남는다", async () => {
+    const { app, logs } = makeHarness(
+      makeRetriever(),
+      createFakeChatModel({ reply: () => "커넥션 풀 상한을 올리면 해결된다. 재시작하라." }),
+    );
+
+    await app.inject({
+      method: "POST",
+      url: "/v1/answer",
+      headers: AUTH,
+      payload: { query: CORPUS_TEXT },
+    });
+
+    const log = answerLog(logs);
+    expect(log?.["groundingViolation"], "위반이 로그에 남지 않는다").toBe(true);
+    expect(log?.["groundingRegenerated"]).toBe(true);
+    expect(log?.["groundingCitedSentences"]).toBe(0);
+    expect(log?.["skipReason"]).toBe("grounding-violation");
+  });
+
+  /** 인용이 붙은 정상 답변에서는 위반이 `false`이지 `null`이 아니다 — 판정은 했다. */
+  it("정상 답변에서는 groundingViolation:false가 남는다", async () => {
+    const { app, model, logs } = makeHarness(makeRetriever());
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/answer",
+      headers: AUTH,
+      payload: { query: CORPUS_TEXT },
+    });
+
+    expect(response.json()).toMatchObject({ found: true });
+    expect(model.calls, "재생성이 불필요한데 두 번 불렀다").toHaveLength(1);
+    const log = answerLog(logs);
+    expect(log?.["groundingViolation"]).toBe(false);
+    expect(log?.["groundingRegenerated"]).toBe(false);
+  });
+
+  /** 게이트에서 끝난 요청은 검증까지 가지 않았으므로 `null`이다. `false`로 접지 않는다. */
+  it("게이트 미달 요청의 grounding 필드는 null이다", async () => {
+    const { app, logs } = makeHarness(makeRetriever());
+
+    await app.inject({
+      method: "POST",
+      url: "/v1/answer",
+      headers: AUTH,
+      payload: { query: "전혀 관련 없는 다른 이야기입니다" },
+    });
+
+    expect(answerLog(logs)?.["groundingViolation"]).toBeNull();
+  });
+
+  /** **모델이 지어낸 ObjectId는 형식이 완벽하다.** 컨텍스트 대조가 없으면 그대로 나간다. */
+  it("컨텍스트에 없는 ID를 인용한 문장은 응답에서 사라진다", async () => {
+    const invented = `[REC-${TAINTED_RECORD_ID}#resolution]`;
+    const { app } = makeHarness(
+      makeRetriever(),
+      createFakeChatModel({
+        reply: () =>
+          `풀 상한을 올렸다 [REC-${RECORD_ID}#resolution]. 인덱스를 다시 만들었다 ${invented}.`,
+      }),
+    );
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/answer",
+      headers: AUTH,
+      payload: { query: CORPUS_TEXT },
+    });
+
+    const body = response.json() as { found: boolean; answer: string };
+    expect(body.found).toBe(true);
+    expect(body.answer, "지어낸 인용이 그대로 나갔다").not.toContain(invented);
+    expect(body.answer).toContain(`[REC-${RECORD_ID}#resolution]`);
   });
 });
 

@@ -2,7 +2,12 @@
  * T-019 단위 테스트 — 순수 함수(로그 필드·인용 투영·SSE 프레이밍)만 본다.
  * 라우트 동작은 `answer.int.spec.ts`가 실제 HTTP 왕복으로 본다.
  */
-import type { GenerateResult, RetrievalResult, RetrievedChunk } from "@sentinel/core";
+import type {
+  GenerateResult,
+  GroundingReport,
+  RetrievalResult,
+  RetrievedChunk,
+} from "@sentinel/core";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -15,6 +20,19 @@ import {
   toCitation,
   toCitations,
 } from "./answer.js";
+
+/**
+ * T-020: 인용 검증까지 통과한 결과의 grounding 요약. `found:true` 픽스처가 공유한다.
+ * **`null`이 아니다** — 생성까지 갔으면 검증도 있었다는 것이 `FoundResult`의 계약이다.
+ */
+const GROUNDED: GroundingReport = {
+  violation: false,
+  regenerated: false,
+  claimSentences: 1,
+  citedSentences: 1,
+  removedSentences: 0,
+  unknownCitations: [],
+};
 
 const RECORD_ID = "68f0c4a1b2c3d4e5f6a7b8c9";
 const OTHER_RECORD_ID = "68f0c4a1b2c3d4e5f6a7b8ca";
@@ -125,6 +143,7 @@ describe("toAnswerBody", () => {
     contextChunkIds: ["chunk-1"],
     excluded: [],
     model: "fake-chat-model",
+    grounding: GROUNDED,
   };
 
   /**
@@ -163,6 +182,7 @@ describe("toAnswerBody", () => {
             threshold: 0.62,
           },
           excluded: [],
+          grounding: null,
         },
         [],
       ),
@@ -242,6 +262,7 @@ describe("buildAnswerLogFields", () => {
         contextChunkIds: ["chunk-1"],
         excluded: [],
         model: "fake-chat-model",
+        grounding: GROUNDED,
       },
       citationCount: 1,
     });
@@ -273,6 +294,7 @@ describe("buildAnswerLogFields", () => {
         contextChunkIds: ["chunk-1"],
         excluded: [],
         model: "fake-chat-model",
+        grounding: GROUNDED,
       },
     });
 
@@ -280,6 +302,81 @@ describe("buildAnswerLogFields", () => {
     expect(fields.gateThresholdEvaluated).toBe(false);
     expect(fields.gateOutcome).toBe("not-evaluable");
     expect(fields.gateMaxVectorScore).toBeNull();
+  });
+
+  /**
+   * **specs/03 §5의 "`groundingViolation: true` 로깅"이 이행되는지 여기서 판정한다.**
+   *
+   * core가 판정을 아무리 정확히 해도 라우트가 그 필드를 로그에 싣지 않으면 운영에서
+   * 위반은 **일어나지 않은 것과 같다**. 뮤테이션으로 확인했다: `buildGroundingLogFields`
+   * 스프레드를 지우면 이 단언 말고는 아무것도 깨지지 않았다.
+   */
+  it("groundingViolation이 로그 필드에 실린다 (specs/03 §5)", () => {
+    const fields = buildAnswerLogFields({
+      ...BASE,
+      result: {
+        found: true,
+        answer: "풀 상한을 올렸다 [REC-x#resolution]",
+        gate: {
+          passed: true,
+          outcome: "above-threshold",
+          thresholdEvaluated: true,
+          maxVectorScore: 0.81,
+          threshold: 0.62,
+        },
+        citations: ["[REC-x#resolution]"],
+        contextChunkIds: ["chunk-1"],
+        excluded: [],
+        model: "fake-chat-model",
+        grounding: {
+          violation: true,
+          regenerated: true,
+          claimSentences: 3,
+          citedSentences: 1,
+          removedSentences: 2,
+          unknownCitations: ["[REC-지어냄#resolution]"],
+        },
+      },
+      citationCount: 1,
+    });
+
+    expect(fields.groundingViolation).toBe(true);
+    expect(fields.groundingRegenerated).toBe(true);
+    expect(fields.groundingClaimSentences).toBe(3);
+    expect(fields.groundingCitedSentences).toBe(1);
+    expect(fields.groundingRemovedSentences).toBe(2);
+    // ID **개수**만 남는다 — 원문은 답변 본문의 일부다.
+    expect(fields.groundingUnknownCitations).toBe(1);
+    expect(JSON.stringify(fields)).not.toContain("지어냄");
+  });
+
+  /**
+   * 검증까지 가지 않은 요청은 `false`가 아니라 `null`이다. 둘을 합치면 위반율의 분모가
+   * 조용히 부풀어 `groundingViolation`이 실제보다 드물어 보인다(감사 B-1과 같은 종류의 오류).
+   */
+  it("생성까지 가지 않은 요청의 grounding 필드는 false가 아니라 null이다", () => {
+    const fields = buildAnswerLogFields({
+      ...BASE,
+      result: {
+        found: false,
+        suggestRecord: true,
+        message: "유사 사례 없음",
+        skipReason: "below-threshold",
+        gate: {
+          passed: false,
+          outcome: "below-threshold",
+          thresholdEvaluated: true,
+          maxVectorScore: 0.1,
+          threshold: 0.62,
+        },
+        excluded: [],
+        grounding: null,
+      },
+    });
+
+    expect(fields.groundingViolation).toBeNull();
+    expect(fields.groundingViolation).not.toBe(false);
+    expect(fields.groundingRemovedSentences).toBeNull();
   });
 
   it("게이트를 판정하기 전에 실패하면 게이트 필드가 아예 없다 — 0으로 접지 않는다", () => {
@@ -325,6 +422,7 @@ describe("buildAnswerLogFields", () => {
         excluded: [
           { chunkId: "c1", recordId: RECORD_ID, flags: ["injection-suspect"], reason: "injection-suspect" },
         ],
+        grounding: null,
       },
     });
 

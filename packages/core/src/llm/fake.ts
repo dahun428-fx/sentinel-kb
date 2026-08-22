@@ -31,14 +31,35 @@ export interface FakeChatModelOptions {
 
 const DEFAULT_FAKE_MODEL = "fake-chat-model";
 
+/** 컨텍스트 블록의 `citation="[REC-...]"` 속성. `generator/context.ts`가 만든 그 문자열이다. */
+const CONTEXT_CITATION_RE = /citation="(\[REC-[^"]+\])"/g;
+
+/**
+ * 기본 응답. **인용을 붙인다 — 이것이 픽스처의 정확성 요건이다(T-020).**
+ *
+ * specs/03 §5의 인용 후처리 검증이 붙은 뒤로는, 인용 없는 답을 내는 fake는 "무해한
+ * 플레이스홀더"가 아니라 **언제나 위반 경로를 타는 모델**이다. 그런 fake를 기본값으로 두면
+ * 게이트·컨텍스트를 재는 테스트가 전부 재생성·문장 제거 경로를 지나게 되고, 무엇을 재는
+ * 테스트인지가 흐려진다. 그래서 요청에 실린 인용을 그대로 복사해 붙인다 —
+ * 시스템 프롬프트 조항 2를 지키는 최소한의 답변이다.
+ *
+ * 위반 경로를 재는 테스트는 `reply`를 **명시적으로** 넘긴다. 기본값이 우연히 위반을 만드는
+ * 것과, 테스트가 위반을 의도적으로 만드는 것은 다르다.
+ */
+function defaultReply(request: ChatRequest): string {
+  const body =
+    `[fake] messages=${String(request.messages.length)} ` +
+    `systemChars=${String(request.system.length)}`;
+  const citations = [...request.messages.map((message) => message.content).join("\n").matchAll(CONTEXT_CITATION_RE)]
+    .map((match) => match[1])
+    .filter((citation, index, all) => all.indexOf(citation) === index);
+  return citations.length === 0 ? body : `${body} ${citations.join("")}`;
+}
+
 export function createFakeChatModel(options: FakeChatModelOptions = {}): FakeChatModel {
   const model = options.model ?? DEFAULT_FAKE_MODEL;
   const calls: ChatRequest[] = [];
-  const reply =
-    options.reply ??
-    ((request: ChatRequest): string =>
-      `[fake] messages=${String(request.messages.length)} ` +
-      `systemChars=${String(request.system.length)}`);
+  const reply = options.reply ?? defaultReply;
 
   return {
     model,

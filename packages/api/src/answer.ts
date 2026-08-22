@@ -38,6 +38,7 @@
 import { AnswerRequest, AnswerResponse, Citation } from "@sentinel/contracts";
 import {
   buildGateLogFields,
+  buildGroundingLogFields,
   generateAnswer,
   RETRIEVER_ERROR_CODES,
   RetrieverError,
@@ -45,6 +46,7 @@ import {
   type GateLogFields,
   type GenerateResult,
   type GeneratorConfig,
+  type GroundingLogFields,
   type RetrievalResult,
   type Retriever,
   type RetrievedChunk,
@@ -105,7 +107,7 @@ export const ANSWER_CHUNK_CHARS = 160;
  * **`gatePassed`와 `gateThresholdEvaluated`는 별개 필드다** — 판정 불가(`not-evaluable`)는
  * `gatePassed:true, gateThresholdEvaluated:false`이고, 둘을 합치면 스윕 곡선이 오염된다.
  */
-export interface AnswerLogFields extends Partial<GateLogFields> {
+export interface AnswerLogFields extends Partial<GateLogFields>, Partial<GroundingLogFields> {
   readonly event: typeof ANSWER_LOG_EVENT;
   readonly route: typeof ANSWER_ROUTE;
   readonly outcome: "ok" | "error";
@@ -187,7 +189,14 @@ export function buildAnswerLogFields(input: BuildAnswerLogInput): AnswerLogField
   // 게이트가 판정되기 전에 실패한 요청(검증 실패·검색 실패)에는 게이트 필드가 아예 없다.
   // 0이나 false로 채우지 않는다 — "판정하지 않았다"를 "미달"로 접는 것이 감사 B-1이
   // 막으려던 종류의 오류다(`search.ts`가 `-1` 센티널을 거부한 것과 같은 원칙).
-  return result === undefined ? base : { ...base, ...buildGateLogFields(result.gate) };
+  //
+  // **인용 검증 필드도 같은 규약으로 실린다**(specs/03 §5의 "`groundingViolation: true` 로깅").
+  // 여기가 그 조항이 실제로 이행되는 유일한 지점이다 — core는 판정만 하고 로거를 모른다.
+  // 게이트에서 걸려 생성까지 가지 않은 요청은 `grounding`이 `null`이고, 그때 필드는 전부
+  // `null`이지 `false`가 아니다(`buildGroundingLogFields` 주석 참조).
+  return result === undefined
+    ? base
+    : { ...base, ...buildGateLogFields(result.gate), ...buildGroundingLogFields(result.grounding) };
 }
 
 /**
@@ -243,10 +252,11 @@ export function toCitations(hits: readonly RetrievedChunk[], contextChunkIds: re
  * 실제로 뮤테이션으로 확인했다: 인라인 상태에서 `.parse`를 지우면 15개 통합 테스트가
  * 전부 통과했다. 여기 있으면 단위 테스트가 직접 그 상태를 만들어 죽인다.
  *
- * ⚠️ **문장 단위 인용 검증은 여기서 하지 않는다.** 주장 문장마다 유효한 `[REC-...#...]`이
- * 붙어 있는지는 `specs/03 §5`이고 T-020의 몫이다(T-019 Out of scope). 지금 이 함수가
- * 잠그는 것은 "응답에 인용이 하나라도 있는가"뿐이며, **인용이 하나도 박히지 않은 답변
- * 문장은 그대로 통과한다** — 실측으로 확인했고 Findings에 인계했다.
+ * ⚠️ **문장 단위 인용 검증은 여기서 하지 않는다 — 이미 끝나 있다.** 주장 문장마다 유효한
+ * `[REC-...#...]`이 붙어 있는지는 `specs/03 §5`이고, T-020이 `generateAnswer` 안(게이트 뒤,
+ * 반환 앞)에 넣었다. 라우트가 다시 판정하면 게이트와 같은 실수를 반복하는 것이다(T-015 F-4).
+ * 이 함수가 잠그는 것은 여전히 "응답에 인용이 하나라도 있는가"뿐이고, 그건 §5 검증의
+ * 대체물이 아니라 **투영이 인용을 흘려버린 경우**를 잡는 별개의 방어선이다.
  */
 export function toAnswerBody(
   result: GenerateResult,

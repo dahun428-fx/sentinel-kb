@@ -55,7 +55,10 @@ function stripComments(source: string): string {
 describe("generator 소스 가드", () => {
   it("검사 대상 소스를 실제로 읽었다", () => {
     // 파일을 못 찾아 빈 배열을 순회하면 아래 단언들이 전부 공허하게 통과한다.
+    // T-020이 `citation.ts`를 더했다. **목록에 더하는 것이 가드를 넓히는 방향이다** —
+    // 새 파일이 목록에 없으면 아래 단언들이 그 파일을 아예 검사하지 않는다.
     expect(pipelineFiles()).toEqual([
+      "citation.ts",
       "context.ts",
       "gate.ts",
       "generate.ts",

@@ -1,0 +1,96 @@
+{
+  "_comment": "generation eval 케이스. 질의만 담는다 — 정답 답변은 없다(있으면 그것이 곧 오염이다). kind:irrelevant 다섯은 specs/05 Eval 2-c의 임계값 시나리오다. 케이스 추가·수정은 별도 태스크로만 (eval-runner 스킬).",
+  "cases": [
+    {
+      "caseId": "GEN-01",
+      "kind": "grounded",
+      "query": "nginx 뒤에서 SSE 이벤트가 실시간으로 안 오고 연결이 끝날 때 한꺼번에 도착한다",
+      "boundary": "프록시 버퍼링 사례(INC-06)가 검색되고, 해결 절차가 그 기록의 인용에 묶여 나오는가"
+    },
+    {
+      "caseId": "GEN-02",
+      "kind": "grounded",
+      "query": "Docker Compose에서 Mongo에 붙으려는데 ECONNREFUSED 127.0.0.1:27017이 난다",
+      "boundary": "컨테이너 네트워킹 사례(INC-05)를 근거로 원인 가설을 세우는가"
+    },
+    {
+      "caseId": "GEN-03",
+      "kind": "grounded",
+      "query": "임베딩 배치를 돌리면 컨테이너가 exit 137로 죽는다",
+      "boundary": "OOMKilled 사례(INC-13)를 근거로 힙 상한 설정을 제시하는가"
+    },
+    {
+      "caseId": "GEN-04",
+      "kind": "grounded",
+      "query": "Zod strict로 바꾼 뒤 기존 클라이언트 요청이 전부 400 unrecognized keys가 된다",
+      "boundary": "계약 변경 사례(INC-12)의 대응 절차를 인용과 함께 내는가"
+    },
+    {
+      "caseId": "GEN-05",
+      "kind": "grounded",
+      "query": "유사도 게이트가 모든 질의에 found:false를 반환한다",
+      "boundary": "척도 혼동(SELF-01)과 fake 임베딩(INC-18) 둘 다 후보다 — 확신 수준을 밝히는가"
+    },
+    {
+      "caseId": "GEN-06",
+      "kind": "grounded",
+      "query": "워커가 죽으면 잡이 running 상태로 영영 남는다",
+      "boundary": "리스 부재 이격(DIV-02)을 근거로 상태 기계 문제를 짚는가"
+    },
+    {
+      "caseId": "GEN-07",
+      "kind": "grounded",
+      "query": "재시도가 순식간에 소진되고 잡이 dead로 간다",
+      "boundary": "백오프 부재(DIV-05)를 인용하는가. GEN-06과 근접한 사례라 경계가 갈리는지 본다"
+    },
+    {
+      "caseId": "GEN-08",
+      "kind": "grounded",
+      "query": "GitHub Actions에서 통합 테스트가 로컬과 다른 DB를 보는 것 같다",
+      "boundary": "빈 시크릿 주입 사례(INC-07)를 근거로 진단 절차를 내는가"
+    },
+    {
+      "caseId": "GEN-09",
+      "kind": "grounded",
+      "query": "긴 섹션을 청킹했더니 두 번째 청크가 첫 청크를 덮어쓴다",
+      "boundary": "유니크 키 누락(INC-03)을 근거로 인덱스 정의를 짚는가"
+    },
+    {
+      "caseId": "GEN-10",
+      "kind": "grounded",
+      "query": "정규식 하나 때문에 CPU가 100%가 되고 전 요청이 502가 된다",
+      "boundary": "공개 사례(PUB-01)를 인용하는가. 사내 사례가 아니어도 근거는 근거다"
+    },
+
+    {
+      "caseId": "GEN-T1",
+      "kind": "irrelevant",
+      "query": "오늘 점심 메뉴로 뭘 먹으면 좋을지 추천해 줘",
+      "boundary": "Eval 2-c: 코퍼스와 무관한 질의는 답을 만들지 않는다(NFR-02)"
+    },
+    {
+      "caseId": "GEN-T2",
+      "kind": "irrelevant",
+      "query": "조선 후기 실학자들의 토지 개혁론을 비교해서 설명해 줘",
+      "boundary": "Eval 2-c: 도메인이 완전히 다른 질의"
+    },
+    {
+      "caseId": "GEN-T3",
+      "kind": "irrelevant",
+      "query": "다음 주 제주도 여행 3박 4일 일정을 짜 줘",
+      "boundary": "Eval 2-c: 트러블슈팅이 아닌 일반 요청"
+    },
+    {
+      "caseId": "GEN-T4",
+      "kind": "irrelevant",
+      "query": "피아노 초보가 연습하기 좋은 곡을 알려 줘",
+      "boundary": "Eval 2-c: 기술 용어가 전혀 없는 질의"
+    },
+    {
+      "caseId": "GEN-T5",
+      "kind": "irrelevant",
+      "query": "고양이가 밤에 우는 이유가 뭘까",
+      "boundary": "Eval 2-c: 증상 서술 형태지만 도메인이 무관하다 — 형태만 비슷한 질의가 통과하지 않는지 본다"
+    }
+  ]
+}
