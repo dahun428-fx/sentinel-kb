@@ -20,6 +20,7 @@ import type { Db } from "mongodb";
 
 import { registerAuth } from "./auth.js";
 import { API_ERROR_CODES, HttpError, sendError } from "./errors.js";
+import { registerFeedbackRoutes } from "./feedback.js";
 import { registerOpenApiRoute, trackRoutes, type RouteRef } from "./openapi.js";
 import { registerRecordRoutes } from "./records.js";
 import { registerSearchRoutes } from "./search.js";
@@ -105,18 +106,21 @@ export function createApp(options: AppOptions): FastifyInstance {
     );
   });
 
+  const now = options.now ?? ((): Date => new Date());
+
   // specs/04:29 — contracts가 생성한 문서를 그대로 서빙. 인증 정책의 근거는 `openapi.ts`에 있다.
   registerOpenApiRoute(app);
 
   registerRecordRoutes(app, {
     db: options.db,
     sanitizeOptions: options.sanitizeOptions,
-    now: options.now ?? ((): Date => new Date()),
+    now,
   });
 
   if (options.retriever !== undefined) {
     registerSearchRoutes(app, { retriever: options.retriever });
   }
+  registerFeedbackRoutes(app, { db: options.db, now });
 
   app.setNotFoundHandler(async (request, reply) =>
     sendError(
