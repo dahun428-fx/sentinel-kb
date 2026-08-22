@@ -498,3 +498,103 @@ describe("generateAnswer — 인용 후처리 검증 (specs/03 §5)", () => {
     expect(instruction).not.toContain(body);
   });
 });
+
+/* --------------------------------------------------------------------------
+ * T-035 × T-020: 확장 청크의 인용이 검증을 통과하는가
+ * ----------------------------------------------------------------------- */
+
+describe("관계 확장 청크의 인용 검증 (T-035 × T-020)", () => {
+  const RELATION = { type: "recurrence_of", fromRecordId: "rec-entry" } as const;
+
+  const retrieval = makeRetrieval({
+    hits: [
+      makeChunk({ chunkId: "entry", recordId: "rec-entry", section: "symptom" }),
+      makeChunk({
+        chunkId: "expanded",
+        recordId: "rec-target",
+        section: "resolution",
+        relation: RELATION,
+        // 확장 청크는 융합에 참여하지 않았다.
+        fusedScore: 0,
+        vectorScore: null,
+        vectorRank: null,
+      }),
+    ],
+    maxVectorScore: 0.9,
+  });
+
+  /**
+   * **핵심 단언.** 확장 청크의 인용 ID가 `allowed`에 들어가지 않으면 T-020이 그 문장을
+   * `unknown` 위반으로 잡아 **제거한다** — 관계 확장이 컨텍스트를 늘려 놓고 정작 그 근거를
+   * 인용한 문장은 지워지는 상태가 된다. 확장의 효과가 통째로 사라지는 조용한 실패다.
+   */
+  it("확장 청크만 인용한 답변이 그대로 살아남는다", async () => {
+    const answer = "같은 원인의 재발이므로 커넥션 풀 상한을 올린다 [REC-rec-target#resolution].";
+    const result = await generateAnswer({
+      query: "커넥션 풀 고갈",
+      retrieval,
+      model: createFakeChatModel({ reply: () => answer }),
+      config,
+    });
+
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    expect(result.answer).toBe(answer);
+    expect(result.grounding.violation).toBe(false);
+    expect(result.grounding.regenerated).toBe(false);
+    expect(result.grounding.removedSentences).toBe(0);
+    expect(result.grounding.unknownCitations).toEqual([]);
+  });
+
+  it("확장 청크의 인용이 allowed 집합에 들어 있다", async () => {
+    const result = await generateAnswer({
+      query: "커넥션 풀 고갈",
+      retrieval,
+      model: createFakeChatModel({
+        reply: () => "재발이다 [REC-rec-entry#symptom]. 해결은 이렇다 [REC-rec-target#resolution].",
+      }),
+      config,
+    });
+
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    expect(result.citations).toContain("[REC-rec-target#resolution]");
+    expect(result.contextChunkIds).toEqual(["entry", "expanded"]);
+  });
+
+  it("출처 관계가 모델이 보는 프롬프트에 실려 나간다 (§2.5 '출처 관계를 인용에 표기')", async () => {
+    const model = createFakeChatModel({ reply: () => "해결은 이렇다 [REC-rec-target#resolution]." });
+    await generateAnswer({ query: "커넥션 풀 고갈", retrieval, model, config });
+
+    const userMessage = model.calls[0]?.messages[0]?.content ?? "";
+    expect(userMessage).toContain('via="recurrence_of REC-rec-entry"');
+  });
+
+  /** 관계를 타고 온 오염은 컨텍스트에 닿기 전에 빠진다 — 인용 가능 집합에도 없다. */
+  it("오염된 확장 청크의 인용은 애초에 allowed에 없어 지어낸 인용으로 취급된다", async () => {
+    const result = await generateAnswer({
+      query: "커넥션 풀 고갈",
+      retrieval: makeRetrieval({
+        hits: [
+          makeChunk({ chunkId: "entry", recordId: "rec-entry", section: "symptom" }),
+          makeChunk({
+            chunkId: "expanded",
+            recordId: "rec-target",
+            section: "resolution",
+            relation: RELATION,
+            flags: ["injection-suspect"],
+          }),
+        ],
+        maxVectorScore: 0.9,
+      }),
+      model: createFakeChatModel({ reply: () => "해결은 이렇다 [REC-rec-target#resolution]." }),
+      config,
+    });
+
+    expect(result.grounding?.unknownCitations).toEqual(["[REC-rec-target#resolution]"]);
+    expect(result.found).toBe(false);
+    if (result.found) return;
+    expect(result.skipReason).toBe(SKIP_REASONS.GROUNDING_VIOLATION);
+    expect(result.excluded.map((c) => c.chunkId)).toEqual(["expanded"]);
+  });
+});

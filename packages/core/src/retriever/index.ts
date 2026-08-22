@@ -6,10 +6,23 @@
  * 실제 `Db`는 구조적으로 `RetrievalDbLike`를 만족하므로 호출자가 그대로 넘기면 된다.
  */
 export {
+  RELATION_EXPANSION_DEFAULT,
+  RELATION_EXPANSION_ENV,
   RETRIEVAL_DEFAULTS,
   readRetrievalConfig,
 } from "./config.js";
 export type { RetrievalConfig, RetrievalEnvName } from "./config.js";
+export {
+  EXPANDABLE_RELATION_TYPES,
+  EXPANDED_SECTIONS,
+  MAX_RELATION_CHUNKS,
+  RELATION_GRAPH_MAX_DEPTH,
+  buildRelationChunkPipeline,
+  buildRelationLookupPipeline,
+  parseRelationTargets,
+  selectExpansionChunks,
+} from "./relation-expansion.js";
+export type { ExpansionPick, RelationTarget } from "./relation-expansion.js";
 export { capByRecordId, dedupeByRecordId, fuseRrf } from "./rrf.js";
 export type { FusedEntry, Rankable } from "./rrf.js";
 export {
@@ -30,6 +43,7 @@ export type {
 export type {
   PathCandidate,
   PipelineStage,
+  RelationProvenance,
   RetrievalCollectionLike,
   RetrievalCursorLike,
   RetrievalDbLike,

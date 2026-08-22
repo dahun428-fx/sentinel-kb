@@ -3,7 +3,11 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { RETRIEVAL_DEFAULTS, readRetrievalConfig } from "./config.js";
+import {
+  RELATION_EXPANSION_DEFAULT,
+  RETRIEVAL_DEFAULTS,
+  readRetrievalConfig,
+} from "./config.js";
 
 describe("readRetrievalConfig", () => {
   it("env 값을 그대로 읽는다", () => {
@@ -25,6 +29,37 @@ describe("readRetrievalConfig", () => {
       numCandidates: 999,
       candidateOverfetch: 5,
       maxChunksPerRecord: 1,
+      relationExpansion: false,
+    });
+  });
+
+  /**
+   * T-035 / specs/03 §2.5: "on/off 플래그로 두고 eval에서 효과를 비교한다 —
+   * **지표가 오르지 않으면 확장하지 않는다.**" 측정이 아직 없으므로(T-013 BLOCKED)
+   * 기본은 off여야 한다. 이 단언이 "언제부터인가 기본이 on이 되어 있었다"를 막는 유일한 자리다.
+   */
+  describe("RELATION_EXPANSION (관계 확장 플래그)", () => {
+    it("미설정이면 off다 — 측정되지 않은 확장은 켜지지 않는다", () => {
+      expect(RELATION_EXPANSION_DEFAULT).toBe(false);
+      expect(readRetrievalConfig({}).relationExpansion).toBe(false);
+    });
+
+    it("on 계열 값을 켠다", () => {
+      for (const raw of ["on", "ON", " on ", "true", "1", "yes"]) {
+        expect(readRetrievalConfig({ RELATION_EXPANSION: raw }).relationExpansion, raw).toBe(true);
+      }
+    });
+
+    it("off 계열 값을 끈다", () => {
+      for (const raw of ["off", "OFF", "false", "0", "no"]) {
+        expect(readRetrievalConfig({ RELATION_EXPANSION: raw }).relationExpansion, raw).toBe(false);
+      }
+    });
+
+    it("인식하지 못하는 값은 off로 되돌린다 — 오타로 확장이 켜지면 안 된다", () => {
+      for (const raw of ["onn", "enabled", "", " ", "2", "maybe"]) {
+        expect(readRetrievalConfig({ RELATION_EXPANSION: raw }).relationExpansion, raw).toBe(false);
+      }
     });
   });
 

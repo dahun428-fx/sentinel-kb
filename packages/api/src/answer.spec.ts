@@ -59,6 +59,7 @@ function makeChunk(overrides: Partial<RetrievedChunk> = {}): RetrievedChunk {
     textScore: null,
     vectorRank: 0,
     textRank: null,
+    relation: null,
     ...overrides,
   };
 }
