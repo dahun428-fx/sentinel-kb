@@ -1,0 +1,14 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+tfplan
+plan.json
+
+# 실제 값이 들어가는 파일. *.example 만 커밋한다.
+terraform.tfvars
+backend.hcl
+
+# .terraform.lock.hcl 은 의도적으로 커밋한다 — CI 와 로컬이 같은 프로바이더를 쓰게.
+# linux_amd64(러너) + darwin_arm64(개발) 두 플랫폼 해시가 들어있다:
+#   terraform providers lock -platform=linux_amd64 -platform=darwin_arm64

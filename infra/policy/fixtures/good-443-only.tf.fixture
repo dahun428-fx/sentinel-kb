@@ -1,0 +1,29 @@
+# 정상: 443 인바운드만. egress 는 전면 허용이어도 위반이 아니다.
+# 여기서 거짓 양성이 나면 스캐너가 쓸모없어진다.
+resource "aws_vpc_security_group_ingress_rule" "https" {
+  security_group_id = aws_security_group.app.id
+  description       = "HTTPS"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+
+  tags = {
+    Name = "${local.name_prefix}-https"
+  }
+}
+
+resource "aws_vpc_security_group_egress_rule" "all" {
+  security_group_id = aws_security_group.app.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+}
+
+resource "aws_security_group_rule" "egress_legacy" {
+  type              = "egress"
+  security_group_id = aws_security_group.app.id
+  from_port         = 0
+  to_port           = 65535
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+}

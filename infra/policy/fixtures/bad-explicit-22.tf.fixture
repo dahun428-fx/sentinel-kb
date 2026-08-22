@@ -1,0 +1,8 @@
+# 의도적 위반: 22 를 콕 집어 연다. 스캐너가 이걸 못 잡으면 정책 테스트는 무의미하다.
+resource "aws_vpc_security_group_ingress_rule" "ssh" {
+  security_group_id = aws_security_group.app.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 22
+  to_port           = 22
+}
