@@ -1,0 +1,299 @@
+name: deploy
+
+# ===========================================================================
+# T-027. specs/06 CI/CD 행: verify → 이미지 빌드 → ECR push(sha) → SSM RunCommand.
+#
+# ## 자격증명 (CLAUDE.md 금지사항: 시크릿 하드코딩)
+# OIDC 로 역할을 가정한다. 장기 액세스 키를 저장소 시크릿에 두지 않는다.
+# `tools/deploy-contract.spec.ts` 가 이 파일에 정적 키 입력이 없는지 기계로 지킨다.
+#
+# ## 왜 `preflight` 가 스킵이 아니라 실패하는가
+# 변수가 없을 때 `if:` 로 배포 잡을 건너뛰게 만들면, 변수를 등록하지 않은 저장소에서
+# 이 워크플로는 **영원히 초록**이다. 배포한 적이 없는데 배포 파이프라인이 통과했다고
+# 말하는 상태가 되고, 그건 가짜 그린이다. T-025 가 `infra.yml` 의 `plan` 잡에서 세운
+# 규약을 그대로 잇는다: 필요한 것이 없으면 **명시적으로 실패한다.**
+# ===========================================================================
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "배포할 이미지 태그(커밋 SHA). 롤백은 여기에 직전 SHA 를 넣는다."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # 배포는 겹치면 안 된다. 두 배포가 같은 호스트에서 `compose up -d` 를 동시에 돌리면
+  # last-good 기록이 어긋나 롤백이 엉뚱한 태그를 가리킨다.
+  # 진행 중인 배포를 취소하지 않는다 — 취소된 배포는 스택을 중간 상태로 남긴다.
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  # 배포할 태그. push 면 커밋 SHA, 수동 실행이면 입력값(=롤백 경로).
+  IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+
+jobs:
+  # -------------------------------------------------------------------------
+  preflight:
+    name: 저장소 설정 확인 (없으면 실패한다)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 필요한 저장소 변수가 전부 있는가
+        run: |
+          set -euo pipefail
+          missing=0
+          for k in AWS_DEPLOY_ROLE_ARN AWS_REGION EC2_INSTANCE_ID ECR_REGISTRY \
+                   SSM_PREFIX LOG_GROUP_NAME DOMAIN_NAME CERTBOT_EMAIL \
+                   EMBEDDING_MODEL ANTHROPIC_MODEL; do
+            if [ -z "${!k}" ]; then echo "::error::저장소 변수 $k 가 없다"; missing=1; fi
+          done
+          if [ "$missing" = "1" ]; then
+            echo "::error::배포는 AWS 자격증명·대상 없이 판정할 수 없다. 건너뛰면 가짜 그린이다."
+            echo "::error::docs/runbook.md '저장소 설정' 절을 따라 OIDC 롤과 변수를 등록하라."
+            exit 1
+          fi
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          SSM_PREFIX: ${{ vars.SSM_PREFIX }}
+          LOG_GROUP_NAME: ${{ vars.LOG_GROUP_NAME }}
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+          CERTBOT_EMAIL: ${{ vars.CERTBOT_EMAIL }}
+          EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+
+  # -------------------------------------------------------------------------
+  # specs/06 의 파이프라인은 "verify → 빌드"다. ci.yml 도 main push 에서 같은 것을
+  # 돌지만, 여기서 다시 도는 것이 의도다 — 배포가 **자기 게이트를 갖지 않으면**
+  # ci.yml 이 리네임되거나 조건이 바뀌는 순간 검증 없이 배포된다.
+  # -------------------------------------------------------------------------
+  verify:
+    name: pnpm verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+        env:
+          EMBEDDING_PROVIDER: fake
+          # docker 가 없으면 통합 테스트가 통째로 skip 되고 exit 0 이 난다 (T-026 F-6).
+          REQUIRE_DOCKER: "1"
+
+  # -------------------------------------------------------------------------
+  build-push:
+    name: 이미지 빌드 → ECR push
+    needs: [preflight, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC. 장기 액세스 키를 저장소에 두지 않는다.
+    strategy:
+      fail-fast: true
+      matrix:
+        # `repo` 는 ECR 리포지토리 접미사다. 실제 이름은 `sentinel-kb-<repo>` 이고
+        # `infra/ecr.tf` 가 그 규칙으로 만든다. compose 가 당기는 이름과 함께
+        # `tools/deploy-contract.spec.ts` 가 셋을 묶어 둔다.
+        include:
+          - repo: core-api
+            dockerfile: docker/Dockerfile.node
+            service: api
+          - repo: mcp
+            dockerfile: docker/Dockerfile.node
+            service: mcp
+          - repo: worker
+            dockerfile: docker/Dockerfile.node
+            service: worker
+          - repo: web
+            dockerfile: docker/Dockerfile.web
+            service: ""
+          - repo: nginx
+            dockerfile: docker/Dockerfile.nginx
+            service: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: build & push (${{ matrix.repo }})
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          # 호스트는 t3.small(x86_64)이다. arm64 를 같이 굽지 않는다 —
+          # 안 쓰는 아키텍처를 굽는 데 빌드 시간의 절반이 간다.
+          platforms: linux/amd64
+          push: true
+          build-args: ${{ matrix.service != '' && format('SERVICE={0}', matrix.service) || '' }}
+          # **태그는 커밋 SHA 하나뿐이다.** `latest` 를 붙이지 않는 이유: 롤백이
+          # "직전 태그로 되돌린다"인데 움직이는 태그가 섞이면 어떤 이미지로 돌아갔는지
+          # 사후에 알 수 없다(specs/06 런북).
+          tags: ${{ vars.ECR_REGISTRY }}/sentinel-kb-${{ matrix.repo }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=${{ matrix.repo }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.repo }}
+
+  # -------------------------------------------------------------------------
+  deploy:
+    name: SSM RunCommand 배포 + 스모크
+    needs: build-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # ---------------------------------------------------------------------
+      # 배포 번들.
+      #
+      # 호스트는 이 레포를 클론할 수 없다(비공개고 호스트에 자격증명이 없다).
+      # S3 를 하나 더 만드는 대신 **SSM 명령에 실어 보낸다** — 호스트가 항상
+      # 방금 커밋된 파일 그대로를 돌게 되어 "호스트의 compose 가 낡았다"가 없다.
+      # 크기는 SSM 파라미터 한도에 묶여 있어 `deploy-contract.spec.ts` 가 예산을 지킨다.
+      # ---------------------------------------------------------------------
+      - name: 번들 만들기 (compose + 배포 스크립트 + 스모크)
+        id: bundle
+        run: |
+          set -euo pipefail
+          mkdir -p bundle
+          cp docker-compose.yml docker-compose.prod.yml bundle/
+          cp infra/deploy/deploy.sh infra/deploy/smoke.sh bundle/
+          # 스모크가 쓰는 MCP ping. 런타임 이미지에는 `scripts/` 가 안 들어가서
+          # (.dockerignore) 번들로 실어 보내고 mcp 이미지 안에서 tsx 로 돌린다.
+          cp scripts/mcp-ping.ts scripts/mcp-ping.cli.ts bundle/
+          chmod 0755 bundle/deploy.sh bundle/smoke.sh
+          tar -czf - -C bundle . | base64 -w0 > bundle.b64
+          echo "bytes=$(wc -c < bundle.b64)" >> "$GITHUB_OUTPUT"
+
+      - name: 번들 크기 (SSM 파라미터 한도 대비)
+        run: echo "번들 base64 ${{ steps.bundle.outputs.bytes }} bytes"
+
+      - name: SSM RunCommand 로 배포
+        id: send
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          SSM_PREFIX: ${{ vars.SSM_PREFIX }}
+          LOG_GROUP_NAME: ${{ vars.LOG_GROUP_NAME }}
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+          CERTBOT_EMAIL: ${{ vars.CERTBOT_EMAIL }}
+          EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+        run: |
+          set -euo pipefail
+
+          # 호스트에서 돌 명령. 값은 전부 비시크릿이다 — 시크릿은 호스트가 자기
+          # 인스턴스 롤로 SSM Parameter Store 에서 직접 읽는다. 러너를 통과하지 않는다.
+          read -r -d '' SCRIPT <<'OUTER' || true
+          set -euo pipefail
+          install -d -m 0755 /opt/sentinel-kb
+          printf '%s' "$SENTINEL_BUNDLE_B64" | base64 -d | tar -xzf - -C /opt/sentinel-kb
+          chmod 0755 /opt/sentinel-kb/deploy.sh /opt/sentinel-kb/smoke.sh
+          exec /opt/sentinel-kb/deploy.sh
+          OUTER
+
+          COMMANDS="$(jq -n \
+            --arg b64 "$(cat bundle.b64)" \
+            --arg script "$SCRIPT" \
+            --arg tag "$IMAGE_TAG" \
+            --arg registry "$ECR_REGISTRY" \
+            --arg region "$AWS_REGION" \
+            --arg prefix "$SSM_PREFIX" \
+            --arg log "$LOG_GROUP_NAME" \
+            --arg domain "$DOMAIN_NAME" \
+            --arg email "$CERTBOT_EMAIL" \
+            --arg embed "$EMBEDDING_MODEL" \
+            --arg model "$ANTHROPIC_MODEL" \
+            '{
+              commands: [
+                ("export SENTINEL_BUNDLE_B64=" + ($b64|@sh)),
+                ("export IMAGE_TAG=" + ($tag|@sh)),
+                ("export ECR_REGISTRY=" + ($registry|@sh)),
+                ("export AWS_REGION=" + ($region|@sh)),
+                ("export SSM_PREFIX=" + ($prefix|@sh)),
+                ("export LOG_GROUP_NAME=" + ($log|@sh)),
+                ("export DOMAIN_NAME=" + ($domain|@sh)),
+                ("export CERTBOT_EMAIL=" + ($email|@sh)),
+                ("export EMBEDDING_MODEL=" + ($embed|@sh)),
+                ("export ANTHROPIC_MODEL=" + ($model|@sh)),
+                $script
+              ],
+              executionTimeout: ["1800"]
+            }')"
+
+          # `up -d` 는 db-init 의 인덱스 생성(기본 최대 300초)을 기다린다.
+          # executionTimeout 이 그보다 짧으면 배포가 아니라 **타임아웃**이 실패 원인이 된다.
+          command_id="$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "sentinel-kb deploy ${IMAGE_TAG}" \
+            --timeout-seconds 600 \
+            --parameters "$COMMANDS" \
+            --query 'Command.CommandId' --output text)"
+          echo "command_id=$command_id" >> "$GITHUB_OUTPUT"
+          echo "SSM CommandId: $command_id"
+
+      - name: 결과 대기 + 호스트 로그
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          COMMAND_ID: ${{ steps.send.outputs.command_id }}
+        run: |
+          set -euo pipefail
+          # 웨이터는 실패 상태에서도 non-zero 를 내는데, 우리는 **로그를 먼저 찍고**
+          # 판정하고 싶다. 그래서 웨이터의 종료 코드는 삼키고 아래에서 상태로 판정한다.
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" --instance-id "$EC2_INSTANCE_ID" || true
+
+          invocation="$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" --instance-id "$EC2_INSTANCE_ID")"
+
+          echo "----- 호스트 stdout -----"
+          echo "$invocation" | jq -r '.StandardOutputContent'
+          echo "----- 호스트 stderr -----"
+          echo "$invocation" | jq -r '.StandardErrorContent'
+
+          status="$(echo "$invocation" | jq -r '.Status')"
+          echo "SSM Status: $status"
+          if [ "$status" != "Success" ]; then
+            echo "::error::배포 실패($status). 호스트는 last-good 태그로 자동 롤백을 시도했다 —"
+            echo "::error::위 로그의 '[deploy] 롤백' 줄로 결과를 확인하라. docs/runbook.md 참고."
+            exit 1
+          fi
+
+      # ---------------------------------------------------------------------
+      # 호스트 스모크는 도메인을 루프백으로 해소한다(EC2 는 자기 EIP 로 되돌아오지
+      # 못한다). 그래서 **바깥에서의 도달성**은 호스트가 잴 수 없고 여기서 잰다:
+      # Route53 A 레코드 · SG 443 · EIP 연결까지 포함한 실제 경로다.
+      # ---------------------------------------------------------------------
+      - name: 외부 도달성 (러너 → 공인 도메인)
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 20 --retry 5 --retry-delay 5 \
+            "https://${DOMAIN_NAME}/health" >/dev/null
+          echo "외부 /health OK"
+        env:
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
