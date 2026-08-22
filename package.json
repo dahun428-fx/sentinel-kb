@@ -23,20 +23,11 @@
     "db:seed": "tsx scripts/seed.cli.ts",
     "eval:retrieval": "tsx eval/retrieval/run.cli.ts",
     "eval:retrieval:check": "tsx eval/retrieval/check-baseline.cli.ts",
-<<<<<<< HEAD
-<<<<<<< HEAD
     "eval:generation": "tsx eval/generation/run.cli.ts",
     "eval:generation:check": "tsx eval/generation/check-baseline.cli.ts",
     "eval:tools": "tsx eval/tools/run.cli.ts",
     "eval:tools:check": "tsx eval/tools/check-baseline.cli.ts",
-=======
     "eval:injection": "tsx eval/injection/run.cli.ts",
->>>>>>> feat/T-021-redteam
-=======
-    "eval:tools": "tsx eval/tools/run.cli.ts",
-    "eval:tools:check": "tsx eval/tools/check-baseline.cli.ts",
-    "eval:injection": "tsx eval/injection/run.cli.ts",
->>>>>>> feat/T-040-injection-detection
     "mcp:ping": "tsx scripts/mcp-ping.cli.ts",
     "format": "prettier --write ."
   },
