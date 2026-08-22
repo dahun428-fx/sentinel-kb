@@ -269,27 +269,32 @@ function hasHostAfter(subject: string, at: number, spanEnd: number): boolean {
   return at + 1 < spanEnd;
 }
 
-function findUserinfoEnd(subject: string, authorityStart: number): number {
-  const spanEnd = Math.min(lineEndFrom(subject, authorityStart), authorityStart + MAX_USERINFO_SCAN);
-
-  // 자격증명 자리는 첫 `:` 이후다. `:`가 스팬 안에 없으면 **스킴 뒤 전부**가 자격증명 자리다
-  // (`mongodb://<apikey>@host`). 8차까지는 여기서 `:`가 없다고 `-1`을 반환했고, 그것이
-  // N-13이 살던 조건이다 — `:` 하나가 없다는 이유로 토큰이 통째로 평문 통과했다.
-  const colon = subject.indexOf(":", authorityStart);
-  const credStart = colon >= 0 && colon < spanEnd ? colon + 1 : authorityStart;
-
-  // 자격증명 자리 `[credStart, p)`가 "후행 트림 후 내부 공백 없음"을 만족하는 `p`는
-  // **연속 범위**다: 첫 공백류 이전 전부, 그리고 그 공백류 런의 바로 끝.
-  // `@`는 공백류가 아니므로 후보는 `[credStart, firstSpace)` 안의 `@`들 + 공백 런 끝의 `@` 하나다.
+/**
+ * `[credStart, limit)` 안에서 **가장 오른쪽의 정당한 경계 `@`**를 찾는다. 없으면 `-1`.
+ *
+ * "정당하다" = 자격증명 자리 `[credStart, at)`가 **후행 공백을 트림하고도 내부 공백류가 없다**.
+ * 그 조건을 만족하는 `at`은 **연속 범위**다: 첫 공백류 이전 전부, 그리고 그 공백류 런의 바로 끝.
+ * `@`는 공백류가 아니므로 후보는 `[credStart, firstSpace)` 안의 `@`들 + 공백 런 끝의 `@` 하나다.
+ * 그래서 후보마다 구간을 다시 훑지 않아도 되고 비용이 선형으로 남는다.
+ *
+ * `hasHostAfter`는 `limit`이 아니라 **`spanEnd`** 로 본다 — 호스트의 존재는 스팬의 성질이지
+ * 이 호출의 탐색 범위와는 무관하다.
+ */
+function findBoundaryIn(
+  subject: string,
+  credStart: number,
+  limit: number,
+  spanEnd: number,
+): number {
   let firstSpace = credStart;
-  while (firstSpace < spanEnd && !SPACE_RE.test(subject.charAt(firstSpace))) firstSpace += 1;
+  while (firstSpace < limit && !SPACE_RE.test(subject.charAt(firstSpace))) firstSpace += 1;
   let spaceRunEnd = firstSpace;
-  while (spaceRunEnd < spanEnd && SPACE_RE.test(subject.charAt(spaceRunEnd))) spaceRunEnd += 1;
+  while (spaceRunEnd < limit && SPACE_RE.test(subject.charAt(spaceRunEnd))) spaceRunEnd += 1;
 
   // 뒤에서부터 — 후행 공백을 사이에 둔 `@`가 가장 오른쪽 후보다.
   if (
     spaceRunEnd > firstSpace &&
-    spaceRunEnd < spanEnd &&
+    spaceRunEnd < limit &&
     subject.charAt(spaceRunEnd) === "@" &&
     hasHostAfter(subject, spaceRunEnd, spanEnd)
   ) {
@@ -299,6 +304,32 @@ function findUserinfoEnd(subject: string, authorityStart: number): number {
     if (subject.charAt(i) === "@" && hasHostAfter(subject, i, spanEnd)) return i;
   }
   return -1;
+}
+
+function findUserinfoEnd(subject: string, authorityStart: number): number {
+  const spanEnd = Math.min(lineEndFrom(subject, authorityStart), authorityStart + MAX_USERINFO_SCAN);
+
+  // 자격증명 자리는 **userinfo 안의** 첫 `:` 이후다. 여기서 중요한 것은 "첫 `:`"를 **어디에서**
+  // 읽느냐다 — 줄 전체에서 읽으면 사용자명에 `:`가 없을 때 **호스트의 포트 콜론**(`@mongo:27017`)
+  // 이나 **쿼리의 콜론**(`?t=a:b`)을 집어 `credStart`가 경계 `@`를 지나쳐 버린다.
+  // 그러면 오른쪽에 `@`가 남지 않아 무발동 → 무플래그 평문 통과다 (T-004 N-14, 실측 93/94).
+  //
+  // 그래서 `:`는 **경계 후보보다 왼쪽에서만** 유효하다. 첫 `:`의 위치 `colon`을 기준으로
+  // 경계가 있을 수 있는 곳은 두 군데뿐이고, 이 둘은 **구성상 배타적이며 전부**다:
+  //
+  //   1. `colon` **오른쪽** — 그 `:`가 userinfo의 `user:pass` 구분자인 경우.
+  //   2. `colon` **왼쪽**  — 그 `:`는 userinfo 것이 아니다(포트·쿼리). 구간 전체가 사용자명이다.
+  //
+  // 오른쪽이 항상 더 오른쪽 경계이므로 1을 먼저 보고, 없을 때만 2를 본다.
+  // **포트나 쿼리 문자를 특별 취급하지 않는다** — 판정에 쓰는 문자 집합은 여전히 `\s` 하나다.
+  const rawColon = subject.indexOf(":", authorityStart);
+  const colon = rawColon >= 0 && rawColon < spanEnd ? rawColon : -1;
+
+  if (colon >= 0) {
+    const afterColon = findBoundaryIn(subject, colon + 1, spanEnd, spanEnd);
+    if (afterColon >= 0) return afterColon;
+  }
+  return findBoundaryIn(subject, authorityStart, colon >= 0 ? colon : spanEnd, spanEnd);
 }
 
 /** `mongodb://` · `mongodb+srv://` 스킴. 여기서 authority가 시작한다. */
