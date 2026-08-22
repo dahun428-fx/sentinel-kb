@@ -20,6 +20,7 @@ import {
   diffOperations,
   documentedOperations,
   normalizePath,
+  PENDING_OPERATIONS,
   routeKey,
   trackRoutes,
   type RouteRef,
@@ -225,6 +226,20 @@ describe("드리프트 가드", () => {
     expect(
       diffOperations(documented, routed, { allowlist: [] }).routedButNotDocumented,
     ).toEqual(["GET /v1/openapi.json"]);
+  });
+
+  /**
+   * 유예는 **문서에 실재하는 오퍼레이션에만** 걸 수 있다.
+   * 이 단언이 없으면 `PENDING_OPERATIONS`에 아무 문자열이나 넣어 가드를 넓힐 수 있고,
+   * 그렇게 들어간 항목은 `stalePending`으로도 영영 잡히지 않는다 —
+   * 대응하는 라우트가 생길 일이 없으니 자정 장치가 작동하지 않기 때문이다.
+   */
+  it("PENDING_OPERATIONS 항목은 모두 openapi에 실재하는 오퍼레이션이다", () => {
+    const documented = new Set(documentedOperations(buildOpenApiDocument()).map(routeKey));
+
+    for (const entry of PENDING_OPERATIONS) {
+      expect(documented).toContain(entry.key);
+    }
   });
 
   it("서빙 라우트 자신은 allowlist로만 통과한다 — 문서에는 없다", () => {
