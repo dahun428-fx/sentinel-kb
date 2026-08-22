@@ -21,8 +21,10 @@ import Fastify, { type FastifyInstance } from "fastify";
 import type { Db } from "mongodb";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { parseApiKeys } from "@sentinel/core"; // T-037: api 사본에서 core 한 벌로.
+
 import { createApp } from "./app.js";
-import { parseApiKeys, registerAuth } from "./auth.js";
+import { registerAuth } from "./auth.js";
 import {
   buildSearchLogFields,
   registerSearchRoutes,

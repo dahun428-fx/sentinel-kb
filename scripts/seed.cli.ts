@@ -13,9 +13,14 @@
  *
  * 인덱스는 만들지 않는다 — `pnpm db:indexes`가 그 일을 한다. 시드 전에 한 번 돌려라.
  */
-import { readSanitizeOptions, createEmbedder, readEmbedderConfig } from "@sentinel/core";
+// `parseApiKeys`는 T-037에서 `@sentinel/api` → `@sentinel/core`로 올라갔다(T-014 F-1 회수).
+import {
+  readSanitizeOptions,
+  createEmbedder,
+  parseApiKeys,
+  readEmbedderConfig,
+} from "@sentinel/core";
 import { closeDb, DbConnectionError, getDb } from "@sentinel/core/db";
-import { parseApiKeys } from "@sentinel/api";
 
 import {
   loadSeedRecords,

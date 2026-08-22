@@ -28,6 +28,7 @@ import {
   chunkRecord,
   createFakeEmbedder,
   createRetriever,
+  parseApiKeys, // T-037: api 사본에서 core 한 벌로.
   type Retriever,
 } from "@sentinel/core";
 import {
@@ -52,7 +53,6 @@ import { ObjectId, type Db } from "mongodb";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "./app.js";
-import { parseApiKeys } from "./auth.js";
 import { SEARCH_LOG_EVENT } from "./search.js";
 
 const CONTAINER_NAME = `sentinel-t012-${process.pid}`;

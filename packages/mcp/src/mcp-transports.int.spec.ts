@@ -17,7 +17,8 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { parseApiKeys } from "./auth.js";
+import { parseApiKeys } from "@sentinel/core"; // T-037: mcp 사본에서 core 한 벌로.
+
 import type { CoreApiClient } from "./core-api-client.js";
 import { createMcpHttpServer, MCP_PATH, type McpHttpLogEntry } from "./http.js";
 import { createMcpServer, MAX_TOOLS, SERVER_NAME, type McpContext } from "./server.js";

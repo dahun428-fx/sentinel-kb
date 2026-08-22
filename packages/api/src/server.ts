@@ -5,11 +5,16 @@
  * 형식이 깨졌으면 `parseApiKeys`가 여기서 던지고 프로세스가 죽는다 — 빈 맵으로 부팅해
  * 모든 요청을 401로 돌려주는 서버는 원인을 어디에도 남기지 않는다.
  */
-import { createEmbedder, createRetriever, readSanitizeOptions, VERSION } from "@sentinel/core";
+import {
+  createEmbedder,
+  createRetriever,
+  parseApiKeys,
+  readSanitizeOptions,
+  VERSION,
+} from "@sentinel/core";
 import { closeDb, getDb } from "@sentinel/core/db";
 
 import { createApp } from "./app.js";
-import { parseApiKeys } from "./auth.js";
 
 /** `.env.example`의 `CORE_API_PORT`. 스펙에 있는 값이라 코드에 기본값을 박지 않고 여기서만 폴백한다. */
 const DEFAULT_PORT = 3001;
@@ -67,7 +72,9 @@ export async function start(): Promise<void> {
 // `tsx src/server.ts`로 직접 실행될 때만 뜬다. import만으로는 포트를 잡지 않는다.
 if (process.argv[1]?.endsWith("server.ts") === true) {
   start().catch((error: unknown) => {
-    console.error(error);
+    // Error 객체를 통째로 찍으면 스택·부가 프로퍼티가 로그 수집기로 흘러간다.
+    // `packages/mcp`의 두 CLI가 같은 이유로 message만 찍는다(T-014).
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
 }

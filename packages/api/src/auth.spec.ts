@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { ApiKeyConfigError, parseApiKeys, resolveProject } from "./auth.js";
+// `parseApiKeys`·`ApiKeyConfigError`는 T-037에서 `@sentinel/core`로 올라갔다.
+// **이 파일의 단언은 한 글자도 바뀌지 않았다** — import 경로만 옮겼다.
+// api 쪽 인증 동작이 그대로임을 증언하는 것이 이 테스트의 역할이고,
+// 동시에 "api가 정말 core의 한 벌을 쓰는지"를 관측하는 지점이기도 하다.
+import { ApiKeyConfigError, parseApiKeys } from "@sentinel/core";
+
+import { resolveProject } from "./auth.js";
 import { HttpError } from "./errors.js";
 
 /**
@@ -74,7 +80,7 @@ describe("resolveProject", () => {
   });
 
   it("실패 사유를 메시지로 구분하지 않는다 — 키 유효성 오라클이 되면 안 된다", () => {
-    const messages = [undefined, "Basic x", "Bearer nope"].map((header) => {
+    const messages = [undefined, "Basic x", "Bearer nope", "Bearer "].map((header) => {
       try {
         resolveProject(header, keys);
         return "<no error>";

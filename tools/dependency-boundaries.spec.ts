@@ -51,7 +51,14 @@ describe("의존 방향 경계 (import/no-restricted-paths)", () => {
    * zone을 넓히다가 조용히 깨뜨리면 시드 파이프라인이 lint에서 죽는다.
    */
   it("scripts는 컴포지션 루트라 여러 패키지를 조립해도 에러가 아니다", async () => {
-    const ruleIds = await lintFixture("scripts/seed.cli.ts");
+    /*
+     * 픽스처는 **형제 패키지를 둘 이상 실제로 조립하는 파일**이어야 한다.
+     * `seed.ts`는 `@sentinel/api`(createApp)와 `@sentinel/worker`(createEmbedWorker)를 함께 부른다 —
+     * 형제 zone이 `scripts/`까지 번지면 여기서 먼저 죽는다.
+     * (T-037 전에는 `seed.cli.ts`를 썼는데, 그 파일의 `@sentinel/api` import가 core로 옮겨가면서
+     *  형제 조립이 사라져 이 테스트가 **아무것도 지키지 않게 됐다.** 통과하지만 공허했다.)
+     */
+    const ruleIds = await lintFixture("scripts/seed.ts");
     expect(ruleIds).not.toContain("import/no-restricted-paths");
   });
 });

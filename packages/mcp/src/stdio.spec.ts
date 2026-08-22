@@ -8,7 +8,9 @@
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { describe, expect, it } from "vitest";
 
-import { McpAuthError, parseApiKeys } from "./auth.js";
+import { parseApiKeys } from "@sentinel/core"; // T-037: mcp 사본에서 core 한 벌로.
+
+import { McpAuthError } from "./auth.js";
 import type { CoreApiClient } from "./core-api-client.js";
 import { createMcpServer, type McpContext } from "./server.js";
 import { startStdioServer, STDIO_AUTH_FAILURE_MESSAGE } from "./stdio.js";

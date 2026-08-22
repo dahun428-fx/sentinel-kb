@@ -16,8 +16,9 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { ObjectId, type Db, type MongoClient } from "mongodb";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { parseApiKeys } from "@sentinel/core"; // T-037: api 사본에서 core 한 벌로.
+
 import { createApp } from "./app.js";
-import { parseApiKeys } from "./auth.js";
 
 const BOOT_TIMEOUT_MS = 120_000; // 첫 실행은 mongod 바이너리를 내려받는다
 const DB_NAME = "sentinel_api_int_test";
