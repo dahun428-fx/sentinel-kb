@@ -134,13 +134,23 @@ describe("생성 소스 레코드", () => {
   it("시드를 실행 시점에 읽는다 — 사본을 박아 두지 않는다", async () => {
     const records = await loadArticleSources(REPO_ROOT);
 
-    expect(records).toHaveLength(ARTICLE_SOURCE_COUNT);
+    /*
+     * **리터럴 4다.** `loadArticleSources`가 `ARTICLE_SOURCE_COUNT`만큼 읽으므로
+     * 그 상수를 기대값으로 쓰면 4→9로 바꿔도 로더가 9개를 읽어 통과한다
+     * (T-041 실측: 생존). 상수 자체는 아래에서 따로 고정한다.
+     * 근거: specs/08 §1 B의 패턴 하한 3건 + 여유 1건.
+     */
+    expect(records).toHaveLength(4);
     for (const record of records) {
       expect(record.type).toBe("incident");
       expect(record.project).toBe("sentinel-kb");
       expect(record.summary.length).toBeGreaterThan(0);
       expect(record.sanitizeFlags).toEqual([]);
     }
+  });
+
+  it("ARTICLE_SOURCE_COUNT가 specs/08 §1 B의 하한 3 + 여유 1과 일치한다", () => {
+    expect(ARTICLE_SOURCE_COUNT).toBe(4);
   });
 
   it("같은 시드면 같은 id와 같은 시각이 나온다 — 리포트 diff가 흔들리지 않는다", async () => {

@@ -184,6 +184,10 @@ export const LITERAL_ANCHOR_REQUIRED: Readonly<Record<string, string>> = {
   TAINTED_CORPUS: "specs/05 Eval 4 '오염 레코드 10건'. T-021이 이미 앵커했다.",
   REQUIRED_PROMPT_CLAUSES: "specs/03 §4 시스템 프롬프트 필수 조항. T-018이 이미 앵커했다.",
   EVAL_EXIT_CODES: "CI가 종료 코드로 G4를 판정한다. T-013이 이미 앵커했다.",
+  ARTICLE_SOURCE_COUNT:
+    "specs/08 §1 B 패턴 하한 3 + 여유 1. **래칫이 실제로 잡은 첫 신규 건이다** — " +
+    "`loadArticleSources`가 이 상수만큼 읽으므로 기대값으로 쓰면 자기충족이다. " +
+    "실측: 4→9 뮤턴트 생존 → 리터럴 앵커 추가 후 사망(2건).",
 };
 
 /**
@@ -208,6 +212,10 @@ export const BEHAVIOURALLY_ANCHORED: Readonly<Record<string, string>> = {
   PROMPT_TOKEN_BUDGET:
     "T-038 Acceptance가 기호만 참조하고 **숫자를 정하지 않았다**. 리터럴로 박으면 없는 계약을 만드는 것이라 하지 않는다 — T-041 Findings F-4의 스펙 공백 항목.",
   CONTROL_RECORD: "eval 코퍼스 픽스처다. 좌변이 실제 렌더 결과다.",
+  PIECE_MAX_CHARS: "4000→40 뮤턴트 사망(1건). 좌변이 실제 로드된 글 길이다.",
+  HUMAN_SOURCES:
+    "사람 글 소스 목록(경로 + 왜 사람 글인가). 좌변이 파일시스템에서 읽은 실제 글이라 " +
+    "목록을 바꾸면 로드가 죽는다. 개수 하한 3은 별도 게이트가 리터럴로 잠근다.",
 };
 
 /**
