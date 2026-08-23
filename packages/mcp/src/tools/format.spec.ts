@@ -145,6 +145,20 @@ describe("oneLine — 목록 구조 위조 차단", () => {
 });
 
 describe("renderSearchHits — NFR-03 토큰 예산", () => {
+  /*
+   * T-041 계약 앵커. 이 describe의 다른 단언은 전부
+   * `expect(...).toBeLessThanOrEqual(MCP_SEARCH_TOKEN_BUDGET)` 꼴이라 **상수를 올리면 전부
+   * 통과한다** — 예산을 올리는 것이 게이트를 통과하는 가장 싼 길이 된다.
+   * 실측(T-041): 800 → 1200 뮤턴트가 `packages/mcp` 276개 테스트를 **전건 통과**했다.
+   *
+   * 그래서 수치를 리터럴로 박는다. 근거는 `specs/00-product.md` NFR-03:
+   *   | NFR-03 | MCP search 응답 <= 약 800 토큰 (요약+ID만) |
+   * 예산을 바꾸려면 스펙을 먼저 고쳐야 한다(CLAUDE.md 최우선 원칙 1).
+   */
+  it("예산은 800토큰이다 (specs/00 NFR-03)", () => {
+    expect(MCP_SEARCH_TOKEN_BUDGET).toBe(800);
+  });
+
   it("병리적으로 긴 한국어 제목·요약 3건도 800토큰을 넘지 않는다", () => {
     const hits = [1, 2, 3].map(() =>
       hit({ title: KOREAN.repeat(400), summary: KOREAN.repeat(2000) }),

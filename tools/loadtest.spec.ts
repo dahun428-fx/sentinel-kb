@@ -69,6 +69,19 @@ describe("buildReport (T-026)", () => {
     requestsPerSecond: 10,
   };
 
+  /*
+   * T-041 계약 앵커. 아래 단언은 `report.thresholdMs`를 `NFR01_SEARCH_P95_MS`와 비교하는데
+   * `buildReport`가 그 상수로 `thresholdMs`를 채운다 — **양변이 같은 상수에서 나온다.**
+   * 실측(T-041): 1500 → 2000 도, 1500 → 600000 도 뮤턴트가 546개 테스트를 **전건 통과**했다.
+   * 즉 부하 판정 기준을 얼마로 올리든 이 스위트는 초록이었다.
+   *
+   * 근거는 `specs/00-product.md` NFR-01: | NFR-01 | 검색 API p95 < 1.5s / MCP 도구 p95 < 2s |
+   * 1.5s = 1500ms. 바꾸려면 스펙을 먼저 고쳐야 한다.
+   */
+  it("상한은 1500ms다 — specs/00 NFR-01의 '검색 API p95 < 1.5s'", () => {
+    expect(NFR01_SEARCH_P95_MS).toBe(1500);
+  });
+
   it("NFR-01 상한과 판정을 함께 남긴다 — 수치만 남기면 다음 사람이 기준을 다시 찾아야 한다", () => {
     const report = buildReport(base, "http://x/v1/search", "2026-08-23T00:00:00.000Z");
     expect(report.thresholdMs).toBe(NFR01_SEARCH_P95_MS);
