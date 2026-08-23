@@ -263,3 +263,113 @@ button[type="submit"] {
   border-radius: 8px;
   padding: 1rem;
 }
+
+/* 아티클 (T-033) ------------------------------------------------------ */
+
+.article-body {
+  margin-top: 1.5rem;
+}
+
+.article-body p,
+.article-body li {
+  /* 본문은 텍스트 노드다. 긴 URL·토큰이 레이아웃을 밀지 않게 감싼다. */
+  overflow-wrap: anywhere;
+}
+
+.article-body blockquote {
+  border-left: 3px solid var(--line);
+  margin-left: 0;
+  padding-left: 1rem;
+  color: var(--muted);
+}
+
+.code-block {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75rem;
+  overflow-x: auto;
+  font-size: 0.9rem;
+  background: var(--info-bg);
+  color: var(--fg);
+}
+
+.muted-inline {
+  color: var(--muted);
+  text-decoration: underline dotted;
+}
+
+.diagram-block {
+  margin: 1.5rem 0;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.diagram-block figcaption {
+  margin-bottom: 0.5rem;
+}
+
+/* 차트 ---------------------------------------------------------------- */
+
+.chart {
+  margin: 1.5rem 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-bar,
+.chart-cell,
+.chart-dot {
+  fill: var(--accent);
+}
+
+.chart-cell {
+  stroke: var(--bg);
+  stroke-width: 1;
+}
+
+.chart-line {
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: none;
+}
+
+.chart-label,
+.chart-axis {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart figcaption {
+  margin-top: 0.5rem;
+}
+
+.timeline {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.timeline li {
+  margin: 0.2rem 0;
+}
+
+/* 편집 폼 ------------------------------------------------------------- */
+
+.field textarea {
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  resize: vertical;
+}

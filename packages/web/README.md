@@ -1,7 +1,7 @@
-# @sentinel/web — 읽기 UI
+# @sentinel/web — 읽기 UI + 아티클 편집
 
-트러블슈팅 지식의 **검색·열람 전용** 콘솔이다 (FR-08, T-023).
-MCP 서버가 1차 제품이고 이 UI는 보조다 — 기록·수정·대시보드는 여기 없다.
+트러블슈팅 지식의 **검색·열람** 콘솔이다 (FR-08, T-023). 여기에 아티클 화면이 더해졌다 (T-033).
+MCP 서버가 1차 제품이고 이 UI는 보조다 — 레코드 기록·수정·대시보드는 여전히 여기 없다.
 
 ## 화면
 
@@ -10,9 +10,15 @@ MCP 서버가 1차 제품이고 이 UI는 보조다 — 기록·수정·대시�
 | `/` | 검색 콘솔. 질의 + 종류·프로젝트 필터 → `POST /v1/search` 결과 목록 |
 | `/answer` | 인용 포함 답변. `POST /v1/answer` → 인용 클릭 시 해당 레코드의 해당 섹션으로 점프 |
 | `/records/:id` | 레코드 상세. `GET /v1/records/:id`. 섹션마다 `#section-<ChunkSection>` 앵커 |
+| `/articles` | **발행 아티클만.** `GET /v1/articles` (status 미전송 → 서버 기본값 `published`) |
+| `/articles/queue` | 후보 큐. `?status=candidate\|draft`를 **명시해서** 부른다 |
+| `/articles/:id` | 아티클 상세. Markdown + 차트 + mermaid 원문 |
+| `/articles/:id/edit` | 초안 편집 + 발행 버튼(Server Action). 발행은 사람이 누른다 |
+| `/articles/:id/export` | 단일 HTML 내보내기(공유용). specs/08 §5.3 |
 
-전부 서버 컴포넌트다. 폼은 `<form method="get">`이라 클라이언트 JS 없이 동작하고,
-검색 상태가 URL에 남아 결과를 그대로 공유할 수 있다.
+전부 서버 컴포넌트다. 검색 폼은 `<form method="get">`, 편집·발행 폼은 Server Action이라
+둘 다 클라이언트 JS 없이 동작하고, 검색 상태가 URL에 남아 결과를 그대로 공유할 수 있다.
+**클라이언트 컴포넌트가 하나도 없다** — 그래서 API 키가 브라우저로 갈 경로가 없다(NFR-04).
 
 ## 환경변수
 
@@ -49,6 +55,22 @@ E2E는 `pnpm verify`에서 분리되어 있다. 최초 1회 `pnpm exec playwrigh
 - **API 키는 서버 프로세스 밖으로 나가지 않는다.** 클라이언트 컴포넌트가 없고,
   `lib/api-client.ts`는 브라우저에서 실행되면 던진다. 검증은 `src/client-safety.spec.ts`와
   e2e의 카나리 키 검사 두 겹이다.
+- **아티클 목록의 필터는 서버에 있다.** `ListArticlesQuery.status`가 `.default("published")`이고
+  `packages/api/src/articles.ts`가 조건 없이 그 필터를 건다. 그래서 `/articles`가 하는 일은
+  거르는 것이 아니라 **`status`를 만들지 않는 것**이다 — `publicArticlesPath()`는 상태를
+  고를 인자를 아예 받지 않는다. 후보를 보려면 `listArticleQueue(status, …)`를 **의도적으로**
+  불러야 하고, `status`가 필수 인자라 "빠뜨려서 후보가 새는" 경우가 성립하지 않는다.
+- **mermaid는 렌더하지 않고 원문 코드 블록으로 보여준다** (T-033 F-2). `mermaid.render()`가
+  돌려주는 SVG 문자열을 DOM에 넣으려면 `dangerouslySetInnerHTML`이나 ref+`innerHTML`이
+  필요한데, 본문은 모델이 쓴 신뢰 불가 입력이고(T-031 F-1) SVG는 `foreignObject`로 HTML을
+  품는다. 판정과 대안은 `specs/tasks/T-033-articles-ui.md`의 F-2에 있고 **사람의 결정 대기 중**이다.
+- **차트는 React 엘리먼트로 그린 inline SVG다.** 좌표·강도는 `src/lib/chart-model.ts`가
+  계산하고 단위 테스트가 잠근다. `ChartSpec.data`는 계약에서 `unknown`이라(형상은 T-030의 몫)
+  웹이 런타임에 좁히며, 형상이 어긋나면 화면을 터뜨리지 않고 사유를 적은 자리로 대체한다.
+- **본문 Markdown 파서를 직접 갖는다** (`src/lib/markdown.ts`). `react-markdown`·`marked`
+  계열은 HTML 통과 옵션(`rehype-raw` 등)을 갖고 있고 그 옵션 하나가 방어선을 무효화한다.
+  파서는 텍스트를 **구조**로만 바꾸고, 링크는 스킴 허용목록(http·https·mailto·상대경로)을 통과한
+  것만 앵커가 된다.
 - **`--webpack`으로 돈다.** `@sentinel/contracts`가 빌드 산출물이 아니라 소스를 노출하고
   (`main: ./src/index.ts`) NodeNext 규칙대로 `./common.js` 형태로 import하는데,
   Turbopack은 그 확장자 별칭(`experimental.extensionAlias`)을 무시한다.

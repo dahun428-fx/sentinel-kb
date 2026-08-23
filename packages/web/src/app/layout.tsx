@@ -31,6 +31,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <li>
                   <a href="/answer">답변</a>
                 </li>
+                {/* 발행 아티클만 가리킨다. 후보 큐는 그 화면 안에서 따로 들어간다(T-033). */}
+                <li>
+                  <a href="/articles">아티클</a>
+                </li>
               </ul>
             </nav>
           </div>

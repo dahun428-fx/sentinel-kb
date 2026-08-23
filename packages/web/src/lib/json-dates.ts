@@ -8,8 +8,15 @@
  * 전송 포맷만 되돌리는 것이 옳은 층위다.
  */
 
-/** `Date`로 되살릴 키. contracts에서 `z.date()`인 필드만 넣는다. */
-const DATE_KEYS: ReadonlySet<string> = new Set(["createdAt", "updatedAt"]);
+/**
+ * `Date`로 되살릴 키. contracts에서 `z.date()`인 필드만 넣는다.
+ *
+ * `publishedAt`·`at`은 T-033에서 들어왔다 — `ArticleSchema.publishedAt`과
+ * `ArticleEdit.at`(editHistory 항목)이 `z.date()`다. `at`은 이름이 짧아 남의 필드와
+ * 부딪힐 수 있지만, 되살리기는 **ISO 문자열일 때만** 일어나므로(아래 `ISO_DATE`)
+ * 다른 뜻의 `at`이 문자열이나 숫자라면 그대로 남는다.
+ */
+const DATE_KEYS: ReadonlySet<string> = new Set(["createdAt", "updatedAt", "publishedAt", "at"]);
 
 /** `2026-08-21T00:00:00.000Z` 형태만 되살린다 — 임의 문자열을 날짜로 오해하지 않기 위해서다. */
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
