@@ -42,6 +42,12 @@ import type { ChatMessage, ChatModel } from "../llm/types.js";
 import { LLM_ERROR_CODES, LlmError } from "../llm/types.js";
 
 import { readPublisherConfig, type PublisherConfig } from "./config.js";
+import {
+  appendDiagramBlocks,
+  generateDiagrams,
+  unconfiguredDiagramReport,
+  type DiagramReport,
+} from "./diagram.js";
 import { crossCheckFacts, type FactCheckReport } from "./factcheck.js";
 import { lintDraft, type LintReport } from "./lint.js";
 import {
@@ -102,6 +108,12 @@ export type DraftReport = {
   readonly lint: LintReport | null;
   /** 린트 단계에서 끝났으면 `null`. **`passed:false`와 다르다** (T-020 로그 필드의 그 교훈). */
   readonly factCheck: FactCheckReport | null;
+  /**
+   * 다이어그램 컴파일 검증 단계(§5.2, T-032). 팩트 대조에서 반려돼 단계에 **도달하지 못했으면**
+   * `null`이다 — `factCheck`와 같은 규약이며 "다이어그램이 없었다"가 아니다.
+   * 단계는 돌았지만 생성기를 못 받은 경우는 `configured: false`인 리포트로 남는다.
+   */
+  readonly diagrams: DiagramReport | null;
   readonly narrative: NarrativeReport;
   readonly style: StyleReport;
   readonly accepted: boolean;
@@ -138,6 +150,16 @@ export interface DraftArticleOptions {
   /** 서사 재료의 원본. `facts.sourceRecordIds` 밖은 `narrative.ts`가 잘라낸다. */
   readonly records: readonly RecordSchema[];
   readonly model: ChatModel;
+  /**
+   * §5.2 다이어그램 생성기. **주지 않으면 그 단계를 돌리지 않고 리포트에
+   * `configured: false`로 남긴다** — 조용히 건너뛰지 않는다.
+   *
+   * 초안 모델과 손잡이를 나눈 이유는 두 호출 표면이 다른 일을 하기 때문이다(T-039 D-7의
+   * `ChatModel`/`ToolChoiceModel`과 같은 규약): 초안은 Markdown 산문을, 여기는 mermaid
+   * 코드를 내야 하고 시스템 프롬프트·출력 계약·검증 루프가 전부 다르다. 손잡이가 나뉘어
+   * 있으면 호출 수를 재는 테스트도 무엇을 세는지가 흐려지지 않는다.
+   */
+  readonly diagramModel?: ChatModel;
   readonly config?: PublisherConfig;
   /** 스타일 표본 디렉터리 override. 테스트·eval이 표본을 갈아 끼우는 지점이다. */
   readonly styleDir?: string;
@@ -190,6 +212,7 @@ export async function draftArticle(options: DraftArticleOptions): Promise<DraftO
         model: null,
         lint: null,
         factCheck: null,
+        diagrams: null,
         accepted: false,
         rejection: "no-narrative",
       },
@@ -197,10 +220,11 @@ export async function draftArticle(options: DraftArticleOptions): Promise<DraftO
   }
 
   const system = loadDraftPrompt();
+  const recordsBlock = renderNarrativeSource(source);
   const userMessage = renderDraftRequest({
     facts: options.facts,
     outline: buildOutline(template, options.facts),
-    records: renderNarrativeSource(source),
+    records: recordsBlock,
     styleSamples: renderStyleSamples(loaded.samples),
   });
 
@@ -239,24 +263,44 @@ export async function draftArticle(options: DraftArticleOptions): Promise<DraftO
       accepted: false,
       reason: "lint",
       body,
-      report: { ...withModel, factCheck: null, accepted: false, rejection: "lint" },
+      report: { ...withModel, factCheck: null, diagrams: null, accepted: false, rejection: "lint" },
     };
   }
 
-  // §4의 마지막 게이트. 여기서 걸리면 재작성하지 않고 반려한다(파일 서두 참조).
+  // §4의 마지막 **반려** 게이트. 여기서 걸리면 재작성하지 않고 반려한다(파일 서두 참조).
   const factCheck = crossCheckFacts(body, options.facts);
   if (!factCheck.passed) {
     return {
       accepted: false,
       reason: "fact-check",
       body,
-      report: { ...withModel, factCheck, accepted: false, rejection: "fact-check" },
+      report: { ...withModel, factCheck, diagrams: null, accepted: false, rejection: "fact-check" },
     };
   }
+
+  /*
+   * §4의 다음 마디: `팩트 대조 → 다이어그램 컴파일 검증(§5) → draft 저장`.
+   * T-031 F-6이 비워 둔 슬롯이 정확히 여기다 — 팩트 대조 **뒤**, 패치 구성 **앞**.
+   *
+   * 여기서 실패해도 **반려하지 않는다.** §5.2가 "해당 다이어그램만 생략"이라고 못박았고,
+   * 그래서 `DraftRejectionReason`이 늘지 않는다. 대신 무엇이 왜 빠졌는지가
+   * `report.diagrams`에 남는다(`buildDiagramLogFields`).
+   */
+  const diagramStage =
+    options.diagramModel === undefined
+      ? { blocks: [], report: unconfiguredDiagramReport(options.facts) }
+      : await generateDiagrams({
+          facts: options.facts,
+          factsBlock: renderFactsBlock(options.facts),
+          records: recordsBlock,
+          model: options.diagramModel,
+          maxTokens: config.diagramMaxTokens,
+        });
 
   const report: DraftReport = {
     ...withModel,
     factCheck,
+    diagrams: diagramStage.report,
     accepted: true,
     rejection: null,
   };
@@ -266,7 +310,7 @@ export async function draftArticle(options: DraftArticleOptions): Promise<DraftO
     report,
     patch: {
       status: "draft",
-      body,
+      body: appendDiagramBlocks(body, diagramStage.blocks),
       charts: options.charts ?? [],
       lintReport: report,
     },

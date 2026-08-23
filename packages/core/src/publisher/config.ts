@@ -14,6 +14,14 @@ export const PUBLISHER_DEFAULTS = {
   /** 초안 1건의 출력 상한. 아티클은 답변보다 길어서 `ANSWER_MAX_TOKENS`보다 크다. */
   DRAFT_MAX_TOKENS: 4096,
   /**
+   * 다이어그램 1건의 출력 상한(§5.2, T-032). 초안보다 훨씬 작다 — 산출물이 mermaid 코드
+   * 한 덩이이고, 상한이 크면 재생성 3회의 비용만 커진다.
+   *
+   * **재생성 상한(`MAX_DIAGRAM_REGENERATIONS`)은 여기 없다.** `MAX_REWRITES`와 같은 이유다:
+   * env로 열면 0으로 꺼서 컴파일 검증 루프를 무력화할 수 있다.
+   */
+  DIAGRAM_MAX_TOKENS: 1024,
+  /**
    * 스타일 표본 1편의 상한. 사람이 넣는 글이라 길이를 제어할 수 없고,
    * 표본 셋이 초안 프롬프트를 통째로 밀어내면 팩트가 뒤로 밀린다.
    */
@@ -29,6 +37,7 @@ export type PublisherEnvName = keyof typeof PUBLISHER_DEFAULTS;
 
 export interface PublisherConfig {
   readonly draftMaxTokens: number;
+  readonly diagramMaxTokens: number;
   readonly styleSampleMaxChars: number;
   readonly narrativePartMaxChars: number;
   /** 스타일 few-shot 디렉터리. 미지정이면 레포 루트의 `prompts/style/`. */
@@ -39,6 +48,10 @@ export function readPublisherConfig(env: NodeJS.ProcessEnv = process.env): Publi
   const dir = env["STYLE_SAMPLES_DIR"]?.trim();
   return {
     draftMaxTokens: readPositiveInt(env["DRAFT_MAX_TOKENS"], PUBLISHER_DEFAULTS.DRAFT_MAX_TOKENS),
+    diagramMaxTokens: readPositiveInt(
+      env["DIAGRAM_MAX_TOKENS"],
+      PUBLISHER_DEFAULTS.DIAGRAM_MAX_TOKENS,
+    ),
     styleSampleMaxChars: readPositiveInt(
       env["STYLE_SAMPLE_MAX_CHARS"],
       PUBLISHER_DEFAULTS.STYLE_SAMPLE_MAX_CHARS,

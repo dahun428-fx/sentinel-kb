@@ -15,4 +15,10 @@ export * from "./style.js";
 export * from "./prompt.js";
 export * from "./lint.js";
 export * from "./factcheck.js";
+/*
+ * `diagram.js`는 T-032에서 들어왔다. **`mermaid.js`는 배럴에 싣지 않는다** —
+ * mermaid는 무거운 브라우저 패키지이고, 배럴 경유로 정적 import되면 그것을 쓰지 않는
+ * 검색·MCP 경로가 비용을 진다. `diagram.ts`가 필요할 때만 동적 import한다.
+ */
+export * from "./diagram.js";
 export * from "./draft.js";
