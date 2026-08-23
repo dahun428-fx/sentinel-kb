@@ -30,7 +30,8 @@
     "eval:injection": "tsx eval/injection/run.cli.ts",
     "eval:style": "tsx eval/style/run.cli.ts",
     "mcp:ping": "tsx scripts/mcp-ping.cli.ts",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "sync:readme": "tsx tools/sync-readme-metrics.cli.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.0",
