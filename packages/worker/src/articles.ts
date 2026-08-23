@@ -1,27 +1,19 @@
 /**
- * `articles` 컬렉션의 DB 경계 매핑과 **결정론적 식별자**. 출처: specs/08-publishing.md §1·§2.
+ * 아티클의 **결정론적 식별자**와 슬러그. 출처: specs/08-publishing.md §1·§2.
  *
  * 형상은 contracts의 `ArticleSchema`가 소유한다 — 여기서 다시 적지 않는다(CLAUDE.md).
- * 이 파일이 더하는 것은 두 가지뿐이다: id 표현의 하강(hex → `ObjectId`), 그리고
- * "같은 소스 집합은 같은 문서"라는 멱등 키.
+ *
+ * **DB 경계 매핑(`ArticleDocument`·`articlesCollection`)은 B-1에서 `@sentinel/core/db`로
+ * 올라갔다.** specs/04 표에 아티클 오퍼레이션이 등재되며 소비자가 둘(worker 배치, api)이
+ * 됐고 `api → worker`는 형제 간선이라 lint가 막기 때문이다. 여기서 re-export하지 않는다 —
+ * 경유지라도 두 개의 출처처럼 보인다(T-037이 `parseApiKeys`에서 낸 같은 판단).
+ *
+ * 이 파일에 남은 것은 **야간 배치 고유한 것**뿐이다: "같은 소스 집합은 같은 문서"라는 멱등 키.
  */
 import { createHash } from "node:crypto";
 
-import type { ArticleKind, ArticleSchema } from "@sentinel/contracts";
-import { ObjectId, type Collection, type Db } from "mongodb";
-
-/**
- * 저장된 아티클. contracts에서 파생하며 다른 점은 식별자 표현뿐이다.
- * (`ArticleSchema`가 `.refine`을 달아 `ZodEffects`라 `z.infer`는 그대로 객체 타입이다.)
- */
-export type ArticleDocument = Omit<ArticleSchema, "_id" | "sourceRecordIds"> & {
-  _id: ObjectId;
-  sourceRecordIds: ObjectId[];
-};
-
-export function articlesCollection(db: Db): Collection<ArticleDocument> {
-  return db.collection<ArticleDocument>("articles");
-}
+import type { ArticleKind } from "@sentinel/contracts";
+import { ObjectId } from "mongodb";
 
 /**
  * 아티클의 `_id`를 **소스 집합에서 유도한다.** T-029 Scope: "중복 방지: 동일 소스 집합 해시".

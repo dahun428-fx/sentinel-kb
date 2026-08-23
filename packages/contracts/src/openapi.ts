@@ -16,13 +16,17 @@ import {
   AnswerRequest,
   AnswerResponse,
   ApiError,
+  ArticleIdParam,
   HealthResponse,
+  ListArticlesQuery,
+  ListArticlesResponse,
   ListRecordsQuery,
   ListRecordsResponse,
   RecordIdParam,
   SearchRequest,
   SearchResponse,
 } from "./api.js";
+import { ArticleSchema, PatchArticleInput, PublishArticleInput } from "./article.js";
 import { FeedbackRequest } from "./feedback.js";
 import { CreateRecordInput, PatchRecordInput, RecordSchema } from "./record.js";
 
@@ -49,11 +53,14 @@ function buildRegistry(): OpenAPIRegistry {
    * 경로에서 원본 스키마를 그대로 쓰면 $ref 대신 본문이 통째로 인라인되고
    * components는 아무도 참조하지 않는 죽은 블록이 된다 — 반드시 반환값을 쓴다.
    *
-   * 등록 대상은 8개 오퍼레이션이 실제로 참조하는 페이로드 스키마뿐이다.
-   * SearchHit·Citation·Relation·열거형처럼 그 안에 중첩된 타입은 인라인된다 —
+   * 등록 대상은 12개 오퍼레이션이 실제로 참조하는 페이로드 스키마뿐이다.
+   * SearchHit·Citation·Relation·ArticleSummary·열거형처럼 그 안에 중첩된 타입은 인라인된다 —
    * 따로 등록하면 아무도 참조하지 않는 중복 컴포넌트가 생긴다.
    * chunks·feedbacks·eval_cases는 HTTP 페이로드가 아니라 저장 스키마이므로
    * Zod 스키마와 타입으로만 export하고 OpenAPI에는 싣지 않는다.
+   *
+   * `Article`은 B-1에서 들어왔다 — `GET /v1/articles/{id}`의 응답이 되면서 저장 스키마이자
+   * HTTP 페이로드가 됐다. 여전히 싣지 않는 chunks·feedbacks와 갈린 지점이 그것이다.
    */
   const ref = {
     createRecordInput: registry.register("CreateRecordInput", CreateRecordInput),
@@ -65,6 +72,10 @@ function buildRegistry(): OpenAPIRegistry {
     answerRequest: registry.register("AnswerRequest", AnswerRequest),
     answerResponse: registry.register("AnswerResponse", AnswerResponse),
     feedbackRequest: registry.register("FeedbackRequest", FeedbackRequest),
+    article: registry.register("Article", ArticleSchema),
+    listArticlesResponse: registry.register("ListArticlesResponse", ListArticlesResponse),
+    patchArticleInput: registry.register("PatchArticleInput", PatchArticleInput),
+    publishArticleInput: registry.register("PublishArticleInput", PublishArticleInput),
     healthResponse: registry.register("HealthResponse", HealthResponse),
     apiError: registry.register("ApiError", ApiError),
   };
@@ -240,6 +251,114 @@ function buildRegistry(): OpenAPIRegistry {
     },
   });
 
+  // ------------------------------------------------------------ 아티클 (B-1, specs/04 표)
+
+  registry.registerPath({
+    method: "get",
+    path: "/v1/articles",
+    operationId: "listArticles",
+    summary: "아티클 목록",
+    description:
+      "**기본은 `published`만이다.** `status=candidate|draft`를 명시해야 후보 큐가 보인다 — " +
+      "필터를 빠뜨렸을 때의 결과가 안전한 쪽이어야 하고, 반대로 두면 파라미터 하나를 잊는 순간 " +
+      "미발행 초안이 공개된다(specs/04, T-033 Acceptance 3). " +
+      "항목은 본문 없는 요약이다 (NFR-03) — `body`·`facts`·`charts`·`lintReport`는 단건 조회로 받는다. " +
+      "cursor 페이지네이션(createdAt+_id)이며 offset은 지원하지 않는다.",
+    tags: ["articles"],
+    security: secured,
+    request: { query: ListArticlesQuery },
+    responses: {
+      200: {
+        description: "아티클 페이지",
+        content: { [JSON_MEDIA_TYPE]: { schema: ref.listArticlesResponse } },
+      },
+      400: errorResponse("쿼리 파라미터 위반"),
+      401: errorResponse("인증 실패"),
+    },
+  });
+
+  registry.registerPath({
+    method: "get",
+    path: "/v1/articles/{id}",
+    operationId: "getArticle",
+    summary: "아티클 단건 조회 (본문 포함)",
+    tags: ["articles"],
+    security: secured,
+    request: { params: ArticleIdParam },
+    responses: {
+      200: {
+        description: "아티클",
+        content: { [JSON_MEDIA_TYPE]: { schema: ref.article } },
+      },
+      401: errorResponse("인증 실패"),
+      404: errorResponse("아티클 없음"),
+    },
+  });
+
+  registry.registerPath({
+    method: "patch",
+    path: "/v1/articles/{id}",
+    operationId: "updateArticle",
+    summary: "아티클 편집",
+    description:
+      "`candidate`·`draft`에서만 허용한다 — 발행된 글을 조용히 고치면 독자가 본 것과 저장된 것이 " +
+      "갈라진다(specs/04). `status`로 지정할 수 있는 값은 `draft`·`rejected`뿐이다: " +
+      "`published`는 발행 오퍼레이션의 몫이고, 그쪽에만 시각을 찍는 코드가 있다. " +
+      "`publishedAt`·`project`는 받지 않으며 보내면 400이다. " +
+      "서버가 바뀐 필드로 `editHistory` 항목을 만들어 붙인다(specs/08 §2).",
+    tags: ["articles"],
+    security: secured,
+    request: {
+      params: ArticleIdParam,
+      body: {
+        required: true,
+        content: { [JSON_MEDIA_TYPE]: { schema: ref.patchArticleInput } },
+      },
+    },
+    responses: {
+      200: {
+        description: "수정된 아티클",
+        content: { [JSON_MEDIA_TYPE]: { schema: ref.article } },
+      },
+      400: errorResponse("스키마 위반, 빈 패치, 또는 서버 소유 필드"),
+      401: errorResponse("인증 실패"),
+      404: errorResponse("아티클 없음"),
+      409: errorResponse("published·rejected 아티클은 편집할 수 없다"),
+    },
+  });
+
+  registry.registerPath({
+    method: "post",
+    path: "/v1/articles/{id}/publish",
+    operationId: "publishArticle",
+    summary: "아티클 발행",
+    description:
+      "**`publishedAt`은 서버가 찍는다 — 클라이언트가 보내면 400이다**(specs/04). " +
+      "`ArticleSchema.refine`이 `body`·`publishedAt` 없는 `published`를 거부하는데 클라이언트가 그 값을 " +
+      "보내면 배치가 세 겹으로 막은 자동 발행 금지가 HTTP 표면에서 뚫린다. " +
+      "바디는 **빈 객체**이며 어떤 키든 400이다. 발행은 `draft`에서만 가능하다 — " +
+      "본문이 없는 `candidate`를 발행하는 것은 아무도 쓰지 않은 글을 내보내는 것이다(specs/08 §0-5, §7).",
+    tags: ["articles"],
+    security: secured,
+    request: {
+      params: ArticleIdParam,
+      body: {
+        required: false,
+        content: { [JSON_MEDIA_TYPE]: { schema: ref.publishArticleInput } },
+      },
+    },
+    responses: {
+      200: {
+        description: "발행된 아티클",
+        content: { [JSON_MEDIA_TYPE]: { schema: ref.article } },
+      },
+      400: errorResponse("바디에 키가 있다 (`publishedAt` 포함)"),
+      401: errorResponse("인증 실패"),
+      404: errorResponse("아티클 없음"),
+      409: errorResponse("draft가 아니거나 본문이 없다"),
+    },
+  });
+
   registry.registerPath({
     method: "get",
     path: "/health",
@@ -258,7 +377,7 @@ function buildRegistry(): OpenAPIRegistry {
   return registry;
 }
 
-/** specs/04 표의 8개 경로를 담은 OpenAPI 3.1 문서를 만든다. */
+/** specs/04 표의 12개 오퍼레이션을 담은 OpenAPI 3.1 문서를 만든다(아티클 4건은 B-1). */
 export function buildOpenApiDocument(): OpenAPIObject {
   const generator = new OpenApiGeneratorV31(buildRegistry().definitions);
   return generator.generateDocument({

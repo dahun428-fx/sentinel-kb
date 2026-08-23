@@ -37,6 +37,20 @@ export const API_ERROR_CODES = {
   RECORD_NOT_FOUND: "RECORD_NOT_FOUND",
   /** specs/04: `project` 크로스 **조회**는 허용, **쓰기는 자기 project로만**. */
   CROSS_PROJECT_WRITE_FORBIDDEN: "CROSS_PROJECT_WRITE_FORBIDDEN",
+  ARTICLE_NOT_FOUND: "ARTICLE_NOT_FOUND",
+  /**
+   * 바디에 `publishedAt`이 왔다 (B-1).
+   *
+   * `PatchArticleInput`·`PublishArticleInput`의 `.strict()`가 어차피 거부하지만, 그 메시지는
+   * "Unrecognized key(s)"라 **무엇이 왜 문제인지** 말하지 않는다. 이 값은 specs/04 블록쿼트가
+   * "배치가 세 겹으로 막은 자동 발행 금지가 HTTP 표면에서 뚫린다"고 지목한 바로 그 필드이므로,
+   * 거부 사유도 그만큼 명시적이어야 한다 — `PROJECT_NOT_ALLOWED_IN_BODY`와 같은 축이다.
+   */
+  PUBLISHED_AT_IS_SERVER_OWNED: "PUBLISHED_AT_IS_SERVER_OWNED",
+  /** specs/04: 편집은 `candidate`·`draft`에서만 허용. 발행·반려된 글은 대상이 아니다. */
+  ARTICLE_NOT_EDITABLE: "ARTICLE_NOT_EDITABLE",
+  /** 발행 대상이 `draft`가 아니거나 본문이 없다 (specs/08 §0-5·§7). */
+  ARTICLE_NOT_PUBLISHABLE: "ARTICLE_NOT_PUBLISHABLE",
   INTERNAL_ERROR: "INTERNAL_ERROR",
 } as const;
 

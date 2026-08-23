@@ -24,6 +24,7 @@ import {
   PENDING_OPERATIONS,
   routeKey,
   trackRoutes,
+  UNDOCUMENTED_ROUTES,
   type RouteRef,
 } from "./openapi.js";
 
@@ -205,7 +206,7 @@ describe("드리프트 가드", () => {
     ]);
   });
 
-  it("specs/04 표의 8개 오퍼레이션을 모두 라우트로 갖는다", () => {
+  it("specs/04 표의 오퍼레이션을 모두 라우트로 갖는다", () => {
     const app = makeApp();
     const routed = new Set(app.registeredRoutes.map(routeKey));
 
@@ -219,10 +220,29 @@ describe("드리프트 가드", () => {
       // 유예를 지우고 라우트를 안 세우는 실수는 `documentedButNotRouted`가 잡지만,
       // 이 리터럴 목록은 가드 기계가 통째로 고장 나도 남는 마지막 단언이다.
       "POST /v1/answer",
+      // B-1. specs/04 표에 아티클 4건이 등재됐다(`1bab157`). 스펙이 늘어난 결과이며,
+      // `UNDOCUMENTED_ROUTES`로 우회하지 않고 contracts에 오퍼레이션을 등록해 맞췄다.
+      "GET /v1/articles",
+      "GET /v1/articles/{id}",
+      "PATCH /v1/articles/{id}",
+      "POST /v1/articles/{id}/publish",
       "GET /health",
     ]) {
       expect(routed).toContain(key);
     }
+  });
+
+  /**
+   * **우회로가 열리지 않았음을 잠근다.** 아티클 라우트 4개를 `UNDOCUMENTED_ROUTES`에 넣는 것은
+   * 드리프트 가드를 통과하는 가장 싼 길이고, 명시적으로 금지된 경로다(`openapi.ts` 주석).
+   * 목록이 `/v1/openapi.json` 한 줄로 남아 있는지 여기서 본다.
+   */
+  it("아티클 라우트는 allowlist가 아니라 문서 등록으로 통과한다", () => {
+    expect(UNDOCUMENTED_ROUTES).toEqual(["GET /v1/openapi.json"]);
+
+    const documented = new Set(documentedOperations(buildOpenApiDocument()).map(routeKey));
+    expect(documented).toContain("GET /v1/articles");
+    expect(documented).toContain("POST /v1/articles/{id}/publish");
   });
 
   /**

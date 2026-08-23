@@ -23,8 +23,9 @@ export { createEmbedWorker } from "./worker.js";
 export type { EmbedWorker, EmbedWorkerDeps, JobOutcome } from "./worker.js";
 
 // 아티클 트리거 배치 (T-029, specs/08 §1·§2).
-export { articleId, articleSlug, articlesCollection, slugifyLabel } from "./articles.js";
-export type { ArticleDocument } from "./articles.js";
+// `articlesCollection`·`ArticleDocument`는 B-1에서 `@sentinel/core/db`로 올라갔다.
+// 여기서 re-export하지 않는다 — 경유지라도 출처가 둘로 보인다(T-037 판단).
+export { articleId, articleSlug, slugifyLabel } from "./articles.js";
 export {
   DEFAULT_ARTICLE_TRIGGER_THRESHOLDS,
   evaluateArticleTriggers,

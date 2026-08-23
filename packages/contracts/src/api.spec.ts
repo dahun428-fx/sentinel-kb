@@ -11,6 +11,9 @@ import {
   SearchRequest,
   SearchResponse,
   HealthResponse,
+  ArticleIdParam,
+  ListArticlesQuery,
+  ListArticlesResponse,
 } from "./api.js";
 import { without } from "./spec-helpers.js";
 
@@ -272,5 +275,102 @@ describe("ApiError", () => {
         error: { code: "BAD_REQUEST", message: "x", details: { field: "title" } },
       }).success,
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------- 아티클 (B-1, specs/04 표)
+
+describe("ListArticlesQuery", () => {
+  /**
+   * **이 스위트에서 가장 중요한 단언이다.**
+   * specs/04: "기본은 `published`만. `status=candidate|draft`를 명시해야 후보 큐가 보인다."
+   * 기대값은 리터럴 `"published"`다 — `ArticleStatus.options[2]` 같은 식으로 끌어오면
+   * 기본값을 바꿔도 기대값이 따라 움직여 아무것도 검증하지 못한다.
+   */
+  it("status를 주지 않으면 published다 — 후보 큐는 명시해야 보인다", () => {
+    expect(ListArticlesQuery.parse({}).status).toBe("published");
+  });
+
+  it("status는 파싱 결과에서 절대 undefined가 아니다 — 라우트가 필터를 잊을 수 없다", () => {
+    // `.optional()`로 바꾸는 뮤테이션이 여기서 죽는다. 라우트의 `filter.status`가
+    // 조건 없이 값을 넣을 수 있는 근거가 이 성질이다.
+    expect(ListArticlesQuery.parse({}).status).toBeDefined();
+    expect(ListArticlesQuery.parse({ limit: "5" }).status).toBeDefined();
+  });
+
+  it.each(["candidate", "draft", "published", "rejected"])(
+    "명시한 status %s는 그대로 통과시킨다",
+    (status) => {
+      expect(ListArticlesQuery.parse({ status }).status).toBe(status);
+    },
+  );
+
+  it("계약 밖 status는 거부한다", () => {
+    expect(ListArticlesQuery.safeParse({ status: "all" }).success).toBe(false);
+    expect(ListArticlesQuery.safeParse({ status: "" }).success).toBe(false);
+  });
+
+  it("status 배열을 받지 않는다 — '명시해야 보인다'가 새어 나가는 경로다", () => {
+    expect(ListArticlesQuery.safeParse({ status: ["published", "candidate"] }).success).toBe(
+      false,
+    );
+  });
+
+  it("limit 기본값은 20이고 100을 넘으면 거부한다", () => {
+    expect(ListArticlesQuery.parse({}).limit).toBe(20);
+    expect(ListArticlesQuery.safeParse({ limit: 101 }).success).toBe(false);
+  });
+
+  it("offset은 거부한다 — cursor 방식만 허용한다 (specs/04 규약)", () => {
+    expect(ListArticlesQuery.safeParse({ offset: 10 }).success).toBe(false);
+  });
+
+  it("project 같은 미승인 파라미터를 조용히 버리지 않는다", () => {
+    expect(ListArticlesQuery.safeParse({ project: "sentinel-kb" }).success).toBe(false);
+  });
+});
+
+describe("ListArticlesResponse", () => {
+  const item = {
+    _id: "0123456789abcdef01234567",
+    kind: "pattern",
+    title: "패턴: mongodb 태그에서 반복된 3건",
+    slug: "pattern-mongodb-0123abcd",
+    status: "published",
+    sourceRecordCount: 3,
+    createdAt: new Date("2026-08-01T00:00:00Z"),
+    publishedAt: new Date("2026-08-02T00:00:00Z"),
+  };
+
+  it("본문 없는 요약 항목을 통과시킨다", () => {
+    expect(ListArticlesResponse.safeParse({ items: [item], nextCursor: null }).success).toBe(
+      true,
+    );
+  });
+
+  /**
+   * **NFR-03의 잠금장치.** specs/04 표가 아티클 목록에 "본문 없는 요약"을 명시했고,
+   * `ArticleSummary`의 `.strict()`가 그것을 강제한다. 본문을 끼워 넣는 뮤테이션이 여기서 죽는다.
+   */
+  it.each(["body", "facts", "charts", "lintReport", "editHistory"])(
+    "목록 항목에 %s를 실으면 거부한다 (NFR-03)",
+    (field) => {
+      const polluted = { ...item, [field]: "…" };
+      expect(
+        ListArticlesResponse.safeParse({ items: [polluted], nextCursor: null }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("nextCursor는 마지막 페이지에서 null이다", () => {
+    const parsed = ListArticlesResponse.parse({ items: [], nextCursor: null });
+    expect(parsed.nextCursor).toBeNull();
+  });
+});
+
+describe("ArticleIdParam", () => {
+  it("24자 hex만 받는다", () => {
+    expect(ArticleIdParam.safeParse({ id: "0123456789abcdef01234567" }).success).toBe(true);
+    expect(ArticleIdParam.safeParse({ id: "nope" }).success).toBe(false);
   });
 });

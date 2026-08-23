@@ -1,6 +1,6 @@
 /**
  * `@sentinel/api` 배럴. HTTP 계약 구현은 specs/04-api.md를 따른다.
- * specs/04 표의 오퍼레이션 8개가 모두 라우트로 섰다(`/v1/answer`는 T-019).
+ * specs/04 표의 오퍼레이션 12개가 모두 라우트로 섰다(`/v1/answer`는 T-019, 아티클 4건은 B-1).
  */
 import { PACKAGE_NAME as CORE_PACKAGE } from "@sentinel/core";
 
@@ -8,6 +8,7 @@ export const PACKAGE_NAME = "@sentinel/api";
 export const DEPENDS_ON = [CORE_PACKAGE] as const;
 
 export { createApp, PAYLOAD_TOO_LARGE_STATUS, type AppOptions } from "./app.js";
+export { registerArticleRoutes, type ArticleRoutesDeps } from "./articles.js";
 // `parseApiKeys`·`ApiKeyConfigError`는 T-037에서 `@sentinel/core`로 올라갔다.
 // 여기서 re-export하지 않는다 — 사본이 아니라 **경유지**라도 두 개의 출처처럼 보이고,
 // 소비자(`scripts/seed.cli.ts`)가 core를 직접 부르는 편이 의존 방향을 그대로 드러낸다.
