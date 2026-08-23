@@ -7,7 +7,7 @@
  *
  * 사용법:
  *   pnpm db:seed                          # 멱등 적재 (이미 있는 시드는 건너뛴다)
- *   pnpm db:seed --reset                  # 시드가 만든 레코드만 지우고 다시 넣는다
+ *   pnpm db:seed --reset                  # 시드가 만든 레코드를 제자리 갱신한다 (_id 보존, 삭제 없음)
  *   pnpm db:seed --project=<slug>         # 다른 project로 적재
  *   pnpm db:seed --allow-fake-embeddings  # fake embedder 승인 (검색 품질 검증 불가)
  *
@@ -119,7 +119,7 @@ async function main(): Promise<void> {
   }
   console.log(
     `[db:seed] 완료 — 삽입 ${String(result.inserted)}, 건너뜀 ${String(result.skipped)}, ` +
-      `삭제 ${String(result.deletedRecords)}, 임베딩 ${String(result.embeddedJobs)}`,
+      `제자리 갱신 ${String(result.patched)}, 임베딩 ${String(result.embeddedJobs)}`,
   );
 }
 

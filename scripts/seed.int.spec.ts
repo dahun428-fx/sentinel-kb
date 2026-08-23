@@ -15,7 +15,7 @@ import path from "node:path";
 import { CreateRecordInput } from "@sentinel/contracts";
 import { createFakeEmbedder, readSanitizeOptions, type Embedder } from "@sentinel/core";
 import { connect, ensureIndexes } from "@sentinel/core/db";
-import type { Db, MongoClient, ObjectId } from "mongodb";
+import { ObjectId as ObjectIdCtor, type Db, type MongoClient, type ObjectId } from "mongodb";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -25,6 +25,7 @@ import {
   parseSeedArgs,
   resolveSeedApiKey,
   runSeed,
+  SEED_MANIFEST_COLLECTION,
   type SeedRecord,
   type SeedResult,
 } from "./seed.js";
@@ -74,7 +75,9 @@ function embedder(): Embedder {
   return createFakeEmbedder({ dim: TEST_DIM, version: TEST_VERSION });
 }
 
-function seed(overrides: { reset?: boolean } = {}): Promise<SeedResult> {
+function seed(
+  overrides: { reset?: boolean; records?: readonly SeedRecord[] } = {},
+): Promise<SeedResult> {
   return runSeed({
     db,
     project: PROJECT,
@@ -82,15 +85,56 @@ function seed(overrides: { reset?: boolean } = {}): Promise<SeedResult> {
     apiKeys: API_KEYS,
     sanitizeOptions: readSanitizeOptions({}),
     embedder: embedder(),
-    records: seedRecords,
+    records: overrides.records ?? seedRecords,
     ...(overrides.reset === undefined ? {} : { reset: overrides.reset }),
   });
 }
 
 async function clearAll(): Promise<void> {
   await Promise.all(
-    ["records", "chunks", "jobs"].map(async (name) => db.collection(name).deleteMany({})),
+    ["records", "chunks", "jobs", SEED_MANIFEST_COLLECTION].map(async (name) =>
+      db.collection(name).deleteMany({}),
+    ),
   );
+}
+
+/**
+ * 시드 1건의 본문 섹션을 바꾼 사본을 만든다. **입력만 바꾸고 로더는 그대로 둔다** —
+ * 시드 파일을 건드리지 않고 "시드 JSON이 바뀌었다"를 재현하는 유일한 방법이다.
+ * incident의 `resolution`은 청킹 대상 본문 섹션이므로(specs/02 chunks.section)
+ * 바꾸면 재임베딩 잡이 걸려야 한다 — 그것이 여기서 관측하려는 것이다.
+ */
+function withEditedResolution(
+  records: readonly SeedRecord[],
+  title: string,
+  resolution: string,
+): SeedRecord[] {
+  return records.map((record) =>
+    record.input.title === title && record.input.type === "incident"
+      ? { ...record, input: { ...record.input, resolution } }
+      : record,
+  );
+}
+
+/** `--reset`의 갱신 대상으로 쓸 incident 시드 1건. */
+function firstIncident(): SeedRecord {
+  const found = seedRecords.find((record) => record.input.type === "incident");
+  if (found === undefined) throw new Error("incident 시드가 없다 — 픽스처 전제가 깨졌다.");
+  return found;
+}
+
+async function jobCountFor(recordId: ObjectId): Promise<number> {
+  return db.collection("jobs").countDocuments({ recordId });
+}
+
+/** 한 레코드의 청크 본문 전체. 재임베딩이 실제로 돌았는지 보는 관측 경로다. */
+async function chunkTextFor(recordId: ObjectId): Promise<string> {
+  const documents = (await db
+    .collection("chunks")
+    .find({ recordId })
+    .sort({ section: 1, seq: 1 })
+    .toArray()) as unknown as { text: string }[];
+  return documents.map((chunk) => chunk.text).join("\n");
 }
 
 interface StoredRecord {
@@ -104,6 +148,9 @@ interface StoredRecord {
   embeddingVersion: number;
   context?: { model?: string; tool?: string; framework?: string };
   correction?: string;
+  symptom?: string;
+  resolution?: string;
+  updatedAt: Date;
 }
 
 async function allRecords(): Promise<StoredRecord[]> {
@@ -195,6 +242,8 @@ describe("Acceptance 1·2·3 — 멱등 적재, published + chunks, divergence �
   it("1회차는 50건을 삽입한다", () => {
     expect(first.inserted).toBe(SEED_TOTAL);
     expect(first.skipped).toBe(0);
+    // `--reset` 없이 갱신하는 뮤턴트가 여기서 죽는다.
+    expect(first.patched).toBe(0);
     expect(first.failedJobs).toEqual([]);
     expect(first.embeddedJobs).toBe(SEED_TOTAL);
   });
@@ -202,6 +251,7 @@ describe("Acceptance 1·2·3 — 멱등 적재, published + chunks, divergence �
   it("2회 실행해도 레코드 수가 같다", async () => {
     expect(second.inserted).toBe(0);
     expect(second.skipped).toBe(SEED_TOTAL);
+    expect(second.patched).toBe(0);
     expect(await db.collection("records").countDocuments({})).toBe(SEED_TOTAL);
   });
 
@@ -277,23 +327,49 @@ describe("Acceptance 1·2·3 — 멱등 적재, published + chunks, divergence �
 
 // ---------------------------------------------------------------- --reset
 
-describe("--reset은 시드만 지우고 사용자 레코드는 남긴다", () => {
-  const userTitle = "사용자가 직접 기록한 사례 — 시드가 건드리면 안 된다";
+/**
+ * `--reset`은 **제자리 PATCH**다. 지우지 않으므로 두 가지가 동시에 성립한다.
+ *   - `_id`가 보존된다 → `expectedRecordIds`로 짠 골든셋(T-013)이 살아남는다
+ *   - 시드와 **같은 제목**의 사용자 레코드가 삭제도 갱신도 되지 않는다 (T-009 F-6)
+ */
+describe("--reset은 시드를 제자리 갱신한다 — _id 보존, 동명 사용자 레코드 불변", () => {
+  const EDITED_RESOLUTION =
+    "시드 JSON이 갱신됐다는 것을 증명하는 표식 문자열 SEEDRESETMARKER 이며 조치는 그대로다.";
   let userId: ObjectId;
-  let seedIdsBefore: string[];
+  let userBefore: StoredRecord;
+  let idsByTitleBefore: Map<string, string>;
+  let chunkCountBefore: number;
+  let editedTitle: string;
+  let editedId: ObjectId;
+  let jobsForEditedBefore: number;
+  let chunkTextBefore: string;
   let result: SeedResult;
 
   beforeAll(async () => {
     await clearAll();
     await seed();
-    seedIdsBefore = (await allRecords()).map((record) => record._id.toHexString());
 
-    // 시드가 만들지 않은 레코드. API를 거치지 않고 직접 넣어 시드 경로와 독립시킨다.
+    const before = await allRecords();
+    idsByTitleBefore = new Map(before.map((record) => [record.title, record._id.toHexString()]));
+    chunkCountBefore = await db.collection("chunks").countDocuments({});
+
+    const edited = firstIncident();
+    editedTitle = edited.input.title;
+    const editedIdHex = idsByTitleBefore.get(editedTitle);
+    if (editedIdHex === undefined) throw new Error("갱신 대상 시드가 적재되지 않았다.");
+    editedId = new ObjectIdCtor(editedIdHex);
+    jobsForEditedBefore = await jobCountFor(editedId);
+    chunkTextBefore = await chunkTextFor(editedId);
+
+    /**
+     * **시드와 똑같은 제목**의 사용자 레코드. T-009 F-6이 "원리적으로 구분할 수 없다"고 적은
+     * 바로 그 케이스다. API를 거치지 않고 직접 넣어 시드 경로와 독립시킨다.
+     */
     const at = new Date("2026-01-01T00:00:00.000Z");
     const inserted = await db.collection("records").insertOne({
       type: "incident",
       project: PROJECT,
-      title: userTitle,
+      title: editedTitle,
       summary: "사용자 기록.",
       severity: "SEV3",
       tags: ["user"],
@@ -301,46 +377,248 @@ describe("--reset은 시드만 지우고 사용자 레코드는 남긴다", () =
       relations: [],
       status: "published",
       embeddingVersion: 0,
-      symptom: "사용자가 MCP로 기록한 증상이다.",
-      resolution: "사용자가 기록한 조치다.",
+      symptom: "사용자가 MCP로 기록한 증상이다. 시드와 제목만 같을 뿐 내용은 다르다.",
+      resolution: "사용자가 기록한 조치다. --reset이 이 문장을 건드리면 안 된다.",
       createdAt: at,
       updatedAt: at,
     });
     userId = inserted.insertedId;
+    userBefore = (await db
+      .collection("records")
+      .findOne({ _id: userId })) as unknown as StoredRecord;
 
-    result = await seed({ reset: true });
+    result = await seed({
+      reset: true,
+      records: withEditedResolution(seedRecords, editedTitle, EDITED_RESOLUTION),
+    });
   }, SEED_TIMEOUT_MS);
 
-  it("시드 레코드 50건을 지우고 다시 넣는다", () => {
-    expect(result.deletedRecords).toBe(SEED_TOTAL);
-    expect(result.inserted).toBe(SEED_TOTAL);
+  it("50건을 제자리 갱신한다 — 삽입도 삭제도 아니다", () => {
+    expect(result.patched).toBe(SEED_TOTAL);
+    expect(result.inserted).toBe(0);
     expect(result.skipped).toBe(0);
+    expect(result.failedJobs).toEqual([]);
   });
 
-  it("사용자 레코드는 살아남는다", async () => {
-    const survivor = await db.collection("records").findOne({ _id: userId });
-    expect(survivor, "사용자 레코드가 사라졌다 — --reset이 컬렉션 전체를 지웠다").not.toBeNull();
-    expect((survivor as unknown as StoredRecord).title).toBe(userTitle);
+  it("⚠️ 시드 50건의 _id가 전부 보존된다 — 골든셋이 사는 이유", async () => {
+    /**
+     * 삭제 후 재삽입으로 되돌리는 뮤턴트가 죽는 자리다. 개수만 세면 그 뮤턴트도 통과한다.
+     * 사용자 레코드를 제외하려면 title이 아니라 **_id**로 갈라야 한다 — 제목이 같기 때문이다.
+     */
+    const after = await allRecords();
+    const seedAfter = after.filter((record) => !record._id.equals(userId));
+    expect(seedAfter).toHaveLength(SEED_TOTAL);
+
+    const idsByTitleAfter = new Map(
+      seedAfter.map((record) => [record.title, record._id.toHexString()]),
+    );
+    expect([...idsByTitleAfter.entries()].sort()).toEqual([...idsByTitleBefore.entries()].sort());
+  });
+
+  it("⚠️ 동명 사용자 레코드가 살아 있고 내용이 하나도 안 바뀌었다 (T-009 F-6)", async () => {
+    const survivor = (await db
+      .collection("records")
+      .findOne({ _id: userId })) as unknown as StoredRecord | null;
+    expect(survivor, "사용자 레코드가 사라졌다 — --reset이 여전히 삭제하고 있다").not.toBeNull();
+    // 도큐먼트 전체를 대조한다. `updatedAt`까지 같아야 PATCH가 닿지 않았다는 뜻이다.
+    expect(survivor).toEqual(userBefore);
   });
 
   it("전체 개수는 시드 50 + 사용자 1이다", async () => {
     expect(await db.collection("records").countDocuments({})).toBe(SEED_TOTAL + 1);
   });
 
-  it("재적재된 시드는 새 _id를 갖는다 — 실제로 지웠다는 증거", async () => {
-    const after = (await allRecords())
-      .filter((record) => record.title !== userTitle)
-      .map((record) => record._id.toHexString());
-    expect(after).toHaveLength(SEED_TOTAL);
-    expect(after.filter((id) => seedIdsBefore.includes(id))).toEqual([]);
+  it("시드 JSON을 바꾸면 DB 내용이 따라온다", async () => {
+    const updated = (await db
+      .collection("records")
+      .findOne({ _id: editedId })) as unknown as StoredRecord;
+    expect(updated.resolution).toBe(EDITED_RESOLUTION);
+    // 요약도 서버가 다시 만든다 — 갱신이 본문에만 닿고 파생 필드를 남겨 두면 목록이 어긋난다.
+    expect(updated.summary.length).toBeGreaterThan(0);
   });
 
-  it("지운 시드의 청크가 고아로 남지 않는다", async () => {
-    // 삭제 시 청크를 안 지우면 여기서 100(구세대 50 + 신세대 50)이 나온다.
+  it("본문 섹션이 바뀐 레코드에 재임베딩 잡이 걸리고 청크가 새 본문으로 갱신된다", async () => {
+    // 관측 경로 1: jobs 컬렉션. 생성 시 1건이었고 PATCH가 1건을 더한다.
+    expect(jobsForEditedBefore).toBe(1);
+    expect(await jobCountFor(editedId)).toBe(2);
+    expect(await db.collection("jobs").countDocuments({ recordId: editedId, status: "done" })).toBe(
+      2,
+    );
+
+    // 관측 경로 2: 잡이 걸리기만 하고 안 돌면 청크는 옛것이다. 실제 청크 본문을 본다.
+    const textAfter = await chunkTextFor(editedId);
+    expect(chunkTextBefore).not.toContain("SEEDRESETMARKER");
+    expect(textAfter).toContain("SEEDRESETMARKER");
+  });
+
+  it("청크가 중복되지 않고 고아도 남지 않는다", async () => {
+    // 제자리 갱신은 세대 안에서 upsert하므로 개수가 늘면 안 된다.
+    expect(await db.collection("chunks").countDocuments({})).toBe(chunkCountBefore);
     const owners = (await db.collection("chunks").distinct("recordId")) as unknown as ObjectId[];
     const live = new Set((await allRecords()).map((record) => record._id.toHexString()));
     expect(owners.filter((id) => !live.has(id.toHexString()))).toEqual([]);
   });
+
+  it("워터마크(embeddingVersion)가 0으로 되돌아가지 않는다", async () => {
+    const seedAfter = (await allRecords()).filter((record) => !record._id.equals(userId));
+    expect(seedAfter.filter((record) => record.embeddingVersion === TEST_VERSION)).toHaveLength(
+      SEED_TOTAL,
+    );
+  });
+});
+
+// ---------------------------------------------------------------- --reset 없이는 갱신하지 않는다
+
+describe("--reset 없이는 내용을 갱신하지 않는다 — T-009가 의도한 skip-not-patch", () => {
+  const EDITED_RESOLUTION =
+    "이 문장은 --reset 없이 적재했으므로 DB에 반영되면 안 된다 NOTRESETMARKER 이다.";
+  let title: string;
+  let recordId: ObjectId;
+  let resolutionBefore: string;
+  let jobsBefore: number;
+  let result: SeedResult;
+
+  beforeAll(async () => {
+    await clearAll();
+    await seed();
+
+    const edited = firstIncident();
+    title = edited.input.title;
+    const stored = (await db
+      .collection("records")
+      .findOne({ project: PROJECT, title })) as unknown as StoredRecord;
+    recordId = stored._id;
+    resolutionBefore = stored.resolution ?? "";
+    jobsBefore = await jobCountFor(recordId);
+
+    result = await seed({ records: withEditedResolution(seedRecords, title, EDITED_RESOLUTION) });
+  }, SEED_TIMEOUT_MS);
+
+  it("전건 건너뛰고 아무것도 갱신하지 않는다", () => {
+    expect(result.skipped).toBe(SEED_TOTAL);
+    expect(result.inserted).toBe(0);
+    expect(result.patched).toBe(0);
+  });
+
+  it("바뀐 시드 내용이 DB에 반영되지 않는다", async () => {
+    const after = (await db
+      .collection("records")
+      .findOne({ _id: recordId })) as unknown as StoredRecord;
+    expect(after.resolution).toBe(resolutionBefore);
+    expect(after.resolution ?? "").not.toContain("NOTRESETMARKER");
+  });
+
+  it("재임베딩 잡도 걸리지 않는다", async () => {
+    expect(await jobCountFor(recordId)).toBe(jobsBefore);
+  });
+});
+
+// ---------------------------------------------------------------- 제자리 갱신이 표현할 수 없는 것
+
+describe("제자리 갱신이 표현할 수 없는 변경은 시끄럽게 실패한다", () => {
+  it("시드의 type이 바뀌면 SEED_TYPE_CHANGED로 던진다 — 조용히 넘기지 않는다", async () => {
+    await clearAll();
+    /**
+     * `PatchRecordInput`에 `type`이 없고 PATCH 라우트도 `type` 키를 400으로 거부한다.
+     * 조용히 무시하면 시드 JSON과 DB가 갈라지고, 그 레코드를 가리키는 골든셋은
+     * 자기가 채점한다고 믿는 것과 다른 지식을 채점한다.
+     */
+    const title = "제자리 갱신 회귀 — 같은 제목으로 종류가 바뀐 시드";
+    const asIncident: SeedRecord = {
+      source: "합성 픽스처(시드 파일 아님)",
+      input: {
+        type: "incident",
+        title,
+        symptom: "처음에는 incident로 적재된다.",
+        resolution: "그 다음 실행에서 divergence로 바뀐 시드를 만난다.",
+        severity: "SEV3",
+        tags: [],
+        status: "published",
+      },
+    };
+    const asDivergence: SeedRecord = {
+      source: "합성 픽스처(시드 파일 아님)",
+      input: {
+        type: "divergence",
+        title,
+        expected: "같은 제목으로 종류만 바뀐 시드를 만난다.",
+        actual: "PATCH로는 종류를 바꿀 수 없다.",
+        context: { model: "claude" },
+        correction: "삭제 후 재삽입으로 우회하지 않고 사람에게 결정을 넘긴다.",
+        severity: "SEV3",
+        tags: [],
+        status: "published",
+      },
+    };
+
+    await seed({ records: [asIncident] });
+    await expect(seed({ reset: true, records: [asDivergence] })).rejects.toMatchObject({
+      name: "SeedError",
+      code: "SEED_TYPE_CHANGED",
+    });
+  }, SEED_TIMEOUT_MS);
+
+  it("장부 없는 동명 레코드가 둘이면 찍지 않고 SEED_AMBIGUOUS_TITLE로 던진다", async () => {
+    await clearAll();
+    const title = "장부가 없던 시절의 레코드가 둘이다 — 어느 것이 시드인지 알 수 없다";
+    const at = new Date("2026-01-01T00:00:00.000Z");
+    const base = {
+      type: "incident",
+      project: PROJECT,
+      title,
+      summary: "요약.",
+      severity: "SEV3",
+      tags: [],
+      sanitizeFlags: [],
+      relations: [],
+      status: "published",
+      embeddingVersion: 0,
+      symptom: "같은 제목의 레코드가 둘 있다.",
+      resolution: "장부가 없으므로 어느 쪽이 시드의 것인지 알 방법이 없다.",
+      createdAt: at,
+      updatedAt: at,
+    };
+    await db.collection("records").insertMany([{ ...base }, { ...base }]);
+
+    const record: SeedRecord = {
+      source: "합성 픽스처(시드 파일 아님)",
+      input: {
+        type: "incident",
+        title,
+        symptom: "같은 제목의 레코드가 둘 있다.",
+        resolution: "장부가 없으므로 어느 쪽이 시드의 것인지 알 방법이 없다.",
+        severity: "SEV3",
+        tags: [],
+        status: "published",
+      },
+    };
+    await expect(seed({ reset: true, records: [record] })).rejects.toMatchObject({
+      name: "SeedError",
+      code: "SEED_AMBIGUOUS_TITLE",
+    });
+  }, SEED_TIMEOUT_MS);
+
+  it("장부가 없어도 동명 레코드가 하나뿐이면 입양해 _id를 보존한다", async () => {
+    await clearAll();
+    const records = [firstIncident()];
+    await seed({ records });
+    const before = (await db
+      .collection("records")
+      .findOne({ project: PROJECT, title: records[0]?.input.title })) as unknown as StoredRecord;
+
+    // 이 변경 이전에 적재된 배포를 재현한다 — 레코드는 있는데 장부가 없다.
+    await db.collection(SEED_MANIFEST_COLLECTION).deleteMany({});
+
+    const result = await seed({ reset: true, records });
+    expect(result.patched).toBe(1);
+    expect(result.inserted).toBe(0);
+
+    const after = (await db
+      .collection("records")
+      .findOne({ project: PROJECT, title: records[0]?.input.title })) as unknown as StoredRecord;
+    expect(after._id.toHexString()).toBe(before._id.toHexString());
+    expect(await db.collection("records").countDocuments({})).toBe(1);
+  }, SEED_TIMEOUT_MS);
 });
 
 // ---------------------------------------------------------------- 방어 장치

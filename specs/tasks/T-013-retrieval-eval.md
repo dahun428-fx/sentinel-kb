@@ -11,8 +11,8 @@ STATUS: BLOCKED
   - 즉 지금 골든셋을 만들어 재면 지표가 검색 품질이 아니라 BM25 단독 성능을 잰다.
 필요한 결정: **임베딩 provider 자격증명 주입**(`EMBEDDING_PROVIDER`+API 키). 
   `specs/05`가 "실제 모델 호출은 eval 계층에서만"으로 이미 경계를 그어 뒀고, 이 태스크가 그 경계다.
-  더불어 아래 `## ⚠️ 착수 전 결정 필요`의 `seedBatch` 마커도 함께 결정해야 한다 —
-  그것 없이 골든셋 30건을 만들면 `--reset` 한 번에 통째로 무효화된다.
+  ~~더불어 `seedBatch` 마커도 함께 결정해야 한다~~ → **해소됨.** `--reset`이 제자리 PATCH로
+  바뀌어 `_id`가 보존된다(아래 `## ✅ 착수 전 결정 — 해소됨`). **자격증명만 남은 차단 사유다.**
 
 ### 부분 구현 (2026-08-23, `feat/T-013-eval`)
 **STATUS는 BLOCKED 그대로다.** Acceptance 1(`Recall@5 >= 0.8`)은 여전히 **판정 불가**다.
@@ -22,7 +22,8 @@ STATUS: BLOCKED
 - Acceptance 3 (리포트 스키마) **PASS** — `eval/reports/YYYY-MM-DD-retrieval.json`,
   지표 키가 `eval/baselines.json`의 `retrieval` 키와 글자 그대로 일치함을 실제 파일에 대고 단언.
 - Acceptance 4 (`pnpm verify`) **PASS**.
-- **골든셋 30건은 만들지 않았다** — 아래 `## ⚠️ 착수 전 결정 필요`(seedBatch, G3)가 선행이다.
+- **골든셋 30건은 만들지 않았다** — 당시에는 아래 착수 전 결정(seedBatch, G3)이 선행이었다.
+  **그 선행 조건은 해소됐다**(`--reset` 제자리 PATCH). 이제 자격증명만 있으면 착수할 수 있다.
   로더·스키마·경고만 있고, `eval_cases`가 비어 있으면 러너가 판정하지 않고 78로 끝난다.
 - `eval/baselines.json`은 **읽기만 했다.** 측정하지 않은 숫자를 기준선으로 쓰지 않았다.
 - 인수인계: `eval/retrieval/README.md` §"자격증명이 생겼을 때 — 무엇을 하면 되나".
@@ -59,19 +60,35 @@ STATUS: BLOCKED
   청크 경계→임베딩→랭킹이 전부 바뀐다. CLAUDE.md의 "eval 기준선을 낮추는 커밋 금지"와
   충돌할 수 있으므로 스윕 시 갱신 절차를 명시할 것.
 
-## ⚠️ 착수 전 결정 필요 (T-009 G5 지적)
+## ✅ 착수 전 결정 — 해소됨 (`feat/seed-reset-in-place`, 인간 승인)
 
-**골든셋이 `--reset` 한 번에 통째로 무효화된다.**
-`specs/05:20`·`specs/02`가 골든셋을 `expectedRecordIds: ObjectId[]`로 규정하는데,
-`scripts/seed.ts`가 `POST /v1/records`로 시드를 넣으므로 **`--reset`을 돌릴 때마다
-전 레코드의 ObjectId가 새로 발급된다.** 골든셋 30건을 만든 뒤 시드를 다시 넣으면 전부 죽는다.
+~~**골든셋이 `--reset` 한 번에 통째로 무효화된다.**~~
+~~`scripts/seed.ts`가 `POST /v1/records`로 시드를 넣으므로 `--reset`을 돌릴 때마다
+전 레코드의 ObjectId가 새로 발급된다.~~
 
-해소 수단은 하나뿐이다 — **`RecordSchema`에 안정적 시드 마커(`seedBatch`) 추가**.
-같은 변경이 T-009 F-6(`--reset`이 동명 사용자 레코드를 지움)과
-T-024(시드 divergence와 실제 도그푸딩 기록을 구분 못 함)도 함께 해소한다.
-`.strict()`라 **contracts 재개방 = G3 인간 승인**이 필요하다.
+**`pnpm db:seed --reset`이 삭제 후 재삽입에서 제자리 PATCH로 바뀌었다.**
+시드가 만든 레코드를 지우지 않고 `PATCH /v1/records/:id`로 갱신하므로 **`_id`가 보존된다.**
+`scripts/seed.int.spec.ts`가 "시드 → `_id` 수집 → `--reset` → title별 `_id` 동일"을 실측 단언한다.
+→ **`expectedRecordIds: ObjectIdString[]`을 그대로 쓰고 골든셋 30건을 만들어도 된다.**
+   `--reset`은 그 30건을 죽이지 않는다.
 
-**골든셋을 만들기 전에 결정하라.** 만든 뒤에 결정하면 30건을 다시 매핑해야 한다.
+**채택되지 않은 대안: `RecordSchema`에 `seedBatch` 마커 추가(G3).**
+그건 T-009 F-6(동명 사용자 레코드 삭제)만 풀고 **`_id` 문제는 그대로 남긴다** — 재삽입하면
+여전히 새 `_id`다. `EvalCaseSchema`를 안정 키로 바꾸는 안도 기각됐다: T-022의 `give_feedback`이
+**사용자 레코드**의 ObjectId를 싣는데 그쪽은 이미 안정적이라 유니온 타입이 되거나 그 경로가 깨진다.
+→ **contracts는 건드리지 않았다. G3 아님.**
+
+### 골든셋을 짤 때 남아 있는 제약 두 가지
+- **`type`이 바뀐 시드는 `SEED_TYPE_CHANGED`로 시드가 실패한다.** 제자리 PATCH가 종류 변경을
+  표현할 수 없기 때문이다(specs/04: `type`은 수정 불가). 그런 시드는 사람이 레코드를 지우고
+  다시 넣어야 하고, **그때는 `_id`가 바뀌므로 그 레코드를 가리키는 골든셋 케이스도 함께
+  갱신해야 한다.** 즉 `_id` 안정성은 "종류를 바꾸지 않는 한"이라는 조건부다.
+- **장부(`seedManifest`)가 없는 DB에 시드가 한 번도 안 돈 상태**에서는 `{project,title}` 단일
+  일치를 입양한다(T-009 F-6의 잔여 위험 절). 골든셋을 만들기 전에 `pnpm db:seed`를 한 번
+  돌려 장부를 채워 두면 그 구간이 닫힌다.
+
+**T-024(시드 divergence와 실제 도그푸딩 기록 구분)는 이 변경이 풀지 않는다** —
+장부는 시드 스크립트 내부용이고 검색·MCP 응답에 노출되지 않는다. 별도 결정으로 남는다.
 
 ## 시드 다양성 (T-009 실측 — 이 태스크에 유리한 조건)
 고유 태그 **263개**, 1회만 등장하는 태그 **221개(84%)**,
