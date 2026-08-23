@@ -1,6 +1,6 @@
-# tool-selection eval 러너 (T-016)
+# tool-selection eval 러너 (T-016 + A-1 배선)
 
-specs/05 "Eval 3: Tool-selection" 구현. **지금은 측정할 수 없다** — 아래 `## 왜 지금 재지 못하나`를 읽어라.
+specs/05 "Eval 3: Tool-selection" 구현. **자격증명을 넣으면 잰다** — 아래 `## 어떻게 돌리나`를 읽어라.
 
 ## 이 러너가 존재해야 하는 이유
 
@@ -17,7 +17,7 @@ specs/05 "Eval 3: Tool-selection" 구현. **지금은 측정할 수 없다** —
 | `scenarios.json` | 시나리오 20건 `{id, prompt, expectedTool, requiredArgs[], expectedArgs?, boundary}` |
 | `scenarios.ts` | 로더 + **실물 계약 대조**(없는 도구·없는 인자를 요구하면 죽는다) |
 | `catalog.ts` | `createMcpServer`에서 도구 5종의 description·인자를 **실물로** 읽는다 + 계약 지문 |
-| `selector.ts` | "도구 목록을 주고 모델이 고르게 한다"의 경계면. **실 구현은 아직 없다** |
+| `selector.ts` | "도구 목록을 주고 모델이 고르게 한다"의 경계면. 실 경로는 `@sentinel/core`의 `createToolChoiceModel()` |
 | `score.ts` | 채점(올바른 도구 + 필수 인자) + 집계 + 오답 표(`confusions`) |
 | `run.ts` | 시나리오 × selector × 반복 → `ToolsReport` |
 | `report.ts` | 리포트 zod 스키마 + `eval/reports/YYYY-MM-DD-tools.json` 규약 |
@@ -38,19 +38,30 @@ specs/05 "Eval 3: Tool-selection" 구현. **지금은 측정할 수 없다** —
 78과 0을 가른 것이 요점이다. "판정 불가"를 0으로 끝내면 selector 없이 돌린 CI가 통과로 읽히고,
 G6가 요구하는 재실행이 아무것도 검사하지 않은 채 통과 도장을 찍는다.
 
-## 왜 지금 재지 못하나 (2026-08-23)
+## 어떻게 돌리나 (2026-08-23, A-1 배선 후)
 
-자격증명 문제가 **아니다.** 키를 넣어도 오늘은 못 잰다. 둘 다 없다:
+```bash
+ANTHROPIC_API_KEY=... ANTHROPIC_MODEL=... pnpm eval:tools
+pnpm eval:tools --allow-oracle-selector   # 판정 없이 파이프라인만 (trusted:false, exit 78)
+EVAL_TOOL_SELECTOR=anthropic              # 기본값. oracle은 --allow-oracle-selector가 있어야 켜진다
+```
 
-1. **tool-calling 가능한 `ChatModel`이 없다.** `packages/core/src/llm/types.ts`의 `ChatRequest`는
-   `{system, messages, maxTokens}`뿐이라 **도구를 실을 자리도, 도구 호출을 돌려받을 자리도 없다.**
-   CLAUDE.md는 LLM 호출을 `packages/core/src/llm/` 경유로만 허용하므로, 이 인터페이스가 넓어져야 한다.
-2. **실 provider 구현이 없다.** 같은 파일의 결정 D-2가 "실 provider는 T-019의 몫"으로 넘겨 뒀고,
-   LLM SDK가 lockfile에 없다. 의존성 추가는 T-016 Scope가 아니다.
+selector는 `@sentinel/core`의 `createToolChoiceModel()`을 문다(T-039 D-7). CLAUDE.md의
+"LLM 호출은 `packages/core/src/llm/` 경유만 허용"을 지키므로 이 디렉터리에서 SDK를 직접 부르지 않는다.
 
-그래서 `pnpm eval:tools`는 **아무것도 재지 않고 78로 끝난다.** `eval/baselines.json`의
-`tools.selectionAccuracy = 0.85`는 **건드리지 않았다** — 측정하지 않은 숫자를 기준선으로 쓰지 않는다.
-specs/05가 말하는 "최종 목표 0.9"도 여기 쓰지 않았다. 재고 나서 사람이 정한다.
+**자격증명이 없으면 78이다 — 사유는 "인터페이스가 없다"가 아니라 "키가 없다"다.**
+그 구분이 중요하다: 전자는 사람이 코드를 써야 풀리고, 후자는 `.env`에 키를 넣으면 풀린다.
+(T-016 시점에는 전자가 참이었다. `ChatRequest`에 도구를 실을 자리가 없었기 때문이다.)
+
+**아직 아무도 재지 않았다.** `eval/baselines.json`의 `tools.selectionAccuracy = 0.85`는
+**건드리지 않았다** — 측정하지 않은 숫자를 기준선으로 쓰지 않는다. specs/05가 말하는
+"최종 목표 0.9"도 여기 쓰지 않았다. 재고 나서 사람이 정한다(아래 비준 4건이 **먼저**다).
+
+### 종료 코드로 읽는 상태
+- **78 / `SELECTOR_UNAVAILABLE`** — 키·모델 설정이 없다. 채우면 잰다.
+- **69 / `SELECTOR_CALL_FAILED`** — 모델을 실제로 불렀는데 실패했다(401·429·타임아웃).
+  **"선택률이 떨어졌다"가 아니라 "재지 못했다"이다.** 리포트를 쓰지 않는다.
+- **1** — 잰 결과가 기준선 아래다(G4, 머지 금지).
 
 ## ⚠️ 기준선을 확정하기 전에 **비준이 먼저다** (G6)
 
@@ -65,17 +76,16 @@ specs/05가 말하는 "최종 목표 0.9"도 여기 쓰지 않았다. 재고 나
 "서버가 3건으로 줄여서 낸다". 비준 결과가 이 문장들을 바꾸면 이 eval이 재는 대상이 바뀌고,
 그 전에 잰 수치는 기준선이 될 수 없다. 러너는 이 사실을 리포트 `warnings`에 **조건 없이** 싣는다.
 
-## 잴 수 있게 되면 — 무엇을 하면 되나
+## 남은 일 — 무엇을 하면 되나
 
-1. **`ChatModel`에 도구 호출을 넣는다 (G3, 인간 승인).** `ChatRequest`에 도구 정의를,
-   `ChatResponse`에 도구 호출(이름 + 인자)을 실을 자리를 만든다. contracts가 아니라 core의
-   인터페이스라 breaking 범위는 좁지만, LLM 계층의 계약이므로 승인 사항이다.
-2. **실 provider를 붙인다.** `packages/core/src/llm/types.ts` D-2가 "공식 SDK를 써야 한다"고
-   근거까지 적어 뒀다(raw fetch 선례를 LLM 쪽으로 복사하지 마라). 자격증명은 SSM/.env로만.
-3. **`eval/tools/selector.ts`의 `resolveSelector`에 분기를 붙인다.** `EVAL_TOOL_SELECTOR=<provider>`.
-   그 selector의 `provenance.trusted`는 `isTrustedSelector`가 정한다 — 손으로 `true`를 쓰지 마라.
+1. ~~`ChatModel`에 도구 호출을 넣는다~~ — **T-039가 했다.** `ToolChoiceModel.selectTool()`
+   (`packages/core/src/llm/tools.ts`). `ChatRequest`에 합치지 않고 별 표면으로 나눴다(D-7).
+2. ~~실 provider를 붙인다~~ — **T-039가 했다.** `@anthropic-ai/sdk` 기반 `createAnthropicModel()`.
+3. ~~`resolveSelector`에 분기를 붙인다~~ — **A-1이 했다.** `provenance.trusted`는 여전히
+   `isTrustedSelector`가 정한다(손으로 `true`를 쓰지 않는다).
 4. **`pnpm eval:tools`를 돌리고 리포트를 커밋한다.** `eval/reports/YYYY-MM-DD-tools.json`.
-5. **기준선을 확정한다 — 사람이.** 위 비준 4건이 끝난 **뒤에**. 에이전트는 리포트만 낸다(eval-runner 스킬).
+   **자격증명이 필요하다 — 아직 아무도 이 단계를 하지 않았다.**
+5. **기준선을 확정한다 — 사람이.** 아래 비준 4건이 끝난 **뒤에**. 에이전트는 리포트만 낸다(eval-runner 스킬).
 
 ## 시나리오를 고칠 때
 

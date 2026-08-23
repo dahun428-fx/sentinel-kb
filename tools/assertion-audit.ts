@@ -228,6 +228,10 @@ export const SYMBOLIC_CONSTANTS: Readonly<Record<string, string>> = {
   SEARCH_LOG_EVENT: "로그 이벤트명. 크기가 아니라 이름이다.",
   SEARCH_ROUTE: "라우트명 문자열. 단언의 주어는 '어느 라우트가 로깅됐는가'다.",
   SERVER_NAME: "MCP 서버 이름 문자열. 크기가 아니라 이름이다.",
+  ANTHROPIC_SELECTOR:
+    "tool-selection selector의 provider 이름. 리포트 `selector.provider`는 자유 문자열이고 " +
+    "어떤 스펙도 이 문면을 고정하지 않는다 — 단언의 주어는 '실 모델 경로를 세웠는가'이지 " +
+    "그 이름의 철자가 아니다(SERVER_NAME과 같은 분류).",
   ChunkBudgetError: "클래스 참조 동일성(배럴 재수출 확인). 리터럴이 존재할 수 없다.",
   DB_ERROR_CODES: "에러 코드 판별 태그. 단언의 주어는 '어느 실패 분기를 탔는가'다.",
   EMBEDDER_ERROR_CODES: "에러 코드 판별 태그. 단언의 주어는 '어느 실패 분기를 탔는가'다.",

@@ -10,13 +10,13 @@
  *   pnpm eval:tools --repeats=5              # 안정성을 더 굵게
  *   pnpm eval:tools --allow-oracle-selector  # 판정 없이 파이프라인만 확인
  *
- * ## ⚠️ 잴 수 있는 selector가 없으면 재지 않는다 (EX_CONFIG 78로 거절)
+ * ## ⚠️ 자격증명이 없으면 재지 않는다 (EX_CONFIG 78로 거절)
  * 시나리오 판정은 **도구 목록을 주고 실제 모델이 무엇을 고르는지 보는 것**이라 모델 호출이
  * 필요하다(specs/05: "실제 모델 호출은 eval 계층에서만" — 여기가 그 계층이다).
- * 지금 이 레포에는 tool-calling 가능한 `ChatModel`도, 실 provider도 없다
- * (`packages/core/src/llm/types.ts` D-2, `eval/tools/selector.ts` 참조).
- * 그래서 이 CLI는 **아무것도 재지 않고 78로 끝난다.** `scripts/seed.cli.ts`가 fake 임베딩
- * 적재를 거절하고 `eval/retrieval/run.cli.ts`가 fake provider를 거절하는 것과 같은 게이트다.
+ * selector는 `@sentinel/core`의 `createToolChoiceModel()`을 문다(T-039 D-7) —
+ * `ANTHROPIC_API_KEY`·`ANTHROPIC_MODEL`이 없으면 그 팩토리가 던지고 이 CLI가 78로 끝난다.
+ * `scripts/seed.cli.ts`가 fake 임베딩 적재를 거절하고 `eval/generation/run.cli.ts`가 judge
+ * 부재를 거절하는 것과 같은 게이트다: **잴 수 없으면 통과가 아니라 거절.**
  *
  * 종료 코드:
  *   0  판정했고 기준선 통과

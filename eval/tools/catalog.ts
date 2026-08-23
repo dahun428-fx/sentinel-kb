@@ -25,7 +25,7 @@ import { createHash } from "node:crypto";
 
 import type { CoreApiClient, McpContext } from "@sentinel/mcp";
 import { createMcpServer, MAX_TOOLS } from "@sentinel/mcp";
-import type { ZodObject, ZodRawShape, ZodTypeAny } from "zod";
+import { z, type ZodObject, type ZodRawShape, type ZodTypeAny } from "zod";
 
 /** 카탈로그를 읽을 수 없는 상태. CLI가 이 오류를 78로 옮긴다. */
 export class ToolCatalogError extends Error {
@@ -47,6 +47,14 @@ export interface ToolSpec {
   readonly title: string;
   readonly description: string;
   readonly args: readonly ToolArgSpec[];
+  /**
+   * 모델에게 실제로 제시하는 인자 스키마(JSON Schema).
+   *
+   * `args`와 **같은 소스에서 같은 순간에** 파생된다 — 하나는 사람·채점기가 읽는 요약이고
+   * 이것은 native tool-use 요청에 실리는 형상이다. 둘을 다른 곳에서 만들면 리포트가 재는
+   * 계약과 모델이 본 계약이 갈라진다.
+   */
+  readonly inputSchema: Record<string, unknown>;
 }
 
 export interface ToolCatalog {
@@ -89,7 +97,7 @@ function readRegistry(server: unknown): Record<string, RegisteredToolLike> {
   return registry as Record<string, RegisteredToolLike>;
 }
 
-function readArgs(toolName: string, tool: RegisteredToolLike): ToolArgSpec[] {
+function readShape(toolName: string, tool: RegisteredToolLike): Record<string, ZodTypeAny> {
   const shape: unknown = tool.inputSchema?.shape;
   if (typeof shape !== "object" || shape === null) {
     throw new ToolCatalogError(
@@ -97,11 +105,87 @@ function readArgs(toolName: string, tool: RegisteredToolLike): ToolArgSpec[] {
         "인자를 모르면 specs/05가 요구하는 '올바른 도구 + **필수 인자**' 판정을 할 수 없다.",
     );
   }
-  return Object.entries(shape as Record<string, ZodTypeAny>).map(([name, schema]) => ({
+  return shape as Record<string, ZodTypeAny>;
+}
+
+function readArgs(shape: Record<string, ZodTypeAny>): ToolArgSpec[] {
+  return Object.entries(shape).map(([name, schema]) => ({
     name,
     required: !schema.isOptional(),
     description: schema.description ?? "",
   }));
+}
+
+/** 래퍼(`optional`·`default`·`nullable`·`effects`)를 벗겨 본체를 꺼낸다. */
+function unwrap(schema: ZodTypeAny): ZodTypeAny {
+  let current: ZodTypeAny = schema;
+  // 중첩 상한. 순환은 zod에서 생기지 않지만 무한 루프를 구조적으로 막는다.
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
+      current = current.unwrap() as ZodTypeAny;
+    } else if (current instanceof z.ZodDefault) {
+      current = current.removeDefault() as ZodTypeAny;
+    } else if (current instanceof z.ZodEffects) {
+      current = current.innerType() as ZodTypeAny;
+    } else {
+      return current;
+    }
+  }
+  return current;
+}
+
+/**
+ * Zod 인자 스키마 → JSON Schema. **모르는 형상은 좁히지 않고 빈 객체로 둔다.**
+ *
+ * ## 왜 여기서 만드나 (스냅샷이 아닌 이유)
+ * 도구가 등록될 때 SDK가 보관한 **살아 있는 Zod 스키마**에서 파생한다. 스키마가 바뀌면
+ * 다음 실행이 자동으로 바뀐 형상을 낸다 — `catalog.json` 같은 사본을 두면 이 eval이 사본을
+ * 재게 되고 G6가 문면만 남는다(이 파일 상단 주석).
+ *
+ * ## `enum`을 반드시 싣는다
+ * `record_knowledge.type`의 `incident`/`divergence` 같은 값이 빠지면 모델은 무엇을 채워야
+ * 할지 알 수 없고, 시나리오 TS-02(`type: divergence`)의 오답이 **모델의 실수가 아니라
+ * 우리가 정보를 안 준 결과**가 된다. 채점 대상은 description이지 우리의 누락이 아니다.
+ *
+ * ## 모르는 타입을 추측하지 않는다
+ * 여기서 다루지 못하는 zod 타입은 `{description}`만 남긴다(= 어떤 JSON 값이든 허용).
+ * 틀린 타입을 적어 보내면 모델이 채운 인자가 서버 스키마와 어긋나는데, 그 실패는
+ * description 품질이 아니라 이 변환기의 버그다.
+ */
+export function toJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
+  const inner = unwrap(schema);
+  const description = schema.description ?? inner.description;
+  const base: Record<string, unknown> =
+    description === undefined ? {} : { description };
+
+  if (inner instanceof z.ZodString) return { ...base, type: "string" };
+  if (inner instanceof z.ZodNumber) {
+    return { ...base, type: inner.isInt ? "integer" : "number" };
+  }
+  if (inner instanceof z.ZodBoolean) return { ...base, type: "boolean" };
+  if (inner instanceof z.ZodEnum) {
+    return { ...base, type: "string", enum: [...(inner.options as readonly string[])] };
+  }
+  if (inner instanceof z.ZodLiteral) {
+    return { ...base, const: inner.value as unknown };
+  }
+  if (inner instanceof z.ZodArray) {
+    return { ...base, type: "array", items: toJsonSchema(inner.element as ZodTypeAny) };
+  }
+  if (inner instanceof z.ZodObject) {
+    return { ...base, ...objectSchema(inner.shape as Record<string, ZodTypeAny>) };
+  }
+  return base;
+}
+
+function objectSchema(shape: Record<string, ZodTypeAny>): Record<string, unknown> {
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const [name, schema] of Object.entries(shape)) {
+    properties[name] = toJsonSchema(schema);
+    if (!schema.isOptional()) required.push(name);
+  }
+  return { type: "object", properties, required };
 }
 
 /**
@@ -131,7 +215,14 @@ export function loadToolCatalog(): ToolCatalog {
           "(specs/07 '언제-쓰는지가 트리거의 전부다') — 없으면 이 eval은 아무것도 재지 않는다.",
       );
     }
-    return { name, title: tool.title ?? name, description, args: readArgs(name, tool) };
+    const shape = readShape(name, tool);
+    return {
+      name,
+      title: tool.title ?? name,
+      description,
+      args: readArgs(shape),
+      inputSchema: objectSchema(shape),
+    };
   });
 
   return { tools, descriptionSha256: fingerprint(tools) };
