@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 
+import { ArticleStatus, ArticleSummary } from "./article.js";
 import {
   ChunkSection,
   ObjectIdString,
@@ -52,6 +53,47 @@ export interface CursorPage<Item> {
  */
 export const ListRecordsResponse = CursorPage(RecordSummary);
 export type ListRecordsResponse = z.infer<typeof ListRecordsResponse>;
+
+// ---------------------------------------------------------------- 아티클 (B-1, specs/04 표)
+
+/** `/v1/articles/:id` 경로 파라미터 */
+export const ArticleIdParam = z.object({ id: ObjectIdString }).strict();
+export type ArticleIdParam = z.infer<typeof ArticleIdParam>;
+
+/**
+ * GET /v1/articles 쿼리.
+ *
+ * ## `status`의 기본값이 이 스키마에서 가장 중요한 한 줄이다
+ * specs/04: "**기본은 `published`만.** `status=candidate|draft`를 **명시해야** 후보 큐가 보인다."
+ * 근거는 표 아래 블록쿼트에 있다:
+ * > T-033 Acceptance 3이 "candidate는 공개 목록에 노출되지 않는다"이므로 **필터를 빠뜨렸을 때의
+ * > 결과가 안전한 쪽**이어야 한다. 반대로 두면 파라미터 하나를 잊는 순간 미발행 초안이 공개된다.
+ *
+ * 그래서 `.optional()`이 아니라 `.default("published")`다. 이 둘의 차이가 곧 노출 사고다 —
+ * `optional`이면 파싱 결과가 `undefined`가 되고, 호출부가 "필터 없음 = 전체"로 읽는 것이
+ * 가장 자연스러운 구현이 된다. 기본값을 **계약에** 두면 라우트가 잊을 수 없다.
+ *
+ * 단일 값만 받고 배열을 받지 않는 것도 같은 축이다. `status=published&status=candidate` 같은
+ * 다중 필터를 허용하면 "명시해야 보인다"가 "하나만 명시하면 나머지도 딸려온다"로 새어 나간다.
+ *
+ * `kind` 필터는 **일부러 두지 않았다.** specs/04 표에 없고, `articles_status_createdAt`
+ * 인덱스가 커버하지 못하는 조회 패턴을 계약으로 약속하게 된다(B-1 인덱스 판단 참조).
+ */
+export const ListArticlesQuery = z
+  .object({
+    status: ArticleStatus.default("published"),
+    cursor: z.string().min(1).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  })
+  .strict();
+export type ListArticlesQuery = z.infer<typeof ListArticlesQuery>;
+
+/**
+ * GET /v1/articles 응답. 항목은 본문 없는 `ArticleSummary`다 —
+ * specs/04 표가 아티클 목록 행에 "**본문 없는 요약**"을 명시했고, 근거는 `RecordSummary`와 같다(NFR-03).
+ */
+export const ListArticlesResponse = CursorPage(ArticleSummary);
+export type ListArticlesResponse = z.infer<typeof ListArticlesResponse>;
 
 /** POST /v1/search 바디 */
 export const SearchRequest = z

@@ -7,9 +7,12 @@
  * "계약은 contracts가 단일 소스"라는 규약이 깨진다. 즉 여기 두는 것이 규약을 지키는 방향이다.
  * 기존 export를 하나도 바꾸지 않는 **순수 추가**라 breaking change(G3)도 아니다.
  *
- * ## OpenAPI에는 싣지 않는다
- * chunks·feedbacks·eval_cases와 같은 취급이다 — HTTP 페이로드가 아니라 **저장 스키마**다.
- * specs/04 표에 `/v1/articles`가 없는 이상 오퍼레이션을 등록할 근거가 없다(T-029 STATUS 참조).
+ * ## OpenAPI (B-1에서 바뀌었다)
+ * T-029는 "specs/04 표에 `/v1/articles`가 없는 이상 오퍼레이션을 등록할 근거가 없다"고 적고
+ * chunks·feedbacks·eval_cases와 같은 취급(저장 스키마 전용)을 했다. specs/04 표에 아티클
+ * 오퍼레이션 4건이 등재되면서 그 전제가 사라졌다 — `ArticleSchema`는 이제 `GET /v1/articles/{id}`의
+ * 응답 페이로드이기도 하므로 OpenAPI에 실린다. **기존 정의는 한 줄도 바뀌지 않았고**,
+ * 아래 HTTP 전용 스키마들은 전부 순수 추가다(G3 breaking change 아님).
  */
 import { z } from "zod";
 
@@ -108,3 +111,88 @@ export const ArticleSchema = z
     },
   );
 export type ArticleSchema = z.infer<typeof ArticleSchema>;
+
+// ---------------------------------------------------------------- HTTP 표면 (B-1, specs/04 표)
+
+/**
+ * 목록 응답용 아티클 요약.
+ *
+ * specs/04는 "(본문 포함)"을 **단건 조회에만** 달았고, 아티클 목록 행에는
+ * "**본문 없는 요약**"이라고 명시했다. 그 근거를 표 아래 블록쿼트가 다시 적는다:
+ * > 목록은 본문 없는 요약이다. `GET /v1/records`가 같은 이유로 그렇다 —
+ * > 본문을 목록에 실으면 NFR-03이 재발하고, `RecordSummary`를 따로 둔 이유가 무의미해진다.
+ *
+ * 그래서 `body`가 여기 **없다.** 함께 뺀 것들도 같은 축이다:
+ * - `facts`·`lintReport`는 `z.record(z.unknown())`이라 크기 상한이 없다. 본문보다 클 수 있다.
+ * - `charts`는 차트 **데이터**를 통째로 담는다(§5.1). 목록 한 페이지 20건이면 그 20배다.
+ * - `editHistory`는 편집 횟수만큼 무한히 자란다.
+ * - `sourceRecordIds`도 배열이라 상한이 없다 — 판단에 필요한 것은 "몇 건에서 나왔나"이므로
+ *   `sourceRecordCount` 하나로 낮춘다.
+ *
+ * `.strict()`가 그 경계를 강제한다 — 나중에 누가 `body`를 끼워 넣으면 파싱이 실패한다.
+ */
+export const ArticleSummary = z
+  .object({
+    _id: ObjectIdString,
+    kind: ArticleKind,
+    title: z.string().min(4).max(200),
+    slug: z.string().min(4).max(160),
+    status: ArticleStatus,
+    /** 본문을 싣지 않는 대신 근거의 두께를 알려주는 값. `sourceRecordIds.length`다. */
+    sourceRecordCount: z.number().int().positive(),
+    createdAt: z.date(),
+    publishedAt: z.date().optional(),
+  })
+  .strict();
+export type ArticleSummary = z.infer<typeof ArticleSummary>;
+
+/**
+ * 사람 편집이 지정할 수 있는 상태. **`published`가 없는 것이 요점이다.**
+ *
+ * specs/04는 발행을 `POST /v1/articles/:id/publish`라는 **별도 오퍼레이션**으로 두고
+ * "`publishedAt`은 서버가 찍는다"고 못박았다. PATCH로 `status:"published"`를 쓸 수 있으면
+ * 그 오퍼레이션을 우회하는 두 번째 발행 경로가 생기고, 그 경로에는 시각을 찍는 코드가 없다.
+ * `candidate`도 없다 — 사람이 되돌릴 상태가 아니라 배치가 만드는 초기 상태다(specs/08 §1).
+ */
+export const ArticleEditableStatus = z.enum(["draft", "rejected"]);
+export type ArticleEditableStatus = z.infer<typeof ArticleEditableStatus>;
+
+/**
+ * `PATCH /v1/articles/:id` 바디. specs/04: "편집. `candidate`·`draft`에서만 허용".
+ *
+ * **상태 게이트는 여기서 표현할 수 없다** — 대상 아티클의 현재 상태는 바디에 없기 때문이다.
+ * 그것은 라우트가 DB를 읽고 판정한다. 계약이 막는 것은 **필드 집합**이다:
+ * `publishedAt`·`project`·`_id`·`createdAt`·`facts`·`slug`는 여기 없고 `.strict()`가 거부한다.
+ * 특히 `publishedAt`이 없는 것이 specs/04 블록쿼트가 말한 "세 겹 방어"의 HTTP 쪽 한 겹이다.
+ *
+ * `editHistory`도 없다 — 편집 기록을 편집 요청이 쓸 수 있으면 기록이 증거가 아니게 된다.
+ * 서버가 바뀐 필드 목록으로 항목을 만들어 붙인다(specs/08 §2, §0-5).
+ */
+export const PatchArticleInput = z
+  .object({
+    title: z.string().min(4).max(200),
+    body: z.string().min(1),
+    charts: z.array(ChartSpec),
+    status: ArticleEditableStatus,
+  })
+  .partial()
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "수정할 필드를 최소 1개 지정해야 한다",
+  });
+export type PatchArticleInput = z.infer<typeof PatchArticleInput>;
+
+/**
+ * `POST /v1/articles/:id/publish` 바디 — **빈 객체다.**
+ *
+ * specs/04: "발행. `publishedAt`은 **서버가 찍는다** — 클라이언트가 보내면 400".
+ * 이유는 같은 블록쿼트에 있다:
+ * > `ArticleSchema.refine`이 `body`·`publishedAt` 없는 `published`를 거부하는데,
+ * > 클라이언트가 그 값을 보내면 **배치가 세 겹으로 막은 자동 발행 금지가 HTTP 표면에서 뚫린다.**
+ *
+ * 그래서 특정 키 하나를 골라 막지 않고 **아무 키도 받지 않는다.** `.strict()`가 `publishedAt`도,
+ * `status`도, `project`도, 아직 존재하지 않는 미래의 필드도 한꺼번에 거부한다.
+ * 발행 요청이 서버에 전달할 정보는 "이 아티클을 발행한다"뿐이고 그것은 경로에 이미 있다.
+ */
+export const PublishArticleInput = z.object({}).strict();
+export type PublishArticleInput = z.infer<typeof PublishArticleInput>;

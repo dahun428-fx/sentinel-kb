@@ -12,9 +12,11 @@
  *   야간 배치에 덮여 사라지는 것은 되돌릴 수 없다.
  */
 import type { ArticleStatus } from "@sentinel/contracts";
+// DB 경계 매핑은 B-1에서 core/db로 올라갔다(소비자가 worker·api 둘이 됐다).
+import { articlesCollection, type ArticleDocument } from "@sentinel/core/db";
 import { ObjectId, type Db } from "mongodb";
 
-import { articleId, articleSlug, articlesCollection, type ArticleDocument } from "./articles.js";
+import { articleId, articleSlug } from "./articles.js";
 import {
   evaluateArticleTriggers,
   type ArticleCandidate,

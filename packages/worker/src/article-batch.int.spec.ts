@@ -11,14 +11,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ArticleSchema } from "@sentinel/contracts";
-import { ensureIndexes } from "@sentinel/core/db";
+// `articlesCollection`은 B-1에서 core/db로 올라갔다 — import 경로만 옮겼고 단언은 그대로다.
+import { articlesCollection, ensureIndexes } from "@sentinel/core/db";
 import { ObjectId, type Db, type MongoClient } from "mongodb";
 import { MongoClient as Client } from "mongodb";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { runArticleTriggerBatch } from "./article-batch.js";
-import { articleId, articlesCollection } from "./articles.js";
+import { articleId } from "./articles.js";
 
 const BOOT_TIMEOUT_MS = 120_000;
 const DB_NAME = "sentinel_article_int_test";

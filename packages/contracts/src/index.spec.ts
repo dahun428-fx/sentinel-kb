@@ -59,6 +59,12 @@ describe("@sentinel/contracts smoke", () => {
         "ChartSpec",
         "ArticleEdit",
         "ArticleSchema",
+        // B-1. specs/04 표에 아티클 오퍼레이션 4건이 등재되며 HTTP 표면 스키마가 생겼다.
+        // 기존 이름은 하나도 사라지거나 바뀌지 않았다 — 순수 추가다(G3 breaking change 아님).
+        "ArticleSummary",
+        "ArticleEditableStatus",
+        "PatchArticleInput",
+        "PublishArticleInput",
         // chunk.ts
         "ChunkMeta",
         "ChunkSchema",
@@ -76,6 +82,9 @@ describe("@sentinel/contracts smoke", () => {
         "ListRecordsQuery",
         "CursorPage",
         "ListRecordsResponse",
+        "ArticleIdParam",
+        "ListArticlesQuery",
+        "ListArticlesResponse",
         "SearchRequest",
         "SearchHit",
         "SearchResponse",

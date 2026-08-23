@@ -21,6 +21,7 @@ import Fastify, {
 import type { Db } from "mongodb";
 
 import { registerAnswerRoutes } from "./answer.js";
+import { registerArticleRoutes } from "./articles.js";
 import { registerAuth } from "./auth.js";
 import { API_ERROR_CODES, HttpError, sendError } from "./errors.js";
 import { registerFeedbackRoutes } from "./feedback.js";
@@ -139,6 +140,13 @@ export function createApp(options: AppOptions): FastifyInstance {
     sanitizeOptions: options.sanitizeOptions,
     now,
   });
+
+  /**
+   * 아티클 표면(B-1, specs/04 표의 4건). **조건부가 아니다** — `retriever`·`chatModel`과 달리
+   * 외부 자격증명이 필요 없고 `db` 하나로 선다. 조건부로 만들면 배선을 빠뜨린 환경에서
+   * 라우트가 조용히 404가 되고, 드리프트 가드는 그것을 "미구현"으로 보고하게 된다(T-019 F-8의 재발).
+   */
+  registerArticleRoutes(app, { db: options.db, now });
 
   if (options.retriever !== undefined) {
     registerSearchRoutes(app, { retriever: options.retriever });
