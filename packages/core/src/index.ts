@@ -25,3 +25,6 @@ export * from "./llm/index.js";
 export * from "./generator/index.js";
 // `facts`는 T-030에서 들어왔다 — sanitizer와 같은 성질(순수·무I/O)이라 배럴에 실린다.
 export * from "./facts/index.js";
+// `publisher`는 T-031에서 들어왔다 — 프롬프트 파일을 읽고 ChatModel을 부르지만
+// mongodb를 끌고 오지 않아 `generator`와 같은 자격으로 배럴에 실린다.
+export * from "./publisher/index.js";
