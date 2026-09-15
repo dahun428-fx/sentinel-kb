@@ -88,3 +88,72 @@ CLAUDE.md가 문서화하고 `packages/web/e2e/{read-path,article-path}.spec.ts`
 - `git push`가 들어 있는 스텝을 다룬다. **실제로 푸시를 실행하지 마라** — 파일만 고친다.
 - **`.gitignore` 충돌을 "겸사겸사" 고치고 싶어질 것이다. 하지 마라.** 그건 specs/05가 요구하는
   것을 레포 설정이 차단하는 **스펙 대 설정 모순**이고, 어느 쪽을 접을지는 사람이 정한다.
+
+## Findings (구현 후 — T-046)
+
+### F-1. `pnpm verify`에 prettier를 **넣지 않았다** (Scope의 판단 항목)
+
+Scope는 "편입한다면 `tools/*.ts` 4개 포맷"을 전제했는데 **전제가 틀렸다.**
+`pnpm exec prettier --check .`의 실제 결과는 **291개 파일**이다(`tools/` 밑만 13개,
+나머지는 `specs/**`·`docs/**`·`packages/**` 전반). 편입하면 이 태스크의 diff가 291파일
+리포맷이 되고, 그건 **CI 배선 복구라는 이 PR의 판정 가능성을 통째로 파괴한다.**
+
+더 구체적인 위험이 하나 있다. 이 레포의 계약 테스트들은 **워크플로·스크립트의 문자열을
+그대로 대조한다** — 예를 들어 `deploy-contract.spec.ts:493`은
+`expect(deployWorkflow).toContain('curl -fsS --max-time 20 --retry 5 --retry-delay 5 \\')`다.
+전면 리포맷은 이런 단언을 무작위로 깨뜨리고, 그 시점에 구현자는 **가드를 통과시키려고
+단언을 고치는** 자리에 서게 된다. 정확히 `deploy-contract.spec.ts`의 `stripShellComments`
+주석이 경고하는 실패 양식이다.
+
+**권고**: prettier 편입은 `--write` 전면 적용 + 계약 테스트 재검을 하는 **독립 태스크**여야
+한다. 이 PR에서는 `pnpm format`이 수동 경로로 남는다. 새 파일
+`tools/workflow-contract.spec.ts`는 기존 `tools/*.spec.ts`의 서식 관행에 맞춰 썼다.
+
+### F-2. env 스코프를 고쳐도 nightly는 **아직 아무것도 재지 못한다** (별도 태스크)
+
+이 태스크는 "자격증명이 스텝에 보이는가"를 닫았다. 그 **다음** 벽이 셋 남아 있다:
+
+1. **`eval:retrieval`·`eval:generation`은 살아 있는 core-api를 요구한다.** 둘 다 HTTP로
+   `EVAL_CORE_API_URL`(기본 `localhost:3001`)에 질의하는데 **워크플로가 아무것도 띄우지
+   않는다.** 자격증명이 다 있어도 EX_UNAVAILABLE(69)로 끝난다. compose 기동 + `db:seed` +
+   `db:search-indexes`가 선행돼야 하고, 그건 배선이 아니라 **잡 설계**다.
+2. **`eval:style`은 기준선이 없다.** `eval/baselines.json`에 `style` 키가 없어
+   BASELINE_MISSING → 78이다. 러너 서두가 설명하듯 **그 거절이 옳다**(기준선 없이 낸 판별
+   정확도는 고장 난 실행일수록 좋게 나온다). 기준선을 쓰는 것은 사람의 몫이다.
+3. **잡이 fail-fast다.** 한 eval이 죽으면 뒤의 eval도 `upload-artifact`도 실행되지 않는다.
+   `if: ${{ !cancelled() }}`를 붙이면 다섯을 전부 돌리고 리포트를 보존할 수 있지만, Scope가
+   "env 승격 · VOYAGE 추가 · style 추가" 셋으로 못박혀 있어 **손대지 않았다.**
+
+즉 **nightly가 초록이 되는 것은 이 PR의 Acceptance가 아니다.** 이 PR이 바꾼 것은
+"배선이 틀려서 못 잰다"가 "자격증명·환경이 없어서 못 잰다"로 **사유가 이동한 것**이고,
+그 이동은 A-1이 T-016에서 한 것과 같은 종류의 진전이다.
+
+### F-3. `.gitignore:23` vs `specs/05:33` — **고치지 않았다** (인간 비준 대기)
+
+`specs/05:33`은 `eval/reports/YYYY-MM-DD-retrieval.json` 커밋을 요구하는데
+`.gitignore:23`의 `eval/reports/*`가 그것을 차단한다. 그래서 워크플로의 `git add
+eval/reports/`는 **언제나 빈 스테이지를 만들고**, `git diff --cached --quiet`가 참이 되어
+커밋도 푸시도 일어나지 않는다. `git ls-files eval/reports` → `.gitkeep` 하나뿐.
+워크플로 주석이 선언한 "리포트 시계열은 포트폴리오 자산"은 **성립한 적이 없다.**
+
+지시대로 **어느 쪽도 고치지 않았다.** 대신 둘을 했다:
+- 워크플로 주석에 무력하다는 사실과 그 이유를 적었다(다음 사람이 배선 버그로 오해하지 않게).
+- `workflow-contract.spec.ts`가 **모순이 아직 있다는 사실 자체를 고정한다.** 한쪽이 바뀌면
+  그 테스트가 빨개지고, 그때 테스트를 지우면 된다.
+
+**필요한 결정**: `.gitignore`를 열 것인가(리포트가 레포에 쌓인다), 아니면 `specs/05`의 커밋
+요구를 접고 `upload-artifact` 보존(기본 90일)으로 갈 것인가. 후자를 고르면 "시계열"은
+포기된다.
+
+### F-4. `sanitize.property.spec.ts`의 벽시계 단언이 부하에서 흔들린다
+
+`pnpm verify` 1회차에서 "상한 크기 입력을 선형 시간에 처리한다"가 995ms > 500ms로 실패했고,
+단독 실행에서는 1,048ms 걸리고도 통과했다(측정 방식이 다르다). 2회차 verify는 그린.
+**T-045가 등재된 바로 그 현상**이라 고치지 않고 기록만 한다. 이 태스크의 변경과 무관하다.
+
+### F-5. `docs/portfolio/METRICS.md`의 H1이 "28줄"이라고 말한다
+
+로그는 이 PR 이후 **32줄 / 태스크 29건**이다(작성 당시엔 31줄 / 28건이었다).
+"28"은 그때의 태스크 수와는 맞고 줄 수와는 틀렸으며, 이제는 둘 다와 틀리다.
+제목 문구라 기계 대조 대상이 아니고 Acceptance에도 없어 **건드리지 않았다.**
+§6-1 표처럼 기계가 재계산하는 자리가 아니면 이런 수는 계속 낡는다.
