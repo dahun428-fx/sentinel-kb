@@ -337,6 +337,188 @@ describe("런타임 이미지의 tsx 버전이 lockfile과 같다 (T-026)", () =
   });
 });
 
+// ======================================================= web 표면 인증 (T-042)
+
+/**
+ * **이 절은 docker 없이도 죽어야 한다.**
+ *
+ * `nginx-streaming.int.spec.ts`와 `compose-contract.int.spec.ts`는 docker가 없으면 skip된다
+ * (감사 B §7: 72건 skip 중 27건이 이 둘). 인증 단언을 거기에만 두면 docker 없는 머신의
+ * `pnpm verify`는 **아무것도 재지 않고 초록**이 된다 — 그건 통과가 아니라 침묵이다.
+ * 그래서 판정의 본체를 설정 파일 파싱으로 여기 둔다. 실물 401 왕복은 int가 덧붙이는 증거지,
+ * 유일한 증거가 아니다.
+ */
+
+const authBasicConf = read("nginx/snippets/auth-basic.conf");
+const dockerfileNginx = read("docker/Dockerfile.nginx");
+const gitignore = read(".gitignore");
+const rtm = read("docs/analysis/RTM.md");
+
+/** location 본문의 스니펫 include를 실제 파일 내용으로 펼친다. 없는 스니펫이면 던진다. */
+function expandIncludes(body: string): string {
+  return stripComments(body).replace(
+    /include\s+\/etc\/nginx\/snippets\/([\w.-]+)\s*;/g,
+    (_match, name: string) => stripComments(read(`nginx/snippets/${name}`)),
+  );
+}
+
+/**
+ * nginx의 매치 규칙을 흉내 낸다: exact(`=`)가 먼저, 그다음 **최장 접두** 매치.
+ * `/records`·`/articles`처럼 자기 location이 없는 경로가 어디로 떨어지는지가 이 태스크의
+ * 쟁점이라, 경로 목록을 손으로 적는 대신 매칭을 실제로 돌린다.
+ */
+function locationFor(path: string): LocationBlock {
+  const exact = locations.find((block) => block.match === `= ${path}`);
+  if (exact !== undefined) return exact;
+  const prefixes = locations
+    .filter((block) => !/^[=~^]/.test(block.match) && path.startsWith(block.match))
+    .sort((a, b) => b.match.length - a.match.length);
+  const best = prefixes[0];
+  if (best === undefined) throw new Error(`${path}에 매치되는 location이 없다`);
+  return best;
+}
+
+/** 해당 location이 basic 인증을 **실제로** 요구하는가 (include를 펼친 뒤 판정). */
+function requiresBasicAuth(block: LocationBlock): boolean {
+  const body = expandIncludes(block.body);
+  const realm = /auth_basic\s+("[^"]*"|off)\s*;/.exec(body)?.[1];
+  const userFile = /auth_basic_user_file\s+(\S+)\s*;/.exec(body)?.[1];
+  return realm !== undefined && realm !== "off" && userFile !== undefined;
+}
+
+describe("web 표면이 인증 뒤에 있다 (T-042, specs/00 NFR-04)", () => {
+  /**
+   * 감사 B-1이 실측한 구멍이다: `packages/web/src`에 인증 문자열 0건 + `location /`
+   * 무조건 통과. 도메인에 도달하는 누구나 아티클을 **발행**할 수 있었다.
+   */
+  it.each(["/", "/records", "/articles", "/articles/some-id/edit", "/_next/static/chunk.js"])(
+    "%s는 basic 인증을 요구한다",
+    (path) => {
+      const block = locationFor(path);
+      expect(
+        requiresBasicAuth(block),
+        `${path}가 location ${block.match}로 떨어지는데 거기에 인증이 없다`,
+      ).toBe(true);
+    },
+  );
+
+  it("`/records`·`/articles`는 `/`로 떨어진다 — 전용 location은 인증 밖으로 새는 길이다", () => {
+    // 누군가 `location /articles { ... }`를 새로 만들면서 auth include를 빠뜨리면
+    // 위 단언은 그 location을 보게 되고 여기서 갈림이 드러난다.
+    for (const path of ["/records", "/articles"]) {
+      expect(locationFor(path).match, `${path}에 전용 location이 생겼다`).toBe("/");
+    }
+  });
+
+  it("`/health`는 인증 **밖**이다 — 모니터는 자격증명을 들고 있지 않다", () => {
+    const health = locationFor("/health");
+    expect(health.match).toBe("= /health");
+    expect(requiresBasicAuth(health), "`/health`에 인증이 걸렸다 — 모니터가 401을 받는다").toBe(
+      false,
+    );
+  });
+
+  it("compose의 nginx 헬스체크가 그 면제 경로를 **무자격으로** 두드린다", () => {
+    // 면제의 근거를 문장이 아니라 설정으로 묶어 둔다. 헬스체크에 자격증명을 넣어야 하는
+    // 상황이 오면 그건 인증 경계를 잘못 그었다는 신호다.
+    const healthcheck = /wget[^\n]*\/health/.exec(composeYml)?.[0] ?? "";
+    expect(healthcheck, "nginx 헬스체크가 `/health`를 두드리지 않는다").not.toBe("");
+    expect(healthcheck).not.toMatch(/--user|--password|Authorization/i);
+  });
+
+  it("`/mcp`·`/v1`에는 basic 인증을 걸지 않는다 — 그 둘은 앱 계층 Bearer다", () => {
+    // 여기에 basic을 걸면 MCP 클라이언트와 core-api 호출자가 전부 끊긴다.
+    // 인증이 없다는 뜻이 아니다 — T-007·T-014가 프로세스 안에서 Bearer를 검사한다.
+    for (const path of ["/mcp", "/v1"]) {
+      expect(requiresBasicAuth(locationFor(path)), `${path}에 basic 인증이 걸렸다`).toBe(false);
+    }
+  });
+
+  it("server 블록에 auth_basic을 걸지 않는다 — 걸면 `/health`가 상속받아 401이 된다", () => {
+    for (const [name, conf] of [
+      ["dev.conf", devConf],
+      ["prod.conf", prodConf],
+      ["proxy-common.conf", read("nginx/snippets/proxy-common.conf")],
+    ] as const) {
+      expect(stripComments(conf), `${name}이 auth_basic을 상속시킨다`).not.toMatch(/auth_basic/);
+    }
+  });
+
+  it("자격증명 파일은 **런타임 마운트 경로**다 (이미지 안이 아니다)", () => {
+    const userFile = /auth_basic_user_file\s+(\S+)\s*;/.exec(stripComments(authBasicConf))?.[1];
+    expect(userFile).toBe("/etc/nginx/secrets/htpasswd");
+    // 이미지에 구우면 ECR에 시크릿이 올라간다. Dockerfile이 그 경로를 만들지 않는지 본다.
+    expect(dockerfileNginx, "nginx 이미지가 자격증명을 굽는다").not.toMatch(/secrets/);
+  });
+
+  it("compose가 호스트 경로를 env 참조로 받고 **읽기 전용**으로 건다", () => {
+    expect(composeYml).toMatch(
+      /\$\{WEB_BASIC_AUTH_FILE:\?[^}]*\}:\/etc\/nginx\/secrets\/htpasswd:ro/,
+    );
+    // `:?`가 요점이다. 기본값을 주면 오설정이 조용히 통과하고, docker가 없는 경로에
+    // 빈 디렉터리를 만들어 `/`가 난해한 500으로 죽는다.
+    expect(composeYml, "WEB_BASIC_AUTH_FILE에 조용한 기본값이 생겼다").not.toMatch(
+      /\$\{WEB_BASIC_AUTH_FILE:-/,
+    );
+  });
+});
+
+describe("htpasswd 실값이 레포에 없다 (T-042, CLAUDE.md 시크릿 금지)", () => {
+  it(".env.example은 **경로**만 준다 — 자격증명이 아니다", () => {
+    const value = /^WEB_BASIC_AUTH_FILE=(.*)$/m.exec(envExample)?.[1] ?? "";
+    expect(value, ".env.example에 WEB_BASIC_AUTH_FILE이 없다").not.toBe("");
+    // htpasswd 한 줄은 `user:hash` 모양이다. 콜론이 있으면 경로가 아니라 자격증명이다.
+    expect(value, `WEB_BASIC_AUTH_FILE에 자격증명이 들어갔다: ${value}`).not.toContain(":");
+    expect(value).toMatch(/^[\w./-]+$/);
+  });
+
+  it.each([
+    [".env.example", envExample],
+    ["docker-compose.yml", composeYml],
+    ["docker-compose.prod.yml", composeProdYml],
+    ["nginx/snippets/auth-basic.conf", authBasicConf],
+    ["nginx/snippets/routes.conf", routesConf],
+    ["specs/06-deployment.md", deploymentSpec],
+  ])("%s에 htpasswd 해시가 없다", (_name, content) => {
+    // htpasswd가 내는 네 가지 형식 전부: apr1 / bcrypt / {PLAIN} / {SHA}.
+    expect(content).not.toMatch(/\$apr1\$|\$2[aby]\$|\{PLAIN\}|\{SHA\}/);
+  });
+
+  it("`secrets/`가 .gitignore돼 있다 — 실값이 실수로 커밋되지 않는다", () => {
+    expect(gitignore).toMatch(/^secrets\/$/m);
+  });
+});
+
+describe("specs/06이 NFR-04 **부분 충족**을 명시한다 (T-042 Acceptance 4)", () => {
+  /**
+   * 이 단언이 지키는 것은 설정이 아니라 **문면**이다. basic 인증은 프로젝트별 키를
+   * 구분하지 못하고 감사 B-2(아티클 project 스코프 부재)를 닫지 못한다. 그 한계가
+   * 문서에서 사라지면 다음 사람이 NFR-04를 "충족"으로 읽고 B-2를 영영 놓친다.
+   * **이 테스트를 통과시키려고 문면을 지우지 마라 — 지워야 할 것은 한계 자체다.**
+   */
+  const section = /## web 표면 인증[\s\S]*$/.exec(deploymentSpec)?.[0] ?? "";
+
+  it("`## web 표면 인증` 절이 있다", () => {
+    expect(section, "specs/06에 web 표면 인증 절이 없다").not.toBe("");
+  });
+
+  it("프로젝트별 키를 구분하지 못한다고 적혀 있다", () => {
+    expect(section).toContain("프로젝트별 키");
+    expect(section).toContain("미충족");
+  });
+
+  it("감사 B-2(아티클 project 스코프)가 닫히지 않았다고 적혀 있다", () => {
+    expect(section).toContain("B-2");
+    expect(section).toMatch(/닫히지 않는다|열린 채/);
+  });
+
+  it("RTM이 web 표면을 NFR-04 검증 대상으로 잡는다 (T-042 배경)", () => {
+    // 감사: RTM의 NFR-04 검증란이 T-007·T-014뿐이라 web 표면이 통째로 빠져 있었다.
+    expect(rtm).toContain("NFR-04 (web 표면)");
+    expect(rtm).toContain("T-042");
+  });
+});
+
 // ============================================================ certbot 챌린지
 
 describe("certbot 챌린지 방식 (T-025 F-3)", () => {

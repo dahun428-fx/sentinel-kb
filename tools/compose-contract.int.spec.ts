@@ -35,6 +35,9 @@ const FIXTURE_ENV: Record<string, string> = {
   IMAGE_TAG: "test-tag",
   DOMAIN_NAME: "kb.example.com",
   CERTBOT_EMAIL: "ops@example.com",
+  // web 표면 basic 인증 htpasswd의 **호스트 경로**다 (T-042). 값은 경로일 뿐 자격증명이
+  // 아니다. 실값 판정은 `nginx-contract.spec.ts`가 docker 없이 한다.
+  WEB_BASIC_AUTH_FILE: "./secrets/nginx-htpasswd",
 };
 
 function writeEnvFile(overrides: Record<string, string | null> = {}): string {
@@ -64,6 +67,12 @@ interface ComposeService {
   readonly healthcheck?: { readonly test?: readonly string[] };
   readonly image?: string;
   readonly ports?: readonly { readonly published?: string; readonly target?: number }[];
+  readonly volumes?: readonly {
+    readonly type?: string;
+    readonly source?: string;
+    readonly target?: string;
+    readonly read_only?: boolean;
+  }[];
 }
 
 interface ComposeConfig {
@@ -135,6 +144,28 @@ describe.skipIf(!HAS_DOCKER)("compose 베이스 계약 (T-026)", () => {
       const result = runComposeConfig(BASE, writeEnvFile({ [name]: null }));
       expect(result.status, `${name} 없이도 설정이 해소됐다`).not.toBe(0);
     }
+  });
+
+  // ================================================ T-042: web 표면 basic 인증
+  /**
+   * 자격증명 파일이 **해소된 마운트로** 실제로 걸리는지 본다. 문자열 검사는
+   * `nginx-contract.spec.ts`가 하고(그쪽이 docker 없이도 돈다), 여기서는 compose가
+   * 그 문자열을 마운트로 해소하는지를 본다.
+   */
+  it("nginx가 htpasswd를 읽기 전용으로 마운트한다", () => {
+    const mount = (service("nginx").volumes ?? []).find(
+      (volume) => volume.target === "/etc/nginx/secrets/htpasswd",
+    );
+    expect(mount, "nginx에 htpasswd 마운트가 없다 — `/`가 500으로 죽는다").toBeDefined();
+    expect(mount?.type).toBe("bind");
+    expect(mount?.read_only, "htpasswd가 쓰기 가능하게 걸렸다").toBe(true);
+  });
+
+  it("WEB_BASIC_AUTH_FILE이 없으면 `compose config`가 **거절한다**", () => {
+    // 조용한 기본값이 있으면 web이 열린 채로 뜬다. 열린 채 뜨는 것보다 뜨지 않는 게 낫다.
+    const result = runComposeConfig(BASE, writeEnvFile({ WEB_BASIC_AUTH_FILE: null }));
+    expect(result.status, "htpasswd 경로 없이도 설정이 해소됐다").not.toBe(0);
+    expect(result.stderr).toContain("WEB_BASIC_AUTH_FILE");
   });
 
   // ================================================ 인계 9: 인덱스 부트스트랩 순서
@@ -262,6 +293,18 @@ describe.skipIf(!HAS_DOCKER)("compose 프로덕션 오버레이 (T-026, specs/06
     expect(published.map((entry) => entry.name)).toEqual(["nginx", "nginx"]);
     expect(published.map((entry) => entry.published).sort()).toEqual(["443", "80"]);
     expect(published.some((entry) => entry.published === "22")).toBe(false);
+  });
+
+  /**
+   * 오버레이의 `volumes:`가 베이스의 htpasswd 바인드를 **밀어내지 않는지** 본다 (T-042).
+   * compose는 volumes를 컨테이너 경로 기준으로 병합하지만, 그 규칙에 기대는 것과
+   * 기계로 확인하는 것은 다르다 — 밀려나면 프로덕션 web이 열린 게 아니라 500이 되고,
+   * 그건 배포 후에야 드러난다.
+   */
+  it("prod 오버레이에서도 htpasswd 마운트가 살아남는다 (인증서 볼륨과 공존)", () => {
+    const targets = (service("nginx").volumes ?? []).map((volume) => volume.target);
+    expect(targets).toContain("/etc/nginx/secrets/htpasswd");
+    expect(targets).toContain("/etc/letsencrypt");
   });
 
   it("nginx가 prod 모드로 뜨고 도메인을 받는다", () => {

@@ -260,6 +260,13 @@ services:
     logging: *logging
     environment:
       NGINX_MODE: dev
+    # web 표면(`/`)의 basic 인증 자격증명 (T-042, specs/06 "web 표면 인증").
+    # **이미지에 굽지 않는다** — 시크릿이고(CLAUDE.md), 이미지는 ECR에 올라간다.
+    # 호스트 경로는 `WEB_BASIC_AUTH_FILE`이 준다. 기본값을 두지 않는 것은 의도적이다:
+    # 기본값이 있으면 오설정이 조용히 통과하고, docker가 없는 경로에 **빈 디렉터리**를
+    # 만들어 nginx가 난해한 500으로 죽는다. 여기서 해소 단계에 죽는 편이 싸다.
+    volumes:
+      - ${WEB_BASIC_AUTH_FILE:?WEB_BASIC_AUTH_FILE이 필요하다 — web 표면 basic 인증 htpasswd 경로 (T-042, specs/06)}:/etc/nginx/secrets/htpasswd:ro
     ports:
       # 로컬에서만 80을 매핑한다. prod 오버레이가 443으로 갈아끼운다.
       - "${NGINX_HTTP_PORT:-8080}:80"
@@ -272,6 +279,8 @@ services:
         condition: service_started
     # 프록시 자신이 아니라 **프록시를 통과한 core-api**를 본다. specs/06 관측 행의
     # "`/health` 모니터"가 실제로 재는 것과 같은 경로다.
+    # 자격증명을 싣지 않는다 — `/health`는 T-042 basic 인증 **밖**이고, 그래야 한다.
+    # 헬스체크에 시크릿을 넣게 되는 순간이 인증 경계를 잘못 그었다는 신호다.
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/health"]
       interval: 15s
