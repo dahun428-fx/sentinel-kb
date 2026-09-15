@@ -33,6 +33,33 @@ describe("feedbackDocumentId", () => {
     );
   });
 
+  /**
+   * **구분자 없는 연결에서 실제로 충돌하는 쌍이다.** 아래 두 입력은 `parts.join("")`에서
+   * 글자 하나까지 같은 키 문자열을 만든다:
+   *
+   *   "feedback" + "a"  + "6650a1b2c3d4e5f601020304" + "00"
+   *   "feedback" + "a6" + "650a1b2c3d4e5f6010203040" + "0"
+   *   → 둘 다 "feedbacka6650a1b2c3d4e5f60102030400"
+   *
+   * 두 recordId 모두 24자 hex라 실제로 존재할 수 있는 값이고, project는 인증 키가 주는
+   * 값이며 query는 **호출자가 그대로 고르는 문자열**이다. 즉 구분자가 없으면 project `a6`의
+   * 클라이언트가 query를 골라 project `a`의 피드백 문서를 덮어쓸 수 있다 —
+   * 주석이 말하는 "경계를 넘어 다른 키와 충돌"이 정확히 이 모양이다.
+   *
+   * 픽스처가 조용히 충돌 쌍이기를 그만두면 이 테스트는 공허해지므로, 충돌 자체를 먼저 단언한다.
+   * (T-044 감사: NUL 구분자를 지우는 `join("")` 뮤턴트가 전건 통과했다.)
+   */
+  it("구분자 경계가 다른 두 입력이 같은 문서를 가리키지 않는다", () => {
+    const left = ["feedback", "a", "6650a1b2c3d4e5f601020304", "00"] as const;
+    const right = ["feedback", "a6", "650a1b2c3d4e5f6010203040", "0"] as const;
+    // 픽스처 자기검사: 구분자가 없으면 두 키는 같은 문자열이다.
+    expect(left.join("")).toBe(right.join(""));
+
+    expect(feedbackDocumentId(left[1], left[2], left[3]).toHexString()).not.toBe(
+      feedbackDocumentId(right[1], right[2], right[3]).toHexString(),
+    );
+  });
+
   it("24자 hex ObjectId다 — 계약의 ObjectIdString을 만족한다", () => {
     expect(feedbackDocumentId("sentinel-kb", RECORD_A, "q").toHexString()).toMatch(
       /^[0-9a-f]{24}$/,
