@@ -19,7 +19,13 @@ import { encode as encodeCl100k } from "gpt-tokenizer/encoding/cl100k_base";
 import { encode as encodeO200k } from "gpt-tokenizer/encoding/o200k_base";
 import { describe, expect, it } from "vitest";
 
-import { estimateTokens, MCP_SEARCH_TOKEN_BUDGET, renderSearchHits } from "./format.js";
+import {
+  estimateTokens,
+  MCP_SEARCH_TOKEN_BUDGET,
+  renderAnswer,
+  renderSearchHits,
+  type AnswerCitationLike,
+} from "./format.js";
 
 /** 두 인코딩 중 **비싼 쪽**. 예산 판정은 언제나 이 값으로 한다. */
 function actualTokens(text: string): number {
@@ -114,6 +120,30 @@ describe("NFR-03 — 실 토크나이저로 센 응답이 예산을 넘지 않�
       })),
     );
     expect(actualTokens(text)).toBeLessThanOrEqual(MCP_SEARCH_TOKEN_BUDGET);
+  });
+
+  /**
+   * **`renderAnswer`(suggest_resolution) 쪽의 같은 자리다.** 위 테스트가 검색 목록의
+   * 하드 클램프를 관측하는 동안 답변 렌더의 클램프는 **아무 테스트도 관측하지 않았다**
+   * (T-044 감사: `return truncateToTokens(...)` → `return text` 뮤턴트 FAILED=0).
+   *
+   * 인용 머리줄(`순위 recordId #섹션`)은 specs/07 §4가 필수 요소로 정했으므로 산문 예산과
+   * 무관하게 **항상** 나가고, `Citation` 배열에는 상한이 없다(contracts `z.array(Citation).min(1)`
+   * — `.max()`가 없다). 즉 인용이 충분히 많으면 머리줄만으로 예산을 넘긴다.
+   * 그때 `proseBudget`은 0이라 반올림 되돌리기 루프가 아예 돌지 않고(`proseBudget > 0` 조건),
+   * 예산을 지키는 것은 **마지막 하드 클램프뿐**이다.
+   */
+  it("인용이 병리적으로 많아 머리줄만으로 예산을 넘겨도 실측 예산을 지킨다", () => {
+    const citations: AnswerCitationLike[] = Array.from({ length: 120 }, (_, index) => ({
+      recordId: `68f0c4a1b2c3d4e5f6a7${index.toString(16).padStart(4, "0")}`,
+      section: "resolution",
+      title: "nginx가 SSE를 버퍼링해 MCP 세션이 30초에 끊긴다",
+    }));
+    const text = renderAnswer("프록시의 proxy_buffering을 off로 바꾸면 해결된다.", citations);
+    expect(
+      actualTokens(text),
+      `인용 ${String(citations.length)}건이 예산을 넘겼다 (추정 ${String(estimateTokens(text).high)})`,
+    ).toBeLessThanOrEqual(MCP_SEARCH_TOKEN_BUDGET);
   });
 });
 

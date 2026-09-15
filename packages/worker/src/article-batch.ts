@@ -128,6 +128,12 @@ async function loadTriggerRecords(db: Db): Promise<TriggerRecord[]> {
    * 쿼리에서도 걸러 낸다. `isArticleMaterial`이 순수 함수 쪽에서 같은 조건을 다시 확인하므로
    * **이중 방어**다 — 한쪽이 느슨해져도 다른 한쪽이 남는다. `injection-suspect` 레코드가
    * 발행물의 재료가 되는 것은 조용히 일어나면 되돌릴 수 없는 종류의 사고다(NFR-05).
+   *
+   * **두 겹은 값이 아니라 시점으로 갈린다.** 이 절은 플래그가 붙은 레코드의 제목·태그가
+   * 배치의 작업 집합에 **적재되는 것 자체**를 막고(§7의 격리), 순수 함수는 적재된 것 중에서
+   * 후보 소스를 고른다. 그래서 순수 함수는 이 절의 성질을 대신 만들어 줄 수 없다 —
+   * `article-batch.int.spec.ts`의 "재료 집합에 적재되지도 않는다"가 `materialCount`로
+   * 그 성질만 따로 관측한다(T-044: 이 절을 지우는 뮤턴트가 전건 통과했었다).
    */
   const documents = (await db
     .collection("records")

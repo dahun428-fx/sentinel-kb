@@ -184,6 +184,29 @@ describe("renderSearchHits — NFR-03 토큰 예산", () => {
     );
   });
 
+  /**
+   * **문자 상한(`TITLE_MAX_CHARS`·`SUMMARY_MAX_CHARS`)만 따로 관측한다.** 예산을 병리적으로
+   * 크게 줘서 토큰 예산도 하드 클램프도 아무것도 자르지 않는 상태를 만든다 — 그 상태에서
+   * 남는 절단은 문자 상한 하나뿐이다. (T-044 감사: 80→8000 뮤턴트가 전건 통과했다.)
+   *
+   * 이 단언이 잠그는 성질은 **예산이 아니라 유한성**이다: 예산이 얼마든, 문자 조성이
+   * 무엇이든 한 결과가 렌더러에 들이미는 산문은 `80 + 200` 코드포인트를 넘지 못한다.
+   * NFR-03 예산 자체는 이 상한이 아니라 하드 클램프가 지킨다(바로 위 테스트) —
+   * `format.ts`의 상한 주석도 그 사실에 맞게 고쳤다(T-044).
+   */
+  it("예산이 남아돌아도 한 결과의 제목·요약은 문자 상한에서 잘린다", () => {
+    const [meta, title, summary, ...rest] = renderSearchHits(
+      [hit({ title: KOREAN.repeat(3000), summary: KOREAN.repeat(3000) })],
+      1_000_000,
+    ).split("\n");
+
+    expect(meta).toContain("68f0c4a1b2c3d4e5f6a7b8c9");
+    expect(rest).toEqual([]);
+    // 코드포인트로 센다 — `String.length`는 비BMP를 두 번 센다.
+    expect(Array.from(title ?? "")).toHaveLength(80);
+    expect(Array.from(summary ?? "")).toHaveLength(200);
+  });
+
   it("시드 평균 수준의 결과 3건에서 recordId가 전부 살아남는다", () => {
     const ids = [
       "68f0c4a1b2c3d4e5f6a7b8c9",
