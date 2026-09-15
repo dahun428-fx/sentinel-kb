@@ -73,6 +73,36 @@ function variableLengthFrom(
 /** 명백한 자리표시자 표기(`xxx`, `***`, `...`)는 시크릿이 아니므로 표본에서 뺀다. */
 const PLACEHOLDER_LITERAL_RE = /^[*x·.\-_]+$/i;
 
+/**
+ * 성능 회귀 단언의 계수 (T-045). 자세한 근거는 해당 테스트의 주석에 있다.
+ *
+ * 같은 총 바이트를 `CHUNK_COUNT`조각으로 처리한 CPU 시간 대비 한 덩어리로 처리한 CPU 시간의
+ * 비를 본다. 선형이면 1배, 입력 길이에 이차면 `CHUNK_COUNT`배다.
+ */
+const CHUNK_COUNT = 16;
+/** 라운드마다 두 측정을 번갈아 재고 각각의 최소값을 쓴다. 운 나쁜 라운드를 버리기 위함. */
+const MEASURE_ROUNDS = 3;
+/** 이차(16배)의 절반. 현재 최악(`Bearer ` 런, 16배 오버서브스크립션 실측 5.1배)과 이차 사이. */
+const MAX_SUPERLINEAR_GROWTH = 8;
+
+/**
+ * **벽시계가 아니라 CPU 시간을 잰다** (T-045).
+ *
+ * `performance.now()`는 "이 블록이 끝날 때까지 세상이 얼마나 흘렀나"를 재므로, 다른 워커에게
+ * 코어를 뺏긴 시간이 그대로 더해진다. 실측: 고병렬 실행에서 같은 코드의 벽시계 비가
+ * 2.83 ~ 26.28배로 요동쳤다(같은 조건 CPU 비는 3.68 ~ 5.06). 선점은 **알고리즘의 성질이
+ * 아니라 스케줄러의 사정**이라, 그것까지 세는 계기로는 복잡도를 판정할 수 없다.
+ *
+ * `process.cpuUsage()`는 이 프로세스가 **실제로 CPU 위에서 돈 시간**만 센다(µs).
+ * 뺏긴 시간은 청구되지 않으므로 옆에서 무엇이 돌든 값이 유지된다.
+ */
+function cpuMicros(work: () => void): number {
+  const started = process.cpuUsage();
+  work();
+  const spent = process.cpuUsage(started);
+  return spent.user + spent.system;
+}
+
 /** AWS 액세스 키 ID: AKIA|ASIA + 16자 대문자·숫자. */
 const awsAccessKeyArb: fc.Arbitrary<string> = fc
   .tuple(fc.constantFrom("AKIA", "ASIA"), fixedLengthFrom(UPPER_ALNUM, 16))
@@ -705,54 +735,102 @@ describe("sanitize — 프로퍼티: 불변식", () => {
    * 실측으로 확인된 최악의 모양이다.
    *
    * 겹침 해소의 이차 곡선은 알고리즘이 아니라 이 상한으로 막는다 — 상한 안에서는 최악이
-   * 58ms다. 상한 500ms는 CI 머신 편차를 흡수하려는 값이지 성능 목표가 아니다.
+   * 58ms다. 다만 **그 58ms를 단언에 적지는 않는다**. 이유는 아래에 적는다.
    *
-   * ## 워밍 후 최소값을 재는 이유 (간헐 실패 수정)
+   * ## 왜 절대 ms로 재지 않는가 (T-045)
    *
-   * 단발·콜드 측정은 `pnpm verify` 전체 실행에서 **20여 번에 한 번 거짓 실패**했다.
-   * 실측: `expected 635.4125000000004 to be less than 500`.
-   * 원인은 코드가 아니라 **계기**다. 두 가지가 겹쳤다:
+   * 이 단언은 원래 `expect(best).toBeLessThan(500)`이었다. 워밍 2회 + 3회 최소값으로
+   * 경화했는데도 고병렬 실행에서 **41회 중 1회** 거짓 실패했다(실측 889.7ms).
    *
-   * 1. **JIT 컴파일이 측정에 섞였다.** `Bearer ` 런 연속 8회 실측:
-   *    `179, 163, 60, 57, 57, 55, 56, 57 ms` — 처음 두 번이 3배다.
-   *    바로 위 문단의 **"최악 58ms"가 정상상태 수치**이고, 이 테스트가 지키려는 불변식
-   *    (겹침 해소가 이차가 아니다)도 정상상태의 성질이다. 콜드를 재면 알고리즘 비용이 아니라
-   *    **컴파일 비용**을 재게 된다.
-   * 2. **병렬 실행의 CPU 경쟁.** vitest가 파일을 병렬로 돌리므로 다른 워커와 코어를 다툰다.
+   * 임계값을 올리는 것은 오답이다. **문제는 값이 아니라 단위다.** 이 테스트가 지키려는
+   * 불변식은 "선형 시간"인데, 밀리초는 선형성의 단위가 아니라 **이 머신이 지금 얼마나
+   * 바쁜지의 단위**다. 그래서 알고리즘이 그대로여도 옆 워커가 코어를 가져가면 실패하고,
+   * 반대로 빠른 머신에서는 이차 곡선 회귀가 들어와도 500ms 안에 들어와 **통과한다.**
+   * 재는 대상과 단언이 어긋나 있었다.
    *
-   * 그래서 입력마다 **워밍 2회 후 3회 중 최소**를 취한다. 임계값은 **그대로 500ms**다.
-   * 정상상태 57ms 대비 8.8배 여유라, 부하가 섞여도 흔들리지 않는다(콜드 단발은 2.7배였다).
+   * 지금은 **같은 일을 두 모양으로 시켜 그 비**를 본다: 같은 총 바이트를
+   * (a) `CHUNK_COUNT`조각으로 나눠 처리한 비용과 (b) 한 덩어리로 처리한 비용.
+   *   - 비용이 입력 길이에 **선형**이면 둘은 같다 → 비율 ≈ 1
+   *   - 길이에 **이차**면 한 덩어리 쪽이 `CHUNK_COUNT`배 비싸다 → 비율 ≈ 16
+   * 비율이므로 머신 속도가 약분되고, 단위가 **CPU 시간**이라 선점도 약분된다(`cpuMicros` 참조).
    *
-   * **기대값을 낮춘 것이 아니라 재는 대상을 정확히 한 것이다** — 이차 곡선 회귀가 나면
-   * 워밍 후에도 세 번 다 느리므로 최소값이 임계를 넘는다. 잡으려는 것(F-11/F-14)은 그대로 잡힌다.
+   * 실측(16배 오버서브스크립션 부하 포함, 6회): 선형 입력 세 종 0.86~1.06,
+   * `Bearer ` 런만 3.29~5.06. `Bearer `가 1보다 큰 것은 알려진 성질이다 — 겹침 해소와
+   * 치환 문자열 재조립이 세그먼트 수에 이차라서(T-004 F-11), 상한으로 막아 둔 그 곡선이다.
    *
-   * 거짓 실패를 남겨 두는 쪽이 더 나쁘다. 20번에 한 번 우는 경보기는 사람들이 재실행으로
-   * 넘기는 법을 배우게 만들고, 그러면 **진짜 실패도 같이 넘어간다.**
+   * 임계값 8은 "이차의 절반"이다. 이차 회귀(16)와 현재 최악(5.06) 사이 로그 중간쯤이라
+   * 양쪽으로 여유가 있다. **뮤테이션으로 확인했다**: `applyMasking`에 입력 길이에 이차인
+   * 비용을 심으면 이 단언이 죽는다 — 그것도 **옛 500ms 임계는 통과하는 크기**에서 죽는다
+   * (실측: 이차항이 지배하기 시작한 지점에서 절대값은 240~300ms, 비율은 8을 넘겼다).
+   * 즉 계기를 바꾸면서 민감도를 잃은 것이 아니라 **더 얻었다.**
+   *
+   * 참고: 크기가 `DEFAULT_MAX_INPUT_CHARS`에 묶여 있어도 이 단언은 더 이상 그 상수의
+   * **값**을 고정하지 않는다(양쪽 크기가 같이 움직여 비율이 유지된다). 그 상수의 행동
+   * 앵커는 T-043이 따로 세운다.
    */
-  it("상한 크기 입력을 이메일 마스킹까지 켜고 선형 시간에 처리한다", () => {
-    const size = DEFAULT_MAX_INPUT_CHARS;
-    const inputs = [
-      "Bearer ".repeat(Math.ceil(size / 7)).slice(0, size),
-      "a.b_c-d%e+f".repeat(Math.ceil(size / 11)).slice(0, size),
-      `${"x".repeat(size / 2)}@${"y".repeat(200)} ${"aB3/+=".repeat(8000)}`.slice(0, size),
-      "0123456789abcdef".repeat(size / 16),
-    ];
+  it(
+    "상한 크기 입력을 이메일 마스킹까지 켜고 선형 시간에 처리한다",
+    () => {
+      const size = DEFAULT_MAX_INPUT_CHARS;
+      /**
+       * 같은 모양을 두 크기로 찍어낸다 — 조각 하나와 전체. 한 덩어리를 잘라 쓰지 않는 이유는
+       * 조각도 **그 자체로 완결된 최악 모양**이어야 하기 때문이다. 잘라 쓰면 조각 경계가
+       * 시크릿을 반토막 내 규칙이 무발동하고, 그러면 싼 쪽을 재게 된다.
+       */
+      const shapes = [
+        { name: "Bearer 런", of: (n: number) => "Bearer ".repeat(Math.ceil(n / 7)).slice(0, n) },
+        { name: "이메일 유사", of: (n: number) => "a.b_c-d%e+f".repeat(Math.ceil(n / 11)).slice(0, n) },
+        {
+          name: "거대 로컬파트",
+          of: (n: number) =>
+            `${"x".repeat(n / 2)}@${"y".repeat(200)} ${"aB3/+=".repeat(8000)}`.slice(0, n),
+        },
+        { name: "hex 런", of: (n: number) => "0123456789abcdef".repeat(n / 16) },
+      ] as const;
 
-    for (const input of inputs) {
-      // 워밍 — 재려는 것은 정상상태 알고리즘 비용이지 JIT 컴파일 비용이 아니다.
-      sanitize(input, { maskEmail: true });
-      sanitize(input, { maskEmail: true });
+      for (const { name, of: build } of shapes) {
+        const big = build(size);
+        const small = build(size / CHUNK_COUNT);
 
-      let best = Number.POSITIVE_INFINITY;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const startedAt = performance.now();
-        sanitize(input, { maskEmail: true });
-        best = Math.min(best, performance.now() - startedAt);
+        // 워밍 — 재려는 것은 정상상태 알고리즘 비용이지 JIT 컴파일 비용이 아니다.
+        for (let k = 0; k < CHUNK_COUNT; k += 1) sanitize(small, { maskEmail: true });
+        sanitize(big, { maskEmail: true });
+
+        let bestChunked = Number.POSITIVE_INFINITY;
+        let bestWhole = Number.POSITIVE_INFINITY;
+        // 두 측정을 라운드마다 번갈아 둔다 — 같은 부하 구간을 함께 지나므로 경합이
+        // 한쪽에만 얹히지 않는다. 각각 최소값을 취해 운 나쁜 라운드를 버린다.
+        for (let round = 0; round < MEASURE_ROUNDS; round += 1) {
+          bestChunked = Math.min(
+            bestChunked,
+            cpuMicros(() => {
+              for (let k = 0; k < CHUNK_COUNT; k += 1) sanitize(small, { maskEmail: true });
+            }),
+          );
+          bestWhole = Math.min(
+            bestWhole,
+            cpuMicros(() => {
+              sanitize(big, { maskEmail: true });
+            }),
+          );
+        }
+
+        const growth = bestWhole / bestChunked;
+        expect(
+          growth,
+          `${name}: 같은 ${size}바이트를 한 덩어리로 처리할 때 ${CHUNK_COUNT}조각 대비 ` +
+            `CPU 시간이 ${growth.toFixed(2)}배 들었다 (이차면 ${CHUNK_COUNT}배, 선형이면 1배)`,
+        ).toBeLessThan(MAX_SUPERLINEAR_GROWTH);
       }
-
-      expect(best).toBeLessThan(500);
-    }
-  });
+    },
+    /**
+     * 이 테스트만 타임아웃을 명시한다 — 유닛 계층의 기본 5초는 그대로 둔다(T-045).
+     * 여기는 단언 하나를 위해 상한 크기 입력을 수십 번 처리하는 **벤치마크**라
+     * 단독으로도 1초대이고 부하에서는 2초대다. 무한 대기를 감추지도 않는다:
+     * ReDoS 회귀는 **동기** 블록이라 어떤 타임아웃도 끊지 못하고, 결국 위 비율 단언이 잡는다.
+     */
+    30_000,
+  );
 
   /**
    * 상한을 넘긴 입력은 **자르지 않고 던진다.** 조용히 자르면 잘려나간 부분의 시크릿을

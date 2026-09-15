@@ -84,7 +84,16 @@ for arg in "$@"; do
 done
 
 case "$sub" in
-  login) exit 0;;
+  login)
+    # **stdin 을 끝까지 읽고 끝낸다.** deploy.sh 의 ecr_login 은
+    # \`aws ecr get-login-password | docker login --password-stdin\` 파이프라인이다.
+    # 뒷단이 stdin 을 안 읽고 먼저 exit 하면 앞단 aws 가 SIGPIPE(141)로 죽고,
+    # deploy.sh 의 \`set -o pipefail\` 이 그것을 **배포 실패**로 읽는다.
+    # 누가 먼저 끝나느냐의 경합이라 한가할 땐 거의 안 나고 부하에서 터진다 —
+    # 실측: 무부하 0/300, 버너 12개 부하에서 **108/300(36%)**. stdin 을 소비하면 0/300.
+    # 진짜 docker 는 stdin 을 읽으므로 이건 스텁이 실물보다 게을러서 생긴 거짓 실패다.
+    cat >/dev/null
+    exit 0;;
   pull)  exit 0;;
   run)
     # ensure_certificate 의 존재 확인 probe. CERT_PRESENT 로 제어한다.
@@ -112,6 +121,20 @@ echo "curl $*" >> "$STUB_LOG"
 case ",\${FAIL_TAGS:-}," in *",\${IMAGE_TAG:-},"*) exit 22;; esac
 exit 0
 `;
+
+/**
+ * 자식 프로세스 타임아웃 (T-045).
+ *
+ * `execFileSync`는 **동기**라 vitest의 `testTimeout`이 이걸 끊지 못한다 — 타이머 콜백은
+ * 동기 블록이 끝난 뒤에야 돌기 때문에, deploy.sh가 매달리면 워커째로 매달린다.
+ * 그러니 실질적인 매달림 가드는 이 인자뿐이고, 없으면 vitest는 "이미 끝난 테스트가
+ * 5초를 넘었다"고 **사후 보고**만 한다(감사 실측에서 본 실패가 그 모양이었다).
+ *
+ * 20초는 프로젝트 타임아웃(30초)보다 낮게 둔다. 그래야 매달림이 vitest의 뭉뚱그린
+ * 타임아웃이 아니라 **"deploy.sh가 SIGTERM으로 죽었다"**는 구체적 신호로 나온다.
+ * 정상 실행은 단독 0.4초급이라 50배 여유다.
+ */
+const DEPLOY_TIMEOUT_MS = 20_000;
 
 interface RunResult {
   readonly code: number;
@@ -172,6 +195,7 @@ function deploy(
     output = execFileSync("bash", [join(state, "deploy.sh")], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: DEPLOY_TIMEOUT_MS,
       env: {
         ...process.env,
         PATH: `${join(sandbox, "bin")}:${process.env["PATH"] ?? ""}`,
@@ -191,9 +215,22 @@ function deploy(
       },
     });
   } catch (error: unknown) {
-    const failure = error as { status?: number; stdout?: string; stderr?: string };
+    const failure = error as {
+      status?: number;
+      stdout?: string;
+      stderr?: string;
+      // 정상 종료(0이 아닌 코드)에서는 **null**이다. 시그널로 죽었을 때만 문자열이 온다 —
+      // `undefined` 검사로 가르면 모든 실패에 아래 문구가 붙어 진단이 오염된다.
+      signal?: string | null;
+    };
     code = failure.status ?? -1;
-    output = `${failure.stdout ?? ""}${failure.stderr ?? ""}`;
+    // 시그널 종료는 deploy.sh의 판정이 아니라 **하네스가 죽인 것**이다. 구분해 두지 않으면
+    // 타임아웃이 "롤백이 안 됐다"는 가짜 진단으로 둔갑한다.
+    const killed =
+      typeof failure.signal === "string"
+        ? `\n[하네스] deploy.sh가 ${failure.signal}로 종료됐다 — ${DEPLOY_TIMEOUT_MS}ms 타임아웃 의심`
+        : "";
+    output = `${failure.stdout ?? ""}${failure.stderr ?? ""}${killed}`;
   }
 
   let lastGood: string | null = null;
@@ -271,6 +308,7 @@ describe("배포 성공 경로 (T-027)", () => {
     try {
       output = execFileSync("bash", [join(state, "deploy.sh")], {
         encoding: "utf8",
+        timeout: DEPLOY_TIMEOUT_MS,
         env: {
           ...process.env,
           PATH: `${bin}:${process.env["PATH"] ?? ""}`,
@@ -387,6 +425,8 @@ describe("인증서 확보 순서 (T-026 F-2 / T-027)", () => {
       join(bin, "docker"),
       `#!/usr/bin/env bash
 echo "docker $*" >> "$STUB_LOG"
+# 위 DOCKER_STUB 과 같은 이유로 login 은 stdin 을 소비해야 한다(SIGPIPE 경합).
+if [ "\${1:-}" = "login" ]; then cat >/dev/null; exit 0; fi
 case "$*" in
   *"--entrypoint sh certbot-init"*) exit 1;;
   *"run --rm certbot-init"*) echo "certbot 발급" >&2; exit 0;;

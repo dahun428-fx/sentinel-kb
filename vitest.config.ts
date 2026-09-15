@@ -34,6 +34,17 @@ export default defineConfig({
             "eval/**/*.spec.ts",
           ],
           exclude: ["**/*.int.spec.ts", "**/node_modules/**", "**/dist/**"],
+          /**
+           * 유닛 계층의 기본 타임아웃은 **5초 그대로**다 (T-045). 늘리면 무한 대기가
+           * 느린 테스트로 위장한다. 다만 이 프로젝트에는 실 프로세스를 띄우는 파일이
+           * 섞여 있어, setup 파일이 **그 파일들만** 골라 여유를 준다.
+           *
+           * 두 값은 vitest 기본값과 **같다.** 바꾸지 않았다는 사실을 파일에 적어 두는 것이
+           * 목적이다 — 그래야 아래 integration의 30초가 "왜 여기만 다른가"로 읽힌다.
+           */
+          testTimeout: 5_000,
+          hookTimeout: 10_000,
+          setupFiles: ["./vitest.timeouts.setup.ts"],
         },
       },
       {
@@ -47,6 +58,19 @@ export default defineConfig({
           ],
           exclude: ["**/node_modules/**", "**/dist/**"],
           passWithNoTests: true,
+          /**
+           * integration은 **전부** 바깥 프로세스에 의존한다 — mongodb-memory-server 기동,
+           * docker compose 파싱, `bash infra/deploy/deploy.sh` 실행. 기본 5초는 이 계층에
+           * 맞지 않는다: `deploy-rollback.int.spec.ts`는 단독 0.4초인데 고병렬에서 5초를
+           * 넘겨 실패했다(감사 실측 41회 중 2회). 12배 여유를 CPU 경합이 먹은 것이므로
+           * 코드가 아니라 경계값이 틀린 쪽이다.
+           *
+           * 30초는 "정상 상한"이 아니라 **매달림 판정선**이다. 실제 무한 대기는 여전히
+           * 30초에 잡히고, 동기 자식 프로세스는 vitest가 끊지 못하므로 각 테스트가
+           * `execFileSync`/`spawnSync`에 자기 타임아웃을 따로 건다.
+           */
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
         },
       },
     ],
