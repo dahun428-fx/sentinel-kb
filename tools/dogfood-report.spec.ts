@@ -190,6 +190,24 @@ describe("buildDogfoodReport", () => {
     expect(report.hits.recordIds).toEqual(["w34a"]);
   });
 
+  /**
+   * **리터럴 계약 앵커** (T-043).
+   *
+   * 아래 테스트들은 `TARGET_RECORDS_4W`를 기대값으로 쓰는데, 좌변도 그 상수만큼 도는
+   * 루프(`for (let i = 0; i < TARGET_RECORDS_4W; ...)`)에서 나온다 — 자기충족 루프라
+   * 값을 옮겨도 죽지 않는다. 실측(T-043): 30→25 뮤턴트의 유일한 killer는
+   * `tools/harvest-docs.spec.ts:161`의 **specs/00 문서 거울 대조**였다.
+   * 문서 거울은 스펙 개정에 사람 승인이 붙어 `.env.example`보다 낫지만, 그래도
+   * "좌변이 픽스처 실수치"라는 T-041의 근거는 사실이 아니었다.
+   *
+   * 값의 근거: specs/00 성공 지표 "도그푸딩 실기록 (4주) | >= 30건, 적중 >= 5건".
+   * (`TARGET_HITS_4W`는 이 태스크의 대상이 아니라 건드리지 않는다 — 지금은 거울 대조만
+   * 있는 상수라 새 래칫 `mirrorOnlyBehaviourallyAnchored`의 실물 표본이기도 하다.)
+   */
+  it("4주 목표 기록 수가 리터럴 30건이다 (specs/00 성공 지표)", () => {
+    expect(TARGET_RECORDS_4W).toBe(30);
+  });
+
   it("4주 누적을 specs/00 목표에 대고 판정한다", () => {
     expect(report.trailing4Weeks.weeks).toEqual(["2026-W31", "2026-W32", "2026-W33", "2026-W34"]);
     // 33주 1건 + 34주 3건. 30주(w30a)와 35주(w35a)는 창 밖이다.

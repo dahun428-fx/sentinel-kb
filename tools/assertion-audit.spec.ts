@@ -13,6 +13,8 @@ import {
   LITERAL_ANCHOR_REQUIRED,
   SYMBOLIC_CONSTANTS,
   doublyClassifiedConstants,
+  mirrorOnlyBehaviourallyAnchored,
+  mirrorOnlyConstants,
   missingLiteralAnchors,
   scanImportedConstantAssertions,
   unclassifiedConstants,
@@ -35,6 +37,45 @@ describe("자기충족 단언 스캐너", () => {
       ),
     );
     expect(fromFixtures).toEqual([]);
+  });
+});
+
+/**
+ * T-043: `{상수, 그 상수의 문서 거울}` 쌍.
+ *
+ * 스캐너가 `toContain`/템플릿 보간 형태를 **거울 대조**로 따로 세고, 거울밖에 없는 상수를
+ * "행동으로 잠김"이라 주장하면 래칫이 막는다. T-041 레지스트리의 거짓 근거 다섯 중 둘이
+ * 정확히 이 착각이었다(`RETRIEVAL_DEFAULTS`는 `.env.example` 거울, `TARGET_RECORDS_4W`는
+ * specs/00 거울이 유일한 killer였다).
+ */
+describe("거울 대조 스캔 (T-043)", () => {
+  it("맨 식별자가 아닌 보간 형태를 잡는다 — T-041 스캐너의 사각지대", () => {
+    const byName = new Map(findings.map((finding) => [finding.constant, finding]));
+
+    // `expect(envExample).toContain(`\n${name}=${String(value)}\n`)` — 루프 변수로 갈아탔다.
+    const retrieval = byName.get("RETRIEVAL_DEFAULTS");
+    expect(retrieval?.mirrorSites.map((site) => site.file)).toContain(
+      "packages/core/src/retriever/config.spec.ts",
+    );
+
+    // `expect(target).toContain(String(TARGET_RECORDS_4W))` — 직접 보간.
+    const target = byName.get("TARGET_RECORDS_4W");
+    expect(target?.mirrorSites.map((site) => site.file)).toContain("tools/harvest-docs.spec.ts");
+  });
+
+  it("거울 전용 상수가 실재한다 — 0건이면 이 래칫이 공허하다", () => {
+    // 지금 레포에는 문서 거울로만 확인되는 상수가 여럿 있다(`TARGET_HITS_4W` 등).
+    expect(mirrorOnlyConstants(findings).length).toBeGreaterThan(0);
+    expect(mirrorOnlyConstants(findings)).toContain("TARGET_HITS_4W");
+  });
+
+  it("거울 대조만 있는 상수는 '행동으로 잠김'이 아니다", () => {
+    /*
+     * 깨졌다면: 여기 나온 상수의 근거가 **거짓**이다. 좌변이 문서고 우변이 상수라,
+     * 상수와 문서를 같은 커밋에서 옮기면 스위트가 그대로 초록이 된다.
+     * `LITERAL_ANCHOR_REQUIRED`로 옮기고 리터럴 앵커를 달아라.
+     */
+    expect(mirrorOnlyBehaviourallyAnchored(findings)).toEqual([]);
   });
 });
 

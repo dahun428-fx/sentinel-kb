@@ -76,6 +76,16 @@ describe("readDbConfig", () => {
   });
 
   it("서버 선택 타임아웃은 기본 5000ms이고 env로 덮어쓸 수 있다", () => {
+    /*
+     * **리터럴 계약 앵커** (T-043). 이 테스트의 **이름**은 5000ms를 말하는데 단언은 그 값을
+     * 보지 않았다 — 양변이 같은 상수에서 나와 자기충족이었다. 실측(T-043): 5000→8000 뮤턴트를
+     * `.env.example`의 `MONGODB_SERVER_SELECTION_TIMEOUT_MS`와 함께 넣어도 유닛 스위트가
+     * **전건 통과**했다. 아래 한 줄이 테스트 이름을 참으로 만든다.
+     *
+     * 값의 근거: 스펙이 숫자를 정하지 않았다. T-003이 고른 폴백이고 `.env.example`이 같은 값을
+     * 적는다. 운영값은 env로 덮어쓰므로(아래 250ms 단언) 이 앵커가 튜닝을 막지 않는다.
+     */
+    expect(DEFAULT_SERVER_SELECTION_TIMEOUT_MS).toBe(5000);
     expect(readDbConfig(envWithout()).serverSelectionTimeoutMS).toBe(
       DEFAULT_SERVER_SELECTION_TIMEOUT_MS,
     );
