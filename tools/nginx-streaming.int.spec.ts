@@ -164,13 +164,6 @@ async function startNginx(containerName: string, upstreams: string): Promise<Har
   const upstreamsPath = join(dir, "00-upstreams.conf");
   writeFileSync(upstreamsPath, upstreams);
 
-  // T-042: `location /`이 basic 인증을 요구하므로 자격증명 파일이 있어야 한다. 없으면
-  // nginx는 `/`에 401이 아니라 **500**을 낸다 — 열리는 게 아니라 닫힌다(의도된 실패 방향).
-  // compose가 거는 것과 **같은 컨테이너 경로**에 건다. 경로가 갈라지면 이 하네스는
-  // 배포되지 않는 설정을 검증하게 된다.
-  const htpasswdPath = join(dir, "htpasswd");
-  writeFileSync(htpasswdPath, htpasswdLine(WEB_AUTH_USER, WEB_AUTH_PASSWORD));
-
   docker(["rm", "-f", containerName]);
   const run = docker([
     "run",
@@ -181,12 +174,16 @@ async function startNginx(containerName: string, upstreams: string): Promise<Har
     "--add-host=host.docker.internal:host-gateway",
     "-e",
     "NGINX_MODE=dev",
+    // T-042: `location /`이 basic 인증을 요구한다. 자격증명은 compose와 **같은 경로**로
+    // 넣는다 — base64 env를 `10-render-htpasswd.sh`가 기동 시 디코딩해 파일로 쓴다.
+    // 파일을 직접 마운트해 버리면 이 하네스는 렌더 단계를 건너뛴 설정을 검증하게 되고,
+    // 그 단계가 깨져도 초록으로 남는다.
+    "-e",
+    `WEB_HTPASSWD_B64=${Buffer.from(htpasswdLine(WEB_AUTH_USER, WEB_AUTH_PASSWORD)).toString("base64")}`,
     "-p",
     "0:80",
     "-v",
     `${upstreamsPath}:/etc/nginx/conf.d/00-upstreams.conf:ro`,
-    "-v",
-    `${htpasswdPath}:/etc/nginx/secrets/htpasswd:ro`,
     IMAGE_TAG,
   ]);
   if (run.status !== 0) throw new Error(`nginx 기동 실패:\n${run.stderr}`);
@@ -299,6 +296,19 @@ describe.skipIf(!HAS_DOCKER)("SSE 스트리밍이 nginx를 청크 단위로 통�
     for (const snippet of ["routes.conf", "proxy-common.conf", "proxy-streaming.conf"]) {
       expect(result.stdout, `${snippet}이 로드되지 않았다`).toContain(snippet);
     }
+  }, 60_000);
+
+  /**
+   * 유닛(`nginx-contract.spec.ts`)은 렌더 스크립트를 호스트 sh로 돌린다. 여기서는
+   * **실물 이미지 안에서** 같은 일이 일어났는지를 컨테이너 로그로 확인한다 — 베이스
+   * 이미지에 base64가 없거나 엔트리포인트 순서가 뒤집히면 여기서만 드러난다.
+   */
+  it("실물 이미지에서 base64 자격증명이 파일로 렌더됐다 (T-042)", () => {
+    const logs = docker(["logs", "sentinel-kb-t026-nginx-sse"]);
+    const output = logs.stdout + logs.stderr;
+    expect(output, "htpasswd 렌더 단계가 돌지 않았다").toContain("htpasswd 렌더 완료");
+    // 컨테이너 로그는 CloudWatch로 간다(specs/06 관측 행). 자격증명이 거기 남으면 안 된다.
+    expect(output, "자격증명이 컨테이너 로그에 남았다").not.toContain(WEB_AUTH_PASSWORD);
   }, 60_000);
 
   /**

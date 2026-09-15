@@ -35,9 +35,10 @@ const FIXTURE_ENV: Record<string, string> = {
   IMAGE_TAG: "test-tag",
   DOMAIN_NAME: "kb.example.com",
   CERTBOT_EMAIL: "ops@example.com",
-  // web 표면 basic 인증 htpasswd의 **호스트 경로**다 (T-042). 값은 경로일 뿐 자격증명이
-  // 아니다. 실값 판정은 `nginx-contract.spec.ts`가 docker 없이 한다.
-  WEB_BASIC_AUTH_FILE: "./secrets/nginx-htpasswd",
+  // web 표면 basic 인증 자격증명을 base64한 값 (T-042). **실제 시크릿이 아니다** —
+  // `fixture:{SHA}not-a-real-hash\n`를 감싼 더미다. 디코딩·78 가드 판정은
+  // `nginx-contract.spec.ts`가 docker 없이 스크립트를 실제로 돌려서 한다.
+  WEB_HTPASSWD_B64: Buffer.from("fixture:{SHA}not-a-real-hash\n").toString("base64"),
 };
 
 function writeEnvFile(overrides: Record<string, string | null> = {}): string {
@@ -67,12 +68,6 @@ interface ComposeService {
   readonly healthcheck?: { readonly test?: readonly string[] };
   readonly image?: string;
   readonly ports?: readonly { readonly published?: string; readonly target?: number }[];
-  readonly volumes?: readonly {
-    readonly type?: string;
-    readonly source?: string;
-    readonly target?: string;
-    readonly read_only?: boolean;
-  }[];
 }
 
 interface ComposeConfig {
@@ -152,20 +147,30 @@ describe.skipIf(!HAS_DOCKER)("compose 베이스 계약 (T-026)", () => {
    * `nginx-contract.spec.ts`가 하고(그쪽이 docker 없이도 돈다), 여기서는 compose가
    * 그 문자열을 마운트로 해소하는지를 본다.
    */
-  it("nginx가 htpasswd를 읽기 전용으로 마운트한다", () => {
-    const mount = (service("nginx").volumes ?? []).find(
-      (volume) => volume.target === "/etc/nginx/secrets/htpasswd",
-    );
-    expect(mount, "nginx에 htpasswd 마운트가 없다 — `/`가 500으로 죽는다").toBeDefined();
-    expect(mount?.type).toBe("bind");
-    expect(mount?.read_only, "htpasswd가 쓰기 가능하게 걸렸다").toBe(true);
+  it("nginx가 자격증명을 base64 env로 **해소된 값**으로 받는다", () => {
+    const value = service("nginx").environment?.["WEB_HTPASSWD_B64"];
+    expect(value, "nginx에 WEB_HTPASSWD_B64가 없다 — `/`가 자격증명 없이 뜬다").toBeTruthy();
+    // compose가 앵커·기본값을 잘못 해소해 변수 표현이 그대로 남는 경우를 잡는다.
+    expect(value).not.toContain("${");
   });
 
-  it("WEB_BASIC_AUTH_FILE이 없으면 `compose config`가 **거절한다**", () => {
+  it("nginx **말고는** 자격증명을 받지 않는다 (시크릿 확산 금지)", () => {
+    // 인증은 프록시 층에서 끝난다. 다른 컨테이너가 이 값을 들고 있을 이유가 없고,
+    // 들고 있으면 유출 표면만 넓어진다.
+    for (const [name, svc] of Object.entries(resolved.services)) {
+      if (name === "nginx") continue;
+      expect(
+        svc.environment?.["WEB_HTPASSWD_B64"],
+        `${name}이 web 자격증명을 받는다`,
+      ).toBeUndefined();
+    }
+  });
+
+  it("WEB_HTPASSWD_B64가 없으면 `compose config`가 **거절한다**", () => {
     // 조용한 기본값이 있으면 web이 열린 채로 뜬다. 열린 채 뜨는 것보다 뜨지 않는 게 낫다.
-    const result = runComposeConfig(BASE, writeEnvFile({ WEB_BASIC_AUTH_FILE: null }));
-    expect(result.status, "htpasswd 경로 없이도 설정이 해소됐다").not.toBe(0);
-    expect(result.stderr).toContain("WEB_BASIC_AUTH_FILE");
+    const result = runComposeConfig(BASE, writeEnvFile({ WEB_HTPASSWD_B64: null }));
+    expect(result.status, "자격증명 없이도 설정이 해소됐다").not.toBe(0);
+    expect(result.stderr).toContain("WEB_HTPASSWD_B64");
   });
 
   // ================================================ 인계 9: 인덱스 부트스트랩 순서
@@ -296,15 +301,15 @@ describe.skipIf(!HAS_DOCKER)("compose 프로덕션 오버레이 (T-026, specs/06
   });
 
   /**
-   * 오버레이의 `volumes:`가 베이스의 htpasswd 바인드를 **밀어내지 않는지** 본다 (T-042).
-   * compose는 volumes를 컨테이너 경로 기준으로 병합하지만, 그 규칙에 기대는 것과
-   * 기계로 확인하는 것은 다르다 — 밀려나면 프로덕션 web이 열린 게 아니라 500이 되고,
-   * 그건 배포 후에야 드러난다.
+   * 오버레이의 `environment:`가 베이스의 자격증명을 **밀어내지 않는지** 본다 (T-042).
+   * compose는 environment를 키 기준으로 병합하지만, 그 규칙에 기대는 것과 기계로
+   * 확인하는 것은 다르다 — 밀려나면 프로덕션 nginx가 기동 시 78로 죽고,
+   * 그건 배포 마지막 단계에서야 드러난다.
    */
-  it("prod 오버레이에서도 htpasswd 마운트가 살아남는다 (인증서 볼륨과 공존)", () => {
-    const targets = (service("nginx").volumes ?? []).map((volume) => volume.target);
-    expect(targets).toContain("/etc/nginx/secrets/htpasswd");
-    expect(targets).toContain("/etc/letsencrypt");
+  it("prod 오버레이에서도 자격증명이 살아남는다 (NGINX_MODE·DOMAIN_NAME과 공존)", () => {
+    const env = service("nginx").environment ?? {};
+    expect(env["WEB_HTPASSWD_B64"]).toBeTruthy();
+    expect(env["NGINX_MODE"]).toBe("prod");
   });
 
   it("nginx가 prod 모드로 뜨고 도메인을 받는다", () => {

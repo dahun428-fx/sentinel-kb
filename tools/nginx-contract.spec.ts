@@ -13,7 +13,9 @@
  * docker가 필요 없는 **정적** 판정만 여기 있다. 실제 동작(스트리밍이 청크로 도달하는가)은
  * `nginx-streaming.int.spec.ts`가, compose가 해소한 값은 `compose-contract.int.spec.ts`가 본다.
  */
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -451,25 +453,22 @@ describe("web 표면이 인증 뒤에 있다 (T-042, specs/00 NFR-04)", () => {
     expect(dockerfileNginx, "nginx 이미지가 자격증명을 굽는다").not.toMatch(/secrets/);
   });
 
-  it("compose가 호스트 경로를 env 참조로 받고 **읽기 전용**으로 건다", () => {
-    expect(composeYml).toMatch(
-      /\$\{WEB_BASIC_AUTH_FILE:\?[^}]*\}:\/etc\/nginx\/secrets\/htpasswd:ro/,
-    );
-    // `:?`가 요점이다. 기본값을 주면 오설정이 조용히 통과하고, docker가 없는 경로에
-    // 빈 디렉터리를 만들어 `/`가 난해한 500으로 죽는다.
-    expect(composeYml, "WEB_BASIC_AUTH_FILE에 조용한 기본값이 생겼다").not.toMatch(
-      /\$\{WEB_BASIC_AUTH_FILE:-/,
+  it("compose가 자격증명을 `:?` env로 받는다 (조용한 기본값 없음)", () => {
+    expect(composeYml).toMatch(/WEB_HTPASSWD_B64:\s*\$\{WEB_HTPASSWD_B64:\?[^}]*\}/);
+    // 기본값을 주면 오설정이 조용히 통과하고 web이 자격증명 없이 뜬다 — 감사 B-1 상태다.
+    expect(composeYml, "WEB_HTPASSWD_B64에 조용한 기본값이 생겼다").not.toMatch(
+      /\$\{WEB_HTPASSWD_B64:-/,
     );
   });
 });
 
 describe("htpasswd 실값이 레포에 없다 (T-042, CLAUDE.md 시크릿 금지)", () => {
-  it(".env.example은 **경로**만 준다 — 자격증명이 아니다", () => {
-    const value = /^WEB_BASIC_AUTH_FILE=(.*)$/m.exec(envExample)?.[1] ?? "";
-    expect(value, ".env.example에 WEB_BASIC_AUTH_FILE이 없다").not.toBe("");
-    // htpasswd 한 줄은 `user:hash` 모양이다. 콜론이 있으면 경로가 아니라 자격증명이다.
-    expect(value, `WEB_BASIC_AUTH_FILE에 자격증명이 들어갔다: ${value}`).not.toContain(":");
-    expect(value).toMatch(/^[\w./-]+$/);
+  it(".env.example의 `WEB_HTPASSWD_B64`는 **비어 있다**", () => {
+    const line = /^WEB_HTPASSWD_B64=(.*)$/m.exec(envExample);
+    expect(line, ".env.example에 WEB_HTPASSWD_B64가 없다").not.toBeNull();
+    // 이 값은 경로가 아니라 시크릿 그 자체다. 예시값조차 두지 않는다 — base64는
+    // 사람 눈에 무의미해 보여서 "예시겠지"로 넘어가기 쉽고, 그게 정확히 위험한 지점이다.
+    expect(line?.[1], ".env.example에 실값이 들어갔다").toBe("");
   });
 
   it.each([
@@ -486,6 +485,130 @@ describe("htpasswd 실값이 레포에 없다 (T-042, CLAUDE.md 시크릿 금지
 
   it("`secrets/`가 .gitignore돼 있다 — 실값이 실수로 커밋되지 않는다", () => {
     expect(gitignore).toMatch(/^secrets\/$/m);
+  });
+});
+
+// ================================ htpasswd 렌더 엔트리포인트 (T-042 F-2 해소)
+
+/**
+ * **스크립트를 글자로 검사하지 않고 실제로 돌린다.** docker는 필요 없다 — POSIX sh와
+ * base64뿐이고, `NGINX_PREFIX` seam이 쓰기 경로를 임시 디렉터리로 돌린다.
+ *
+ * 텍스트 검사(`toContain("exit 78")`)로는 "78이 어딘가 적혀 있다"까지만 알 수 있고
+ * **어느 조건에서 78이 나오는지**는 알 수 없다. 가드가 옮겨지거나 조건이 뒤집혀도
+ * 글자는 그대로 남는다. 그래서 조건별로 실행해서 종료 코드를 본다.
+ */
+const renderScript = join(repoRoot, "docker/nginx-entrypoint.d/10-render-htpasswd.sh");
+
+/** 픽스처 자격증명. **실제 시크릿이 아니다** — 모양만 맞춘 더미이고 임시 디렉터리에만 산다. */
+const FIXTURE_HTPASSWD = "alice:{SHA}fixture-not-a-real-hash\nbob:{SHA}also-fake\n";
+
+interface RenderResult {
+  readonly status: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly prefix: string;
+}
+
+function runRender(webHtpasswdB64: string | undefined): RenderResult {
+  const prefix = mkdtempSync(join(tmpdir(), "sentinel-nginx-prefix-"));
+  const result = spawnSync("sh", [renderScript], {
+    encoding: "utf8",
+    env: {
+      PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+      NGINX_PREFIX: prefix,
+      ...(webHtpasswdB64 === undefined ? {} : { WEB_HTPASSWD_B64: webHtpasswdB64 }),
+    },
+  });
+  return {
+    status: result.status ?? -1,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    prefix,
+  };
+}
+
+const renderedPath = (prefix: string): string => join(prefix, "secrets/htpasswd");
+
+describe("htpasswd 렌더 엔트리포인트가 실패를 **이름 대고** 거절한다 (T-042 F-2)", () => {
+  it("엔트리포인트 순서상 서버 블록 선택보다 **먼저** 돈다", () => {
+    // nginx:alpine이 `/docker-entrypoint.d/*.sh`를 알파벳 순으로 돈다. 10 < 20이라
+    // 자격증명이 준비된 뒤에 서버 블록이 골라진다. 번호가 뒤집히면 순서가 뒤집힌다.
+    expect(renderScript).toContain("10-render-htpasswd.sh");
+    expect(read("docker/nginx-entrypoint.d/20-select-server-conf.sh")).toContain("NGINX_MODE");
+  });
+
+  it("정상 값이면 htpasswd를 **그대로** 써 놓고 0으로 끝난다", () => {
+    const encoded = Buffer.from(FIXTURE_HTPASSWD).toString("base64");
+    const result = runRender(encoded);
+    expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+    expect(readFileSync(renderedPath(result.prefix), "utf8")).toBe(FIXTURE_HTPASSWD);
+  });
+
+  /**
+   * **이 단언이 "로그에 찍지 마라"를 기계로 지킨다.**
+   * 로그는 CloudWatch로 가고 배포 로그는 SSM을 거쳐 GH Actions에 남는다. 누군가
+   * 디버깅하려고 `echo "$WEB_HTPASSWD_B64"`나 `cat "$DEST"` 한 줄을 넣으면 여기서 죽는다.
+   */
+  it("자격증명도 base64 값도 stdout/stderr에 **한 글자도** 나오지 않는다", () => {
+    const encoded = Buffer.from(FIXTURE_HTPASSWD).toString("base64");
+    const result = runRender(encoded);
+    const output = result.stdout + result.stderr;
+    expect(output, "base64 원문이 로그에 찍혔다").not.toContain(encoded);
+    for (const secret of ["fixture-not-a-real-hash", "also-fake", "alice", "bob"]) {
+      expect(output, `디코딩 결과(${secret})가 로그에 찍혔다`).not.toContain(secret);
+    }
+    // 그래도 "무엇이 일어났는지"는 말해야 한다. 줄 수는 시크릿이 아니다.
+    expect(result.stdout).toContain("2줄");
+  });
+
+  /**
+   * ⚠️ **종료 코드만 보면 안 된다.** 이 스크립트의 78은 세 갈래(값 없음 / base64 실패 /
+   * 형식 불일치)이고, 값 부재 가드를 지워도 `set -u`나 형식 검사가 결국 78을 낸다 —
+   * 뮤테이션으로 실측했고 코드만 보던 판은 **생존했다.** 그래서 갈래마다 사유 문장을
+   * 구분해서 단언한다. 78이 나오는 것과 **맞는 이유로** 나오는 것은 다르다.
+   */
+  it("값이 없으면 exit 78이고 **비어 있다고** 말한다", () => {
+    const result = runRender(undefined);
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("WEB_HTPASSWD_B64가 비어 있다");
+    expect(() => statSync(renderedPath(result.prefix)), "실패했는데 파일이 남았다").toThrow();
+  });
+
+  it("빈 문자열도 미설정과 **같은 사유로** 거절한다", () => {
+    const result = runRender("");
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("WEB_HTPASSWD_B64가 비어 있다");
+  });
+
+  it("base64가 아니면 exit 78이고, 실패한 값을 되뱉지 않는다", () => {
+    const garbage = "!!!!definitely-not-base64!!!!";
+    const result = runRender(garbage);
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("base64");
+    expect(result.stderr, "거절하면서 값을 로그에 뱉었다").not.toContain(garbage);
+  });
+
+  /**
+   * 디코딩은 되는데 내용이 htpasswd가 아닌 경우다 — 흔한 오조작은 **파일이 아니라
+   * 암호만** base64하는 것이다. 이 가드가 없으면 nginx는 뜨고 `/`는 401을 내며
+   * **아무도 로그인하지 못한다.** 증상이 "인증 실패"라 원인이 설정이라는 걸 알기 어렵다.
+   */
+  it("디코딩은 됐지만 htpasswd 형식이 아니면 exit 78이다", () => {
+    const result = runRender(Buffer.from("just-a-password\n").toString("base64"));
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("htpasswd");
+    expect(() => statSync(renderedPath(result.prefix))).toThrow();
+  });
+
+  it("deploy.sh는 base64를 **디코딩하지 않는다** — 하면 .env가 개행으로 깨진다", () => {
+    // 감싼 이유가 스칼라로 만들기 위해서인데 배포 쪽에서 풀면 그 이유가 사라진다.
+    expect(read("infra/deploy/deploy.sh")).not.toMatch(/base64\s+(-d|-D|--decode)/);
+  });
+
+  it("nginx 이미지가 base64 존재를 **빌드 시점에** 확인한다", () => {
+    // 없으면 컨테이너가 매번 78로 죽고, 그 원인이 베이스 이미지라는 걸 알기 어렵다.
+    expect(dockerfileNginx).toMatch(/command -v base64/);
   });
 });
 

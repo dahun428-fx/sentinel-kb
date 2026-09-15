@@ -89,10 +89,9 @@ services:
       # SG 인바운드는 443 하나뿐이다(specs/06, infra/network.tf). 80은 호스트 안에서만 의미가 있다.
       - "443:443"
       - "127.0.0.1:80:80"
-    # compose는 volumes를 **컨테이너 경로 기준으로 병합한다.** 베이스의
-    # `/etc/nginx/secrets/htpasswd` 바인드(T-042)는 여기 다시 적지 않아도 살아남는다 —
-    # 다시 적으면 호스트 경로가 두 파일에서 갈라질 자리가 생긴다.
-    # 프로덕션의 그 파일은 손으로 만들어지지 않는다: SSM에서 배포 시 렌더된다(specs/06 시크릿 행).
+    # 베이스의 `WEB_HTPASSWD_B64`(T-042)는 여기 다시 적지 않는다 — compose가 environment를
+    # 병합하므로 그대로 살아남고, 다시 적으면 값의 출처가 두 파일로 갈라진다.
+    # 프로덕션에서 그 값은 SSM SecureString에서 `.env`로 렌더된다(specs/06 시크릿 행).
     volumes:
       - letsencrypt:/etc/letsencrypt:ro
     logging:

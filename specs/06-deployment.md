@@ -28,10 +28,19 @@ MCP·SSE 경로는 버퍼링을 끄지 않으면 스트리밍이 죽는다. **�
 
 ## web 표면 인증 (T-042)
 
-`/`는 nginx HTTP Basic 인증 뒤에 있다. 자격증명 파일은 이미지에 굽지 않고 런타임에
-`/etc/nginx/secrets/htpasswd`로 마운트하며, 호스트 경로는 `WEB_BASIC_AUTH_FILE`이 준다.
-프로덕션에서는 시크릿 행과 같은 경로를 탄다 — SSM Parameter Store(SecureString) → 배포 시 렌더.
-미설정이면 `docker compose`가 해소 단계에서 거절한다(web을 열어 둔 채 뜨지 않는다).
+`/`는 nginx HTTP Basic 인증 뒤에 있다. 자격증명은 이미지에 굽지 않는다 — **htpasswd 파일
+전체를 base64한 단일 값**(`WEB_HTPASSWD_B64`)으로 넘기고, nginx 컨테이너가 기동 시
+`/etc/nginx/secrets/htpasswd`로 디코딩해 쓴다.
+
+base64로 감싸는 이유는 전달 경로 때문이다. 시크릿 행의 SSM → `.env` 렌더는
+`aws ssm get-parameter --output text` 스칼라 경로라 개행을 담지 못하는데, htpasswd는
+사용자가 둘 이상이면 여러 줄이다. 감싸면 단일 값이 되어 기존 경로에 그대로 얹히고
+다중 사용자를 포기하지 않아도 된다.
+
+실패는 두 지점에서 **각각 이름을 대고** 일어난다. 값이 없으면 `docker compose`가 해소
+단계에서 거절하고, 값이 base64가 아니거나 htpasswd 형식이 아니면 nginx 컨테이너가
+기동 시 exit 78(EX_CONFIG)로 죽는다. 어느 쪽도 web을 열어 둔 채 뜨지 않는다.
+디코딩 결과는 로그에 남기지 않는다 — 배포 로그는 SSM을 거쳐 CI 로그에 남는다.
 
 ### 이 방식이 NFR-04를 **부분만** 충족한다
 
@@ -57,6 +66,8 @@ specs/00 NFR-04는 "모든 외부 표면 Bearer 인증, **프로젝트별 키**"
 - 배포 롤백: 직전 이미지 태그로 `compose up -d`
 - 워커 적체: `jobs` status 집계 확인 → dead job 재큐잉 스크립트
 - 인증서 갱신 실패: certbot 로그 → 수동 `certbot renew --force-renewal`
-- web 자격증명 교체(T-042): SSM 값 갱신 → htpasswd 재렌더 → `compose exec nginx nginx -s reload`
-  (파일만 갈아끼우면 되고 재배포는 필요 없다. `/`가 500이면 마운트가 빠진 것이다 — 열린 게 아니라 닫힌 상태다)
+- web 자격증명 교체(T-042): `htpasswd`로 파일 갱신 → `base64 -w0`으로 감싸 SSM
+  `WEB_HTPASSWD_B64`에 put-parameter → nginx 컨테이너 재기동(`compose up -d nginx`).
+  디코딩이 기동 시 일어나므로 파일만 바꾸는 reload로는 반영되지 않는다.
+  nginx가 exit 78로 죽으면 값이 base64가 아니거나 htpasswd 형식이 아니다 — 로그가 어느 쪽인지 말한다.
 - 재해 복구: 새 EC2 기동 → user-data가 compose pull → DNS 스왑 (데이터 무이동)

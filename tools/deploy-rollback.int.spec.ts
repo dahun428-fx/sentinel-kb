@@ -43,6 +43,10 @@ case "$1 $2" in
         */VOYAGE_API_KEY)   echo "vk-fake"; exit 0;;
         */API_KEYS)         echo "smokekey:sentinel-kb,other:bizcare"; exit 0;;
         */CORE_API_KEY)     echo "smokekey"; exit 0;;
+        # T-042: web basic 인증 자격증명(htpasswd를 base64한 값). 실제 시크릿이 아니라
+        # \`fixture:{SHA}not-a-real-hash\` 한 줄을 감싼 더미다. **base64인 것이 핵심이다** —
+        # 이 렌더 경로는 개행을 담지 못하므로 감싸지 않으면 .env가 깨진다.
+        */WEB_HTPASSWD_B64) echo "Zml4dHVyZTp7U0hBfW5vdC1hLXJlYWwtaGFzaAo="; exit 0;;
       esac
     done
     exit 1;;
@@ -225,6 +229,7 @@ describe("배포 성공 경로 (T-027)", () => {
       "ANTHROPIC_API_KEY",
       "API_KEYS",
       "CORE_API_KEY",
+      "WEB_HTPASSWD_B64",
       "IMAGE_TAG",
       "ECR_REGISTRY",
       "DOMAIN_NAME",
@@ -233,6 +238,22 @@ describe("배포 성공 경로 (T-027)", () => {
     ]) {
       expect(env, `.env 에 ${name} 이 없다`).toMatch(new RegExp(`^${name}=.+$`, "m"));
     }
+  });
+
+  /**
+   * **base64로 감싼 이유를 재는 단언이다** (T-042).
+   *
+   * 이 렌더 경로는 `aws ssm get-parameter --output text` 스칼라 전용이라 값에 개행이
+   * 있으면 `.env` 가 깨진다 — 스크립트 자신이 그렇게 적어 뒀다. htpasswd 는 사용자가
+   * 둘 이상이면 여러 줄이다. 누군가 "읽기 쉽게" 배포 쪽에서 디코딩하면 여기서 죽는다.
+   */
+  it("web 자격증명이 **한 줄로** 렌더된다 (감싸지 않으면 .env 가 깨진다)", () => {
+    deploy("sha-good");
+    const env = readFileSync(join(sandbox, "state", ".env"), "utf8");
+    const matches = [...env.matchAll(/^WEB_HTPASSWD_B64=(.*)$/gm)];
+    expect(matches, "WEB_HTPASSWD_B64 줄이 하나가 아니다").toHaveLength(1);
+    // base64 알파벳 밖의 문자(공백·개행 포함)가 있으면 감싸이지 않은 것이다.
+    expect(matches[0]?.[1] ?? "").toMatch(/^[A-Za-z0-9+/=]+$/);
   });
 
   it("값이 주입되지 않은 SSM 파라미터면 **컨테이너를 띄우기 전에** 거절한다", () => {
