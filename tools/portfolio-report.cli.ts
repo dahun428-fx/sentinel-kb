@@ -40,6 +40,7 @@ import {
   LOOP_METRICS_JSON,
   LOOP_METRICS_MD,
   parseLoopLog,
+  readBacklogTaskCount,
   renderEvalSvg,
   renderLoopMetricsTable,
   type ReportFile,
@@ -91,7 +92,7 @@ function main(argv: readonly string[]): number {
   let metricsTable: string;
   let anomalies: readonly string[];
   try {
-    const metrics = buildLoopMetrics(parseLoopLog(loopRaw));
+    const metrics = buildLoopMetrics(parseLoopLog(loopRaw), readBacklogTaskCount(repoRoot));
     metricsJson = `${JSON.stringify(metrics, null, 2)}\n`;
     metricsTable = renderLoopMetricsTable(metrics);
     anomalies = metrics.anomalies;

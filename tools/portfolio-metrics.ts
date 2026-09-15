@@ -19,11 +19,20 @@
  * 어긋난 항목도 있다(T-013·T-016은 로그가 `PARTIAL`, 파일이 `BLOCKED`).
  * 집계기가 조용히 한쪽을 고르면 그 불일치는 영영 안 보인다. 그래서
  * `LoopMetrics.anomalies`에 **불일치 자체를 싣는다** — 지표가 아니라 계측의 상태다.
+ *
+ * ## 세 번째 원천 (계측률)
+ * `specs/tasks/T-*.md` 파일 수. 완결률의 분모는 "로그에 기록된 태스크"이므로
+ * **계측되지 않은 태스크는 분모에 없다.** 그 사실을 감추지 않으려고 계측률
+ * (기록된 태스크 / 백로그)을 같은 표에 싣는다. 이 행이 없으면 분모를 좁히는 것이
+ * "계측 안 된 것을 없던 일로 만드는" 일이 된다.
  */
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 
 /** 레포 루트 기준 상대 경로. 문서가 이 상수를 인용하고 가드가 대조한다. */
 export const LOOP_LOG_PATH = "eval/loop-log.jsonl";
 export const EVAL_REPORT_DIR = "eval/reports";
+export const BACKLOG_TASK_DIR = "specs/tasks";
 
 /** `.claude/skills/task-loop/SKILL.md`: "실패 시 최대 3회 IMPLEMENT 복귀". */
 export const RETRY_LIMIT = 3;
@@ -34,6 +43,13 @@ export const PLAN_LINES_MAX = 7;
 
 /** `specs/00-product.md` 성공 지표: "태스크 자동 완결률 >= 70%". 통과시키려고 낮추지 않는다. */
 export const TARGET_AUTO_COMPLETION = 0.7;
+
+/**
+ * **공식 정의의 이름.** `specs/00-product.md` "태스크 자동 완결률의 정의(공식)" 절이
+ * `CompletionRates.withinRetryLimit`를 지목했다. 이 모듈은 그 정의만으로 목표를 판정한다
+ * (`LoopMetrics.meetsTarget`). 나머지 둘은 계속 산출하되 **판정에 쓰지 않는다.**
+ */
+export const OFFICIAL_COMPLETION_KEY = "withinRetryLimit" as const;
 
 /** `.claude/skills/task-loop/SKILL.md` §4 게이트 표. 한 번도 안 걸린 게이트도 0으로 싣는다. */
 export const GATES = ["G1", "G2", "G3", "G4", "G5", "G6"] as const;
@@ -78,6 +94,29 @@ export interface LoopEntry {
   readonly note: string | null;
   /** 로그 파일에서의 줄 번호. 이상 항목을 사람이 찾아갈 수 있어야 한다. */
   readonly line: number;
+}
+
+/**
+ * 백로그 태스크 파일 이름. `specs/tasks/README.md`처럼 태스크가 아닌 파일이 섞여 있으므로
+ * 이름으로 가른다. 이 정규식이 곧 계측률의 **분모 정의**다.
+ */
+export const BACKLOG_TASK_FILE_RE = /^T-\d{3}-[A-Za-z0-9-]+\.md$/;
+
+/** 순수 함수. 디렉터리 목록을 받아 백로그 태스크 수를 센다 — 픽스처로 잠글 수 있어야 한다. */
+export function countBacklogTasks(fileNames: readonly string[]): number {
+  return fileNames.filter((name) => BACKLOG_TASK_FILE_RE.test(name)).length;
+}
+
+/**
+ * 이 모듈에서 fs를 만지는 **유일한** 지점. 디렉터리가 없으면 0을 돌려주고,
+ * 0은 `buildLoopMetrics`에서 "계측률 판정 불가"(null)가 된다 — 0%가 아니다.
+ */
+export function readBacklogTaskCount(repoRoot: string): number {
+  try {
+    return countBacklogTasks(readdirSync(join(repoRoot, BACKLOG_TASK_DIR)));
+  } catch {
+    return 0;
+  }
 }
 
 function fail(line: number, message: string): never {
@@ -163,16 +202,17 @@ export function parseLoopLog(raw: string): LoopEntry[] {
 }
 
 /**
- * 완결률의 정의는 어느 스펙에도 없다. `specs/00-product.md`는 "태스크 자동 완결률 >= 70%"만
- * 적었고 분자·분모를 정하지 않았다. 정의를 하나만 고르면 **가장 좋아 보이는 정의를
- * 고를 유인**이 생기므로 세 개를 전부 싣는다. 셋의 차이가 곧 "사람이 얼마나 개입했는가"다.
+ * 완결률의 **공식 정의는 `withinRetryLimit`**이다(`specs/00-product.md` 성공 지표 절).
+ * 나머지 둘을 지우지 않는 이유는 둘이 틀려서가 아니라 **다른 것을 재기 때문**이고,
+ * 셋을 나란히 둬야 정의를 사후에 갈아탄 사실이 눈에 보이기 때문이다.
+ * 목표 판정에 쓰이는 것은 `withinRetryLimit` 하나뿐이다(`LoopMetrics.meetsTarget`).
  */
 export interface CompletionRates {
-  /** 한 번에: `attempts === 1` + 게이트 실패 없음 + 최종 GREEN. 사람 개입 0. */
+  /** 한 번에: `attempts === 1` + 게이트 실패 없음 + 최종 GREEN. 사람 개입 0. **공식 정의 아님.** */
   readonly firstPass: number;
-  /** 재시도 한도(3회) 안에서 GREEN 도달. 한도 초과는 정의상 자동 완결이 아니다. */
+  /** **공식 정의.** 재시도 한도(3회) 안에서 GREEN 도달 — 규약이 정한 정상 경로 안에서 끝난 것. */
   readonly withinRetryLimit: number;
-  /** 결국 GREEN 도달. 사람이 BLOCKED를 풀어 준 경우를 포함한다 — 자동 완결의 상한. */
+  /** 결국 GREEN 도달. 사람이 BLOCKED를 푼 경우를 포함한다 — 상한이지 **공식 정의 아님.** */
   readonly everGreen: number;
 }
 
@@ -183,9 +223,31 @@ export interface LoopMetrics {
   /** 최종 엔트리 기준 상태 분포. 같은 태스크의 여러 엔트리는 마지막 것만 센다. */
   readonly finalStatus: Readonly<Record<string, number>>;
   readonly completion: CompletionRates;
+  /**
+   * 같은 세 정의의 **분자(태스크 수)**. 비율만 실으면 분모가 무엇이었는지 사라지고,
+   * 분모를 바꾼 집계와 안 바꾼 집계를 문서에서도 테스트에서도 구별할 수 없다.
+   */
+  readonly completionCounts: Readonly<Record<keyof CompletionRates, number>>;
+  /**
+   * 계측 범위. 완결률의 분모(`tasks`)가 백로그 전체가 아니라는 사실을 **같이 싣는다.**
+   * `instrumentedShare`가 null이면 백로그를 세지 못한 것이고 0%가 아니다.
+   */
+  readonly backlog: {
+    /** `specs/tasks/T-*.md` 파일 수. */
+    readonly tasks: number;
+    /** 계측률 = 기록된 태스크 / 백로그 태스크. */
+    readonly instrumentedShare: number | null;
+  };
   readonly target: number;
-  /** 세 정의 중 하나라도 목표를 넘는가. 어느 정의로도 못 넘으면 명백한 미달이다. */
-  readonly meetsTargetUnderAnyDefinition: boolean;
+  /**
+   * **공식 정의(`withinRetryLimit`) 하나로만 판정한다.**
+   *
+   * 이전 이름은 `meetsTargetUnderAnyDefinition`이었고 "세 정의 중 하나라도 넘으면 true"였다.
+   * 정의가 없던 동안에는 그것이 정직한 상한 표시였지만, `specs/00`이 공식 정의를 가진
+   * 지금은 **사후에 유리한 정의를 고르는 것을 허가하는 필드**다 — 실제로 공식 정의는
+   * 목표에 미달하는데 `everGreen`이 목표를 넘어 true가 나온다. 그래서 교체했다.
+   */
+  readonly meetsTarget: boolean;
   /** 엔트리 단위 게이트 실패 분포. 한 번도 안 걸린 게이트도 0으로 싣는다. */
   readonly gateFailures: Readonly<Record<Gate | "none", number>>;
   readonly attempts: {
@@ -228,7 +290,15 @@ function ratio(numerator: number, denominator: number): number {
   return Math.round((numerator / denominator) * 10_000) / 10_000;
 }
 
-export function buildLoopMetrics(entries: readonly LoopEntry[]): LoopMetrics {
+/**
+ * @param backlogTasks `specs/tasks/T-*.md` 개수. **필수 인자다** — 기본값을 주면 호출부가
+ *   깜빡 빠뜨려도 조용히 다른 표가 나오고, README 대조 가드가 무엇 때문에 어긋났는지
+ *   알 수 없게 된다. 타입 검사가 모든 호출부를 잡게 둔다.
+ */
+export function buildLoopMetrics(
+  entries: readonly LoopEntry[],
+  backlogTasks: number,
+): LoopMetrics {
   const byTask = new Map<string, LoopEntry[]>();
   for (const entry of entries) {
     const bucket = byTask.get(entry.taskId);
@@ -280,6 +350,11 @@ export function buildLoopMetrics(entries: readonly LoopEntry[]): LoopMetrics {
     .map((entry) => (entry.filesRead ?? []).length);
 
   const anomalies: string[] = [];
+  if (backlogTasks > 0 && tasks > backlogTasks) {
+    anomalies.push(
+      `${LOOP_LOG_PATH}: 기록된 태스크 ${String(tasks)}개가 백로그 ${String(backlogTasks)}개보다 많다 — 계측률의 분모가 분자를 담지 못한다`,
+    );
+  }
   for (const entry of entries) {
     if (!(CANONICAL_STATUSES as readonly string[]).includes(entry.status)) {
       anomalies.push(
@@ -308,11 +383,13 @@ export function buildLoopMetrics(entries: readonly LoopEntry[]): LoopMetrics {
       withinRetryLimit: ratio(withinRetryLimit, tasks),
       everGreen: ratio(everGreen, tasks),
     },
+    completionCounts: { firstPass, withinRetryLimit, everGreen },
+    backlog: {
+      tasks: backlogTasks,
+      instrumentedShare: backlogTasks === 0 ? null : ratio(tasks, backlogTasks),
+    },
     target: TARGET_AUTO_COMPLETION,
-    meetsTargetUnderAnyDefinition:
-      ratio(everGreen, tasks) >= TARGET_AUTO_COMPLETION ||
-      ratio(withinRetryLimit, tasks) >= TARGET_AUTO_COMPLETION ||
-      ratio(firstPass, tasks) >= TARGET_AUTO_COMPLETION,
+    meetsTarget: ratio(withinRetryLimit, tasks) >= TARGET_AUTO_COMPLETION,
     gateFailures: gateFailures as Readonly<Record<Gate | "none", number>>,
     attempts: {
       total: attemptsTotal,
@@ -344,26 +421,42 @@ function percent(value: number): string {
  * 사람이 표를 손으로 고치는 경로는 없다.
  */
 export function renderLoopMetricsTable(metrics: LoopMetrics): string {
-  const { completion, attempts, instrumentation: inst } = metrics;
+  const { completion, completionCounts, attempts, instrumentation: inst } = metrics;
+  /** 비율만 적으면 분모가 사라진다. 분자·분모를 같이 적어 표가 스스로 분모를 증언하게 한다. */
+  const rate = (key: keyof CompletionRates): string =>
+    `${percent(completion[key])} (${String(completionCounts[key])}/${String(metrics.tasks)})`;
   const statuses = Object.entries(metrics.finalStatus)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([status, count]) => `${status} ${String(count)}`)
     .join(" · ");
   const gates = GATES.map((gate) => `${gate} ${String(metrics.gateFailures[gate])}`).join(" · ");
+  const share = metrics.backlog.instrumentedShare;
   const rows: readonly (readonly [string, string, string])[] = [
-    ["기록된 태스크", `${String(metrics.tasks)}개 (엔트리 ${String(metrics.entries)}줄)`, "분모"],
-    ["최종 상태 분포", statuses, "같은 태스크의 마지막 엔트리만"],
     [
-      "완결률 — 한 번에",
-      percent(completion.firstPass),
-      "attempts=1 + 게이트 실패 0 + GREEN",
+      "기록된 태스크",
+      `${String(metrics.tasks)}개 (엔트리 ${String(metrics.entries)}줄)`,
+      "자동 완결률의 분모",
     ],
+    [
+      "계측률",
+      share === null
+        ? "판정 불가 — 백로그를 세지 못했다"
+        : `${percent(share)} (${String(metrics.tasks)}/${String(metrics.backlog.tasks)})`,
+      `기록된 태스크 / ${BACKLOG_TASK_DIR}의 T-*.md`,
+    ],
+    ["최종 상태 분포", statuses, "같은 태스크의 마지막 엔트리만"],
+    ["완결률 — 한 번에", rate("firstPass"), "attempts=1 + 게이트 실패 0 + GREEN. 참고 지표"],
     [
       "완결률 — 재시도 한도 안",
-      percent(completion.withinRetryLimit),
-      `GREEN + attempts <= ${String(RETRY_LIMIT)}`,
+      rate("withinRetryLimit"),
+      `GREEN + attempts <= ${String(RETRY_LIMIT)}. **specs/00 공식 정의**`,
     ],
-    ["완결률 — 결국 GREEN", percent(completion.everGreen), "사람이 BLOCKED를 푼 경우 포함"],
+    ["완결률 — 결국 GREEN", rate("everGreen"), "사람이 BLOCKED를 푼 경우 포함. 참고 지표"],
+    [
+      "자동 완결률 목표 판정",
+      `${percent(completion.withinRetryLimit)} ${metrics.meetsTarget ? ">=" : "<"} ${percent(metrics.target)} — ${metrics.meetsTarget ? "충족" : "미달"}`,
+      "공식 정의 하나로만 판정한다",
+    ],
     ["게이트 실패(엔트리)", gates, "한 번도 안 걸린 게이트도 0으로 싣는다"],
     [
       "attempts 합",

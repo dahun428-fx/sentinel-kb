@@ -9,13 +9,22 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 
-import { buildLoopMetrics, parseLoopLog, renderLoopMetricsTable } from "./portfolio-metrics.js";
+import {
+  buildLoopMetrics,
+  parseLoopLog,
+  readBacklogTaskCount,
+  renderLoopMetricsTable,
+} from "./portfolio-metrics.js";
 
 const BEGIN = "<!-- loop-metrics:begin -->";
 const END = "<!-- loop-metrics:end -->";
 
+// 이 스크립트는 `pnpm sync:readme`로 레포 루트에서 도는 것을 전제로 상대 경로를 쓴다.
 const table = renderLoopMetricsTable(
-  buildLoopMetrics(parseLoopLog(readFileSync("eval/loop-log.jsonl", "utf8"))),
+  buildLoopMetrics(
+    parseLoopLog(readFileSync("eval/loop-log.jsonl", "utf8")),
+    readBacklogTaskCount(process.cwd()),
+  ),
 );
 const readme = readFileSync("README.md", "utf8");
 const begin = readme.indexOf(BEGIN);

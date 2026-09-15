@@ -9,12 +9,14 @@ import { describe, expect, it } from "vitest";
 import {
   buildLoopMetrics,
   collectEvalSeries,
+  countBacklogTasks,
   evalSvgFileName,
   GRAPH_KINDS,
   LOOP_LOG_PATH,
   LOOP_METRICS_JSON,
   LOOP_METRICS_MD,
   parseLoopLog,
+  readBacklogTaskCount,
   renderEvalSvg,
   renderLoopMetricsTable,
 } from "./portfolio-metrics.js";
@@ -227,7 +229,7 @@ describe("README MCP 도구 목록 ↔ specs/07 (T-028)", () => {
 });
 
 describe("README 루프 지표 ↔ eval/loop-log.jsonl (T-028 Acceptance 3)", () => {
-  const metrics = buildLoopMetrics(parseLoopLog(read(LOOP_LOG_PATH)));
+  const metrics = buildLoopMetrics(parseLoopLog(read(LOOP_LOG_PATH)), readBacklogTaskCount(repoRoot));
 
   it("README의 지표 표가 로그에서 재계산한 값과 한 글자도 다르지 않다", () => {
     expect(block("loop-metrics")).toBe(renderLoopMetricsTable(metrics));
@@ -240,11 +242,79 @@ describe("README 루프 지표 ↔ eval/loop-log.jsonl (T-028 Acceptance 3)", ()
 
   /**
    * 완결률 목표(`specs/00` 70%)를 **문서가 마음대로 통과 선언하지 못하게** 한다.
-   * 세 정의 중 어느 것도 목표를 넘지 못하는데 "달성"이라 쓰면 여기서 죽는다.
+   *
+   * T-028 당시에는 정의가 없어 "세 정의 중 하나라도 넘으면 통과"였다. `specs/00`이 공식
+   * 정의(`withinRetryLimit`)를 가진 지금 그 기준은 **사후 선택을 허가한다** — 공식 정의가
+   * 미달인데 `everGreen`이 목표를 넘어 주장이 통과해 버린다. 그래서 **공식 정의 하나로
+   * 좁혔다.** 가드가 막는 범위는 넓어졌지 좁아지지 않았다.
    */
-  it("목표 달성을 주장한다면 실제로 어떤 정의로든 넘어야 한다", () => {
+  it("목표 충족을 주장한다면 공식 정의로 실제로 넘어야 한다", () => {
     const claimsSuccess = /자동 완결률[^\n]*(달성|충족|초과)/.test(readme);
-    if (claimsSuccess) expect(metrics.meetsTargetUnderAnyDefinition).toBe(true);
+    if (claimsSuccess) expect(metrics.meetsTarget).toBe(true);
+  });
+
+  /**
+   * 계측률이 없으면 분모를 "기록된 태스크"로 좁힌 것이 **계측 안 된 태스크를 없던 일로
+   * 만드는 일**이 된다. 값이 표에 실재하고, 백로그가 로그보다 넓다는 사실까지 건다.
+   */
+  /**
+   * **README를 같이 재생성해도 죽어야 하는 것들.** 위의 문자 단위 대조는 "정의를 바꾸고
+   * `pnpm sync:readme`를 돌린" 뮤턴트를 잡지 못한다 — 표와 계산이 같이 움직이기 때문이다.
+   * 아래 둘은 문서가 아니라 **필드 사이의 관계**에 걸어서 그 경로를 막는다.
+   */
+  /**
+   * 목표치를 **리터럴로 박는다.** 상수를 import해 기대값으로 쓰면 `specs/00`의 70%를 내리는
+   * 것이 게이트를 통과하는 가장 싼 길이 된다 — 이 레포에서 세 번 일어난 형태다
+   * (`tools/assertion-audit.ts` 참조). 실측: 0.7→0.65 뮤턴트가 이 단언 없이 전건 통과했다.
+   */
+  it("목표치가 specs/00의 70%다 — 통과시키려고 내리면 죽는다", () => {
+    expect(metrics.target).toBe(0.7);
+  });
+
+  it("목표 판정의 주어가 공식 정의다 — everGreen으로 갈아타면 죽는다", () => {
+    expect(metrics.meetsTarget).toBe(metrics.completion.withinRetryLimit >= metrics.target);
+    // 표가 인용하는 수치도 공식 정의의 것이어야 한다. 셋의 값이 다르므로 갈아타면 어긋난다.
+    const official = `${(metrics.completion.withinRetryLimit * 100).toFixed(1)}%`;
+    expect(renderLoopMetricsTable(metrics)).toContain(`| 자동 완결률 목표 판정 | ${official} `);
+  });
+
+  it("완결률의 분모는 백로그가 아니라 기록된 태스크다", () => {
+    for (const key of ["firstPass", "withinRetryLimit", "everGreen"] as const) {
+      const count = metrics.completionCounts[key];
+      expect(metrics.completion[key]).toBeCloseTo(count / metrics.tasks, 4);
+      expect(metrics.completion[key]).not.toBeCloseTo(count / metrics.backlog.tasks, 4);
+    }
+  });
+
+  it("계측률이 산출되고 분모가 분자를 담는다", () => {
+    // 하한 10은 "readdir이 조용히 거의 빈 목록을 냈다"를 잡기 위한 것이지 백로그 크기의 계약이 아니다.
+    expect(metrics.backlog.tasks).toBeGreaterThan(10);
+    expect(metrics.backlog.tasks).toBeGreaterThanOrEqual(metrics.tasks);
+    expect(metrics.backlog.instrumentedShare).not.toBeNull();
+    expect(metrics.backlog.instrumentedShare ?? 0).toBeLessThanOrEqual(1);
+  });
+
+  it("README 표에 계측률 행이 실재한다 — 분모를 좁힌 사실이 표에 남아야 한다", () => {
+    expect(block("loop-metrics")).toMatch(/^\| 계측률 \| \d+\.\d%/m);
+  });
+
+  it("백로그를 세지 못하면 계측률은 0%가 아니라 판정 불가가 된다", () => {
+    const blind = buildLoopMetrics(parseLoopLog(read(LOOP_LOG_PATH)), 0);
+    expect(blind.backlog.instrumentedShare).toBeNull();
+    expect(renderLoopMetricsTable(blind)).toContain("판정 불가 — 백로그를 세지 못했다");
+  });
+
+  it("분모가 분자보다 작으면 계측 결함으로 싣는다 — 실데이터가 닿지 않는 분기다", () => {
+    const impossible = buildLoopMetrics(parseLoopLog(read(LOOP_LOG_PATH)), 5);
+    expect(impossible.anomalies.some((line) => line.includes("계측률의 분모가 분자를 담지 못한다"))).toBe(
+      true,
+    );
+  });
+
+  it("백로그 집계가 태스크 파일만 센다 — README.md·잡파일은 분모를 부풀리지 않는다", () => {
+    expect(countBacklogTasks(["T-000-harness-smoke.md", "README.md", "notes.txt", "T-1-x.md"])).toBe(
+      1,
+    );
   });
 });
 
