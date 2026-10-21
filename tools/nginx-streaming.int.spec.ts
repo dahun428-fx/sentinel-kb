@@ -16,6 +16,7 @@
  * 승격한다. **skip은 통과가 아니다.**
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,6 +59,21 @@ const READ_TIMEOUT_PROOF = /^(1|true|yes|on)$/i.test(
 
 const MCP_API_KEY = "t026testkey";
 const MCP_PROJECT = "sentinel-kb";
+
+/**
+ * web 표면(`/`) basic 인증 픽스처 (T-042). **실제 자격증명이 아니다** — 값의 모양만 맞춘
+ * 더미이며 컨테이너 수명 동안 임시 디렉터리에만 존재한다.
+ *
+ * 해시는 리터럴로 적지 않고 여기서 계산한다. nginx가 받는 네 형식(crypt·apr1·`{PLAIN}`·
+ * `{SHA}`) 중 의존성 없이 만들 수 있는 것이 `{SHA}`다.
+ */
+const WEB_AUTH_USER = "t042";
+const WEB_AUTH_PASSWORD = "t042-fixture-not-a-secret";
+const WEB_AUTH_HEADER = `Basic ${Buffer.from(`${WEB_AUTH_USER}:${WEB_AUTH_PASSWORD}`).toString("base64")}`;
+
+function htpasswdLine(user: string, password: string): string {
+  return `${user}:{SHA}${createHash("sha1").update(password).digest("base64")}\n`;
+}
 
 function docker(args: readonly string[]): { status: number; stdout: string; stderr: string } {
   const result = spawnSync("docker", [...args], { encoding: "utf8", cwd: repoRoot });
@@ -158,6 +174,12 @@ async function startNginx(containerName: string, upstreams: string): Promise<Har
     "--add-host=host.docker.internal:host-gateway",
     "-e",
     "NGINX_MODE=dev",
+    // T-042: `location /`이 basic 인증을 요구한다. 자격증명은 compose와 **같은 경로**로
+    // 넣는다 — base64 env를 `10-render-htpasswd.sh`가 기동 시 디코딩해 파일로 쓴다.
+    // 파일을 직접 마운트해 버리면 이 하네스는 렌더 단계를 건너뛴 설정을 검증하게 되고,
+    // 그 단계가 깨져도 초록으로 남는다.
+    "-e",
+    `WEB_HTPASSWD_B64=${Buffer.from(htpasswdLine(WEB_AUTH_USER, WEB_AUTH_PASSWORD)).toString("base64")}`,
     "-p",
     "0:80",
     "-v",
@@ -277,6 +299,19 @@ describe.skipIf(!HAS_DOCKER)("SSE 스트리밍이 nginx를 청크 단위로 통�
   }, 60_000);
 
   /**
+   * 유닛(`nginx-contract.spec.ts`)은 렌더 스크립트를 호스트 sh로 돌린다. 여기서는
+   * **실물 이미지 안에서** 같은 일이 일어났는지를 컨테이너 로그로 확인한다 — 베이스
+   * 이미지에 base64가 없거나 엔트리포인트 순서가 뒤집히면 여기서만 드러난다.
+   */
+  it("실물 이미지에서 base64 자격증명이 파일로 렌더됐다 (T-042)", () => {
+    const logs = docker(["logs", "sentinel-kb-t026-nginx-sse"]);
+    const output = logs.stdout + logs.stderr;
+    expect(output, "htpasswd 렌더 단계가 돌지 않았다").toContain("htpasswd 렌더 완료");
+    // 컨테이너 로그는 CloudWatch로 간다(specs/06 관측 행). 자격증명이 거기 남으면 안 된다.
+    expect(output, "자격증명이 컨테이너 로그에 남았다").not.toContain(WEB_AUTH_PASSWORD);
+  }, 60_000);
+
+  /**
    * **이 테스트가 INC-06을 잡는 테스트다.**
    *
    * 버퍼링이 켜져 있으면 nginx는 작은 SSE 프레임들을 버퍼(기본 4k)에 모아 두었다가
@@ -354,13 +389,43 @@ describe.skipIf(!HAS_DOCKER)("SSE 스트리밍이 nginx를 청크 단위로 통�
     180_000,
   );
 
-  it("스트리밍 스니펫이 안 걸린 `/`는 대조군이다 — 라우팅 자체는 동작한다", async () => {
+  /**
+   * **T-042로 이 경로의 계약이 바뀌었다.** 이전 판은 무자격 `/anything`이 404(=web_upstream
+   * 도달)임을 봤다. 그게 바로 감사 B-1이 지적한 구멍이었다 — 도메인에 도달하는 누구나
+   * web을 열었다. 지금은 무자격이 **401**이어야 하고, 라우팅이 살아 있다는 증거는
+   * **자격증명을 실었을 때** 404가 오는 것으로 옮겨 갔다. 단언은 하나 늘었지 줄지 않았다.
+   */
+  it("무자격 `/`는 401을 받는다 (web 표면이 닫혔다)", async () => {
     const response = await fetch(`http://127.0.0.1:${String(harness.proxyPort)}/anything`, {
       signal: AbortSignal.timeout(30_000),
     });
+    expect(response.status, "무자격 요청이 web에 도달했다 — 인증이 사라졌다").toBe(401);
+    expect(response.headers.get("www-authenticate")).toMatch(/Basic/i);
+  }, 60_000);
+
+  it("자격증명을 실으면 `/`가 web_upstream에 도달한다 — 라우팅은 살아 있다", async () => {
+    const response = await fetch(`http://127.0.0.1:${String(harness.proxyPort)}/anything`, {
+      headers: { authorization: WEB_AUTH_HEADER },
+      signal: AbortSignal.timeout(30_000),
+    });
     // 오리진이 `/v1`·`/mcp` 외에는 404를 낸다. 404가 왔다는 것은 web_upstream으로
-    // 제대로 넘어갔다는 뜻이다 — 라우팅이 죽어서 통과한 게 아님을 보인다.
-    expect(response.status).toBe(404);
+    // 제대로 넘어갔다는 뜻이다 — 라우팅이 죽어서 401을 면한 게 아님을 보인다.
+    // 500이면 htpasswd 마운트가 빠진 것이고, 401이면 자격증명 형식이 맞지 않는 것이다.
+    expect(response.status, "자격증명을 실었는데도 web에 닿지 못했다").toBe(404);
+  }, 60_000);
+
+  /**
+   * **`/health`가 인증 밖이라는 것의 실물 증거다** (T-042 Acceptance 2).
+   * 이 하네스에서 core_api_upstream은 `/v1`·`/mcp` 외에 404를 내는 오리진이므로
+   * "404가 왔다 = 인증을 통과해 업스트림까지 갔다"가 된다. 401이 오면 auth가
+   * server 블록으로 새어 `= /health`가 상속받은 것이다 — 모니터가 전부 빨개진다.
+   */
+  it("무자격 `/health`는 인증을 거치지 않고 업스트림에 닿는다", async () => {
+    const response = await fetch(`http://127.0.0.1:${String(harness.proxyPort)}/health`, {
+      signal: AbortSignal.timeout(30_000),
+    });
+    expect(response.status, "`/health`가 401이다 — 모니터가 닿지 못한다").not.toBe(401);
+    expect(response.headers.get("www-authenticate")).toBeNull();
   }, 60_000);
 });
 

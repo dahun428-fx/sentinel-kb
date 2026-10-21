@@ -78,6 +78,15 @@ variable "secure_parameter_names" {
     `CORE_API_KEY` 는 T-027 에서 추가됐다 — T-026 의 compose 가 web 서비스에
     `CORE_API_KEY:?` 로 요구하는데 T-025 의 이 목록에 없어서, 그대로면 첫 배포가
     `up -d` 단계에서 죽는다(T-027 F-4). 값은 `API_KEYS` 에 등록된 키 중 하나여야 한다.
+
+    `WEB_HTPASSWD_B64` 는 T-042 에서 추가됐다 — web 표면(`/`)의 nginx basic 인증
+    자격증명이다. **htpasswd 파일 전체를 base64 한 값**을 넣는다:
+
+      base64 -w0 < secrets/nginx-htpasswd    # macOS: base64 -i secrets/nginx-htpasswd
+
+    감싸는 이유는 `infra/deploy/deploy.sh` 의 SSM→.env 렌더가 `--output text` 스칼라
+    경로라 개행을 담지 못하기 때문이다. htpasswd 는 사용자가 둘 이상이면 여러 줄이다.
+    디코딩은 nginx 컨테이너 기동 시 한 번 일어난다.
   EOT
   type        = list(string)
   default = [
@@ -86,6 +95,7 @@ variable "secure_parameter_names" {
     "VOYAGE_API_KEY",
     "API_KEYS",
     "CORE_API_KEY",
+    "WEB_HTPASSWD_B64",
   ]
 }
 

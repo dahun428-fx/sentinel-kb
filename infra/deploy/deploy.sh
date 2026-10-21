@@ -62,12 +62,19 @@ REQUIRED_INPUTS=(
 # **`infra/variables.tf` 의 `secure_parameter_names` 와 글자 그대로 같아야 한다.**
 # 경로 전체를 훑지 않고 이름을 명시하는 이유: 누군가 같은 경로에 관계없는 파라미터를
 # 넣었을 때 그게 .env 로 새어 들어가면 안 된다.
+#
+# `WEB_HTPASSWD_B64` 는 T-042 에서 추가됐다. **base64 인 것이 이 목록에 들어올 수 있는
+# 유일한 이유다** — 아래 render_env 주석대로 이 경로는 개행 있는 값을 담지 못하는데
+# htpasswd 는 사용자가 둘 이상이면 여러 줄이다. 감싸면 스칼라가 되어 그대로 얹힌다.
+# 디코딩은 nginx 컨테이너 기동 시 `docker/nginx-entrypoint.d/10-render-htpasswd.sh` 가
+# 한 번 한다. **여기서 디코딩하지 마라** — 그러면 개행이 .env 로 들어와 파일이 깨진다.
 SECURE_PARAMETERS=(
   MONGODB_URI
   ANTHROPIC_API_KEY
   VOYAGE_API_KEY
   API_KEYS
   CORE_API_KEY
+  WEB_HTPASSWD_B64
 )
 
 # 값이 아직 주입되지 않은 파라미터의 표식(infra/ssm.tf). 시크릿이 아니다.

@@ -13,7 +13,9 @@
  * docker가 필요 없는 **정적** 판정만 여기 있다. 실제 동작(스트리밍이 청크로 도달하는가)은
  * `nginx-streaming.int.spec.ts`가, compose가 해소한 값은 `compose-contract.int.spec.ts`가 본다.
  */
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -334,6 +336,309 @@ describe("런타임 이미지의 tsx 버전이 lockfile과 같다 (T-026)", () =
     expect(pinned, "Dockerfile.node에 ARG TSX_VERSION이 없다").toBeDefined();
     expect(resolved, "pnpm-lock.yaml에서 tsx 버전을 읽지 못했다").toBeDefined();
     expect(pinned).toBe(resolved);
+  });
+});
+
+// ======================================================= web 표면 인증 (T-042)
+
+/**
+ * **이 절은 docker 없이도 죽어야 한다.**
+ *
+ * `nginx-streaming.int.spec.ts`와 `compose-contract.int.spec.ts`는 docker가 없으면 skip된다
+ * (감사 B §7: 72건 skip 중 27건이 이 둘). 인증 단언을 거기에만 두면 docker 없는 머신의
+ * `pnpm verify`는 **아무것도 재지 않고 초록**이 된다 — 그건 통과가 아니라 침묵이다.
+ * 그래서 판정의 본체를 설정 파일 파싱으로 여기 둔다. 실물 401 왕복은 int가 덧붙이는 증거지,
+ * 유일한 증거가 아니다.
+ */
+
+const authBasicConf = read("nginx/snippets/auth-basic.conf");
+const dockerfileNginx = read("docker/Dockerfile.nginx");
+const gitignore = read(".gitignore");
+const rtm = read("docs/analysis/RTM.md");
+
+/** location 본문의 스니펫 include를 실제 파일 내용으로 펼친다. 없는 스니펫이면 던진다. */
+function expandIncludes(body: string): string {
+  return stripComments(body).replace(
+    /include\s+\/etc\/nginx\/snippets\/([\w.-]+)\s*;/g,
+    (_match, name: string) => stripComments(read(`nginx/snippets/${name}`)),
+  );
+}
+
+/**
+ * nginx의 매치 규칙을 흉내 낸다: exact(`=`)가 먼저, 그다음 **최장 접두** 매치.
+ * `/records`·`/articles`처럼 자기 location이 없는 경로가 어디로 떨어지는지가 이 태스크의
+ * 쟁점이라, 경로 목록을 손으로 적는 대신 매칭을 실제로 돌린다.
+ */
+function locationFor(path: string): LocationBlock {
+  const exact = locations.find((block) => block.match === `= ${path}`);
+  if (exact !== undefined) return exact;
+  const prefixes = locations
+    .filter((block) => !/^[=~^]/.test(block.match) && path.startsWith(block.match))
+    .sort((a, b) => b.match.length - a.match.length);
+  const best = prefixes[0];
+  if (best === undefined) throw new Error(`${path}에 매치되는 location이 없다`);
+  return best;
+}
+
+/** 해당 location이 basic 인증을 **실제로** 요구하는가 (include를 펼친 뒤 판정). */
+function requiresBasicAuth(block: LocationBlock): boolean {
+  const body = expandIncludes(block.body);
+  const realm = /auth_basic\s+("[^"]*"|off)\s*;/.exec(body)?.[1];
+  const userFile = /auth_basic_user_file\s+(\S+)\s*;/.exec(body)?.[1];
+  return realm !== undefined && realm !== "off" && userFile !== undefined;
+}
+
+describe("web 표면이 인증 뒤에 있다 (T-042, specs/00 NFR-04)", () => {
+  /**
+   * 감사 B-1이 실측한 구멍이다: `packages/web/src`에 인증 문자열 0건 + `location /`
+   * 무조건 통과. 도메인에 도달하는 누구나 아티클을 **발행**할 수 있었다.
+   */
+  it.each(["/", "/records", "/articles", "/articles/some-id/edit", "/_next/static/chunk.js"])(
+    "%s는 basic 인증을 요구한다",
+    (path) => {
+      const block = locationFor(path);
+      expect(
+        requiresBasicAuth(block),
+        `${path}가 location ${block.match}로 떨어지는데 거기에 인증이 없다`,
+      ).toBe(true);
+    },
+  );
+
+  it("`/records`·`/articles`는 `/`로 떨어진다 — 전용 location은 인증 밖으로 새는 길이다", () => {
+    // 누군가 `location /articles { ... }`를 새로 만들면서 auth include를 빠뜨리면
+    // 위 단언은 그 location을 보게 되고 여기서 갈림이 드러난다.
+    for (const path of ["/records", "/articles"]) {
+      expect(locationFor(path).match, `${path}에 전용 location이 생겼다`).toBe("/");
+    }
+  });
+
+  it("`/health`는 인증 **밖**이다 — 모니터는 자격증명을 들고 있지 않다", () => {
+    const health = locationFor("/health");
+    expect(health.match).toBe("= /health");
+    expect(requiresBasicAuth(health), "`/health`에 인증이 걸렸다 — 모니터가 401을 받는다").toBe(
+      false,
+    );
+  });
+
+  it("compose의 nginx 헬스체크가 그 면제 경로를 **무자격으로** 두드린다", () => {
+    // 면제의 근거를 문장이 아니라 설정으로 묶어 둔다. 헬스체크에 자격증명을 넣어야 하는
+    // 상황이 오면 그건 인증 경계를 잘못 그었다는 신호다.
+    const healthcheck = /wget[^\n]*\/health/.exec(composeYml)?.[0] ?? "";
+    expect(healthcheck, "nginx 헬스체크가 `/health`를 두드리지 않는다").not.toBe("");
+    expect(healthcheck).not.toMatch(/--user|--password|Authorization/i);
+  });
+
+  it("`/mcp`·`/v1`에는 basic 인증을 걸지 않는다 — 그 둘은 앱 계층 Bearer다", () => {
+    // 여기에 basic을 걸면 MCP 클라이언트와 core-api 호출자가 전부 끊긴다.
+    // 인증이 없다는 뜻이 아니다 — T-007·T-014가 프로세스 안에서 Bearer를 검사한다.
+    for (const path of ["/mcp", "/v1"]) {
+      expect(requiresBasicAuth(locationFor(path)), `${path}에 basic 인증이 걸렸다`).toBe(false);
+    }
+  });
+
+  it("server 블록에 auth_basic을 걸지 않는다 — 걸면 `/health`가 상속받아 401이 된다", () => {
+    for (const [name, conf] of [
+      ["dev.conf", devConf],
+      ["prod.conf", prodConf],
+      ["proxy-common.conf", read("nginx/snippets/proxy-common.conf")],
+    ] as const) {
+      expect(stripComments(conf), `${name}이 auth_basic을 상속시킨다`).not.toMatch(/auth_basic/);
+    }
+  });
+
+  it("자격증명 파일은 **런타임 마운트 경로**다 (이미지 안이 아니다)", () => {
+    const userFile = /auth_basic_user_file\s+(\S+)\s*;/.exec(stripComments(authBasicConf))?.[1];
+    expect(userFile).toBe("/etc/nginx/secrets/htpasswd");
+    // 이미지에 구우면 ECR에 시크릿이 올라간다. Dockerfile이 그 경로를 만들지 않는지 본다.
+    expect(dockerfileNginx, "nginx 이미지가 자격증명을 굽는다").not.toMatch(/secrets/);
+  });
+
+  it("compose가 자격증명을 `:?` env로 받는다 (조용한 기본값 없음)", () => {
+    expect(composeYml).toMatch(/WEB_HTPASSWD_B64:\s*\$\{WEB_HTPASSWD_B64:\?[^}]*\}/);
+    // 기본값을 주면 오설정이 조용히 통과하고 web이 자격증명 없이 뜬다 — 감사 B-1 상태다.
+    expect(composeYml, "WEB_HTPASSWD_B64에 조용한 기본값이 생겼다").not.toMatch(
+      /\$\{WEB_HTPASSWD_B64:-/,
+    );
+  });
+});
+
+describe("htpasswd 실값이 레포에 없다 (T-042, CLAUDE.md 시크릿 금지)", () => {
+  it(".env.example의 `WEB_HTPASSWD_B64`는 **비어 있다**", () => {
+    const line = /^WEB_HTPASSWD_B64=(.*)$/m.exec(envExample);
+    expect(line, ".env.example에 WEB_HTPASSWD_B64가 없다").not.toBeNull();
+    // 이 값은 경로가 아니라 시크릿 그 자체다. 예시값조차 두지 않는다 — base64는
+    // 사람 눈에 무의미해 보여서 "예시겠지"로 넘어가기 쉽고, 그게 정확히 위험한 지점이다.
+    expect(line?.[1], ".env.example에 실값이 들어갔다").toBe("");
+  });
+
+  it.each([
+    [".env.example", envExample],
+    ["docker-compose.yml", composeYml],
+    ["docker-compose.prod.yml", composeProdYml],
+    ["nginx/snippets/auth-basic.conf", authBasicConf],
+    ["nginx/snippets/routes.conf", routesConf],
+    ["specs/06-deployment.md", deploymentSpec],
+  ])("%s에 htpasswd 해시가 없다", (_name, content) => {
+    // htpasswd가 내는 네 가지 형식 전부: apr1 / bcrypt / {PLAIN} / {SHA}.
+    expect(content).not.toMatch(/\$apr1\$|\$2[aby]\$|\{PLAIN\}|\{SHA\}/);
+  });
+
+  it("`secrets/`가 .gitignore돼 있다 — 실값이 실수로 커밋되지 않는다", () => {
+    expect(gitignore).toMatch(/^secrets\/$/m);
+  });
+});
+
+// ================================ htpasswd 렌더 엔트리포인트 (T-042 F-2 해소)
+
+/**
+ * **스크립트를 글자로 검사하지 않고 실제로 돌린다.** docker는 필요 없다 — POSIX sh와
+ * base64뿐이고, `NGINX_PREFIX` seam이 쓰기 경로를 임시 디렉터리로 돌린다.
+ *
+ * 텍스트 검사(`toContain("exit 78")`)로는 "78이 어딘가 적혀 있다"까지만 알 수 있고
+ * **어느 조건에서 78이 나오는지**는 알 수 없다. 가드가 옮겨지거나 조건이 뒤집혀도
+ * 글자는 그대로 남는다. 그래서 조건별로 실행해서 종료 코드를 본다.
+ */
+const renderScript = join(repoRoot, "docker/nginx-entrypoint.d/10-render-htpasswd.sh");
+
+/** 픽스처 자격증명. **실제 시크릿이 아니다** — 모양만 맞춘 더미이고 임시 디렉터리에만 산다. */
+const FIXTURE_HTPASSWD = "alice:{SHA}fixture-not-a-real-hash\nbob:{SHA}also-fake\n";
+
+interface RenderResult {
+  readonly status: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly prefix: string;
+}
+
+function runRender(webHtpasswdB64: string | undefined): RenderResult {
+  const prefix = mkdtempSync(join(tmpdir(), "sentinel-nginx-prefix-"));
+  const result = spawnSync("sh", [renderScript], {
+    encoding: "utf8",
+    env: {
+      PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+      NGINX_PREFIX: prefix,
+      ...(webHtpasswdB64 === undefined ? {} : { WEB_HTPASSWD_B64: webHtpasswdB64 }),
+    },
+  });
+  return {
+    status: result.status ?? -1,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    prefix,
+  };
+}
+
+const renderedPath = (prefix: string): string => join(prefix, "secrets/htpasswd");
+
+describe("htpasswd 렌더 엔트리포인트가 실패를 **이름 대고** 거절한다 (T-042 F-2)", () => {
+  it("엔트리포인트 순서상 서버 블록 선택보다 **먼저** 돈다", () => {
+    // nginx:alpine이 `/docker-entrypoint.d/*.sh`를 알파벳 순으로 돈다. 10 < 20이라
+    // 자격증명이 준비된 뒤에 서버 블록이 골라진다. 번호가 뒤집히면 순서가 뒤집힌다.
+    expect(renderScript).toContain("10-render-htpasswd.sh");
+    expect(read("docker/nginx-entrypoint.d/20-select-server-conf.sh")).toContain("NGINX_MODE");
+  });
+
+  it("정상 값이면 htpasswd를 **그대로** 써 놓고 0으로 끝난다", () => {
+    const encoded = Buffer.from(FIXTURE_HTPASSWD).toString("base64");
+    const result = runRender(encoded);
+    expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+    expect(readFileSync(renderedPath(result.prefix), "utf8")).toBe(FIXTURE_HTPASSWD);
+  });
+
+  /**
+   * **이 단언이 "로그에 찍지 마라"를 기계로 지킨다.**
+   * 로그는 CloudWatch로 가고 배포 로그는 SSM을 거쳐 GH Actions에 남는다. 누군가
+   * 디버깅하려고 `echo "$WEB_HTPASSWD_B64"`나 `cat "$DEST"` 한 줄을 넣으면 여기서 죽는다.
+   */
+  it("자격증명도 base64 값도 stdout/stderr에 **한 글자도** 나오지 않는다", () => {
+    const encoded = Buffer.from(FIXTURE_HTPASSWD).toString("base64");
+    const result = runRender(encoded);
+    const output = result.stdout + result.stderr;
+    expect(output, "base64 원문이 로그에 찍혔다").not.toContain(encoded);
+    for (const secret of ["fixture-not-a-real-hash", "also-fake", "alice", "bob"]) {
+      expect(output, `디코딩 결과(${secret})가 로그에 찍혔다`).not.toContain(secret);
+    }
+    // 그래도 "무엇이 일어났는지"는 말해야 한다. 줄 수는 시크릿이 아니다.
+    expect(result.stdout).toContain("2줄");
+  });
+
+  /**
+   * ⚠️ **종료 코드만 보면 안 된다.** 이 스크립트의 78은 세 갈래(값 없음 / base64 실패 /
+   * 형식 불일치)이고, 값 부재 가드를 지워도 `set -u`나 형식 검사가 결국 78을 낸다 —
+   * 뮤테이션으로 실측했고 코드만 보던 판은 **생존했다.** 그래서 갈래마다 사유 문장을
+   * 구분해서 단언한다. 78이 나오는 것과 **맞는 이유로** 나오는 것은 다르다.
+   */
+  it("값이 없으면 exit 78이고 **비어 있다고** 말한다", () => {
+    const result = runRender(undefined);
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("WEB_HTPASSWD_B64가 비어 있다");
+    expect(() => statSync(renderedPath(result.prefix)), "실패했는데 파일이 남았다").toThrow();
+  });
+
+  it("빈 문자열도 미설정과 **같은 사유로** 거절한다", () => {
+    const result = runRender("");
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("WEB_HTPASSWD_B64가 비어 있다");
+  });
+
+  it("base64가 아니면 exit 78이고, 실패한 값을 되뱉지 않는다", () => {
+    const garbage = "!!!!definitely-not-base64!!!!";
+    const result = runRender(garbage);
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("base64");
+    expect(result.stderr, "거절하면서 값을 로그에 뱉었다").not.toContain(garbage);
+  });
+
+  /**
+   * 디코딩은 되는데 내용이 htpasswd가 아닌 경우다 — 흔한 오조작은 **파일이 아니라
+   * 암호만** base64하는 것이다. 이 가드가 없으면 nginx는 뜨고 `/`는 401을 내며
+   * **아무도 로그인하지 못한다.** 증상이 "인증 실패"라 원인이 설정이라는 걸 알기 어렵다.
+   */
+  it("디코딩은 됐지만 htpasswd 형식이 아니면 exit 78이다", () => {
+    const result = runRender(Buffer.from("just-a-password\n").toString("base64"));
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("htpasswd");
+    expect(() => statSync(renderedPath(result.prefix))).toThrow();
+  });
+
+  it("deploy.sh는 base64를 **디코딩하지 않는다** — 하면 .env가 개행으로 깨진다", () => {
+    // 감싼 이유가 스칼라로 만들기 위해서인데 배포 쪽에서 풀면 그 이유가 사라진다.
+    expect(read("infra/deploy/deploy.sh")).not.toMatch(/base64\s+(-d|-D|--decode)/);
+  });
+
+  it("nginx 이미지가 base64 존재를 **빌드 시점에** 확인한다", () => {
+    // 없으면 컨테이너가 매번 78로 죽고, 그 원인이 베이스 이미지라는 걸 알기 어렵다.
+    expect(dockerfileNginx).toMatch(/command -v base64/);
+  });
+});
+
+describe("specs/06이 NFR-04 **부분 충족**을 명시한다 (T-042 Acceptance 4)", () => {
+  /**
+   * 이 단언이 지키는 것은 설정이 아니라 **문면**이다. basic 인증은 프로젝트별 키를
+   * 구분하지 못하고 감사 B-2(아티클 project 스코프 부재)를 닫지 못한다. 그 한계가
+   * 문서에서 사라지면 다음 사람이 NFR-04를 "충족"으로 읽고 B-2를 영영 놓친다.
+   * **이 테스트를 통과시키려고 문면을 지우지 마라 — 지워야 할 것은 한계 자체다.**
+   */
+  const section = /## web 표면 인증[\s\S]*$/.exec(deploymentSpec)?.[0] ?? "";
+
+  it("`## web 표면 인증` 절이 있다", () => {
+    expect(section, "specs/06에 web 표면 인증 절이 없다").not.toBe("");
+  });
+
+  it("프로젝트별 키를 구분하지 못한다고 적혀 있다", () => {
+    expect(section).toContain("프로젝트별 키");
+    expect(section).toContain("미충족");
+  });
+
+  it("감사 B-2(아티클 project 스코프)가 닫히지 않았다고 적혀 있다", () => {
+    expect(section).toContain("B-2");
+    expect(section).toMatch(/닫히지 않는다|열린 채/);
+  });
+
+  it("RTM이 web 표면을 NFR-04 검증 대상으로 잡는다 (T-042 배경)", () => {
+    // 감사: RTM의 NFR-04 검증란이 T-007·T-014뿐이라 web 표면이 통째로 빠져 있었다.
+    expect(rtm).toContain("NFR-04 (web 표면)");
+    expect(rtm).toContain("T-042");
   });
 });
 

@@ -17,8 +17,16 @@
 
 ```bash
 cp .env.example .env       # MONGODB_URI·API_KEYS·ANTHROPIC_API_KEY·VOYAGE_API_KEY·CORE_API_KEY를 채운다
+
+# web 표면(`/`)은 basic 인증 뒤에 있다 (T-042). 자격증명도 .env에 채워야 뜬다.
+mkdir -p secrets && htpasswd -Bc secrets/nginx-htpasswd <사용자명>
+base64 -w0 < secrets/nginx-htpasswd          # macOS: base64 -i secrets/nginx-htpasswd
+# 출력을 .env의 WEB_HTPASSWD_B64=에 붙인다
+
 pnpm dev:compose
-curl -sS http://localhost:8080/health
+curl -sS http://localhost:8080/health        # 인증 밖이라 그대로 200
+curl -sS http://localhost:8080/              # 401
+curl -sS -u <사용자명> http://localhost:8080/ # web UI
 ```
 
 상태는 전부 Atlas다(specs/06). 로컬에도 DB 컨테이너가 없고 `MONGODB_URI`가 실 Atlas를 본다.
@@ -154,10 +162,32 @@ tsx는 루트 devDependency라 `--prod` 설치에 딸려 오지 않아 이미지
 ```
 nginx/snippets/routes.conf          ← 라우팅 정본. dev·prod가 **둘 다** include
         ├── proxy-common.conf       ← 공통 프록시 헤더
-        └── proxy-streaming.conf    ← proxy_buffering off / read_timeout 300s
+        ├── proxy-streaming.conf    ← proxy_buffering off / read_timeout 300s
+        └── auth-basic.conf         ← `/`에만 걸리는 basic 인증 (T-042)
 nginx/conf.d/00-upstreams.conf      ← 업스트림만 분리 (테스트가 이 파일만 갈아끼운다)
 nginx/available/{dev,prod}.conf     ← 서버 블록. 라우팅을 **복붙하지 않는다**
 ```
+
+인증 스니펫은 `location /` **한 곳에서만** include된다. server 블록에 걸면 `= /health`가
+상속받아 모니터와 compose 헬스체크가 전부 401이 된다. `/mcp`·`/v1`도 걸지 않는다 —
+그 둘은 앱 계층 Bearer가 맡고, basic을 얹으면 MCP 클라이언트가 끊긴다.
+
+## 엔트리포인트 (`/docker-entrypoint.d/`, 알파벳 순)
+
+| 스크립트                   | 하는 일                                                      |
+| -------------------------- | ------------------------------------------------------------ |
+| `10-render-htpasswd.sh`    | `WEB_HTPASSWD_B64`를 디코딩해 `/etc/nginx/secrets/htpasswd`로 |
+| `20-select-server-conf.sh` | `NGINX_MODE`로 dev/prod 서버 블록 선택 + `DOMAIN_NAME` envsubst |
+| `30-cert-reload-loop.sh`   | 인증서 갱신 감시 후 reload                                     |
+
+10이 20보다 앞인 것은 의도적이다 — 자격증명이 준비된 뒤에 서버 블록이 골라진다.
+둘 다 **실패하면 exit 78(EX_CONFIG)로 이름을 대고 죽는다.** nginx가 내는 500은
+원인을 말하지 않아서, 운영자가 `auth_basic_user_file`을 의심하기까지 한참을 헤맨다.
+
+자격증명이 파일 마운트가 아니라 base64 env인 이유는 배포 경로 때문이다: SSM → `.env`
+렌더가 스칼라 전용이라 개행을 담지 못하는데(`infra/deploy/deploy.sh`) htpasswd는
+사용자가 둘 이상이면 여러 줄이다. 디코딩 결과는 **로그에 남기지 않는다** —
+컨테이너 로그는 CloudWatch로, 배포 로그는 SSM을 거쳐 GH Actions로 간다.
 
 업스트림을 따로 뺀 이유가 핵심이다: `tools/nginx-streaming.int.spec.ts`가 이 파일 하나만
 테스트용으로 갈아끼우고 **라우팅·버퍼링 설정은 배포되는 파일 그대로** 검증한다.
@@ -167,7 +197,7 @@ nginx/available/{dev,prod}.conf     ← 서버 블록. 라우팅을 **복붙하�
 
 | 가드                                | docker 필요 | 지키는 것                                              |
 | ----------------------------------- | ----------- | ------------------------------------------------------ |
-| `tools/nginx-contract.spec.ts`      | ✗           | specs/06 라우팅표 ↔ 설정, 지시문 존재, 시크릿, tsx 버전 |
+| `tools/nginx-contract.spec.ts`      | ✗           | specs/06 라우팅표 ↔ 설정, 지시문 존재, 시크릿, tsx 버전, **`/` 인증·`/health` 면제·htpasswd 렌더 78 가드** |
 | `tools/compose-contract.int.spec.ts`| ✓           | compose가 **해소한 값** (API_KEYS 동일성·메모리·순서)   |
 | `tools/nginx-streaming.int.spec.ts` | ✓           | **실물 nginx**를 통과하는 스트리밍의 도착 시각          |
 | `tools/require-docker.int.spec.ts`  | —           | CI에서 위 두 개의 skip을 하드 실패로 승격               |

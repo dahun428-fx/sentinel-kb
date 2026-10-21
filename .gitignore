@@ -12,6 +12,8 @@ build/
 .env
 .env.*
 !.env.example
+# nginx basic 인증 htpasswd 등 런타임 시크릿 (T-042). 실값은 절대 커밋 대상이 아니다.
+secrets/
 
 # test / coverage
 coverage/

@@ -10,9 +10,12 @@ ARG NGINX_VERSION=1.29-alpine
 
 FROM nginx:${NGINX_VERSION}
 
-# envsubst(gettext)는 nginx:alpine에 이미 들어 있다. 명시적으로 확인해 두면
+# envsubst(gettext)와 base64는 nginx:alpine에 이미 들어 있다. 명시적으로 확인해 두면
 # 베이스 이미지가 바뀌었을 때 런타임이 아니라 빌드에서 깨진다.
+# base64는 `10-render-htpasswd.sh`가 자격증명을 디코딩할 때 쓴다(T-042) — 없으면
+# 컨테이너가 매번 exit 78로 죽고, 그 원인이 "이미지에 base64가 없다"임을 알기 어렵다.
 RUN command -v envsubst >/dev/null
+RUN command -v base64 >/dev/null
 
 COPY nginx/snippets/  /etc/nginx/snippets/
 COPY nginx/available/ /etc/nginx/available/

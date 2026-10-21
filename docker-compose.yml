@@ -260,6 +260,17 @@ services:
     logging: *logging
     environment:
       NGINX_MODE: dev
+      # web 표면(`/`)의 basic 인증 자격증명 (T-042, specs/06 "web 표면 인증").
+      # **htpasswd 파일 전체를 base64한 단일 값**이며 `10-render-htpasswd.sh`가 기동 시
+      # 디코딩해 파일로 쓴다. 이미지에 굽지 않는다 — 시크릿이고 이미지는 ECR에 올라간다.
+      #
+      # base64인 이유: 배포는 SSM → `.env` 스칼라 경로 하나로 시크릿을 나르는데
+      # (`infra/deploy/deploy.sh:103-106`) 그 경로가 개행을 담지 못한다. htpasswd는
+      # 사용자가 둘 이상이면 여러 줄이다. 감싸면 기존 경로에 그대로 얹힌다.
+      #
+      # 기본값을 두지 않는 것은 의도적이다: 조용한 기본값은 오설정을 통과시키고,
+      # web을 자격증명 없이 띄우는 것이 바로 감사 B-1이 지적한 상태다.
+      WEB_HTPASSWD_B64: ${WEB_HTPASSWD_B64:?WEB_HTPASSWD_B64가 필요하다 — web 표면 basic 인증 htpasswd를 base64한 값 (T-042, specs/06)}
     ports:
       # 로컬에서만 80을 매핑한다. prod 오버레이가 443으로 갈아끼운다.
       - "${NGINX_HTTP_PORT:-8080}:80"
@@ -272,6 +283,8 @@ services:
         condition: service_started
     # 프록시 자신이 아니라 **프록시를 통과한 core-api**를 본다. specs/06 관측 행의
     # "`/health` 모니터"가 실제로 재는 것과 같은 경로다.
+    # 자격증명을 싣지 않는다 — `/health`는 T-042 basic 인증 **밖**이고, 그래야 한다.
+    # 헬스체크에 시크릿을 넣게 되는 순간이 인증 경계를 잘못 그었다는 신호다.
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/health"]
       interval: 15s

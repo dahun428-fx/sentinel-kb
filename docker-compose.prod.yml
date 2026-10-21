@@ -89,6 +89,9 @@ services:
       # SG 인바운드는 443 하나뿐이다(specs/06, infra/network.tf). 80은 호스트 안에서만 의미가 있다.
       - "443:443"
       - "127.0.0.1:80:80"
+    # 베이스의 `WEB_HTPASSWD_B64`(T-042)는 여기 다시 적지 않는다 — compose가 environment를
+    # 병합하므로 그대로 살아남고, 다시 적으면 값의 출처가 두 파일로 갈라진다.
+    # 프로덕션에서 그 값은 SSM SecureString에서 `.env`로 렌더된다(specs/06 시크릿 행).
     volumes:
       - letsencrypt:/etc/letsencrypt:ro
     logging:
