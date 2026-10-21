@@ -98,6 +98,58 @@ describe("readRetrievalConfig", () => {
     expect(config.numCandidates).toBe(200);
   });
 
+  /**
+   * **기본값 표의 리터럴 계약 앵커** (T-043).
+   *
+   * 바로 위 "미설정이면 .env.example과 같은 기본값이다"는 `RETRIEVAL_DEFAULTS`를 **기대값으로**
+   * 쓴다. 좌변인 `readRetrievalConfig({})`도 같은 표에서 나오므로, 표를 옮기면 좌우가 함께
+   * 따라간다 — 자기충족이다. 아래 `.env.example` 거울 대조도 잠금이 아니다: 문서에는 사람
+   * 승인 게이트가 없어 **상수와 문서를 같은 커밋에서 옮기는 것**이 게이트를 통과하는 가장 싼
+   * 길이다. 실측(T-043): 여섯 파라미터의 현실적 드리프트 뮤턴트(200→150, 8→6, 20→15, 60→30,
+   * 4→5, 2→4)를 `.env.example`과 **함께** 넣으면 유닛 스위트가 **전건 통과**했다.
+   *
+   * 그래서 값을 여기 리터럴로 박는다. 근거는 둘로 갈린다:
+   * - `RETRIEVAL_NUM_CANDIDATES=200`·`RETRIEVAL_MAX_CHUNKS_PER_RECORD=2`는 specs/03 §2 문면.
+   * - 나머지 다섯은 §6의 **스윕 대상**이다. 스윕은 env로 하므로(다음 테스트가 증명한다)
+   *   이 앵커가 스윕을 막지 않는다. 잠그는 것은 **커밋된 기본값**이고, 그것을 옮기는 것은
+   *   eval 재현성에 영향을 주는 결정이라 리뷰에 보여야 한다.
+   */
+  it("기본값 표가 리터럴과 같다 — 기본값 드리프트는 리뷰를 거쳐야 한다", () => {
+    expect(RETRIEVAL_DEFAULTS).toEqual({
+      RETRIEVAL_VECTOR_K: 20,
+      RETRIEVAL_TEXT_K: 20,
+      RETRIEVAL_FINAL_K: 8,
+      RRF_K: 60,
+      RETRIEVAL_NUM_CANDIDATES: 200,
+      RETRIEVAL_CANDIDATE_OVERFETCH: 4,
+      RETRIEVAL_MAX_CHUNKS_PER_RECORD: 2,
+    });
+  });
+
+  it("앵커가 eval 스윕을 막지 않는다 — 스윕은 env로 한다 (specs/03 §6)", () => {
+    // 위 앵커는 **커밋된 기본값**만 잠근다. 주입 경로가 막히면 T-013이 K·RRF_K를 흔들 수 없다.
+    expect(
+      readRetrievalConfig({
+        RETRIEVAL_VECTOR_K: "40",
+        RETRIEVAL_TEXT_K: "40",
+        RETRIEVAL_FINAL_K: "12",
+        RRF_K: "10",
+        RETRIEVAL_NUM_CANDIDATES: "500",
+        RETRIEVAL_CANDIDATE_OVERFETCH: "3",
+        RETRIEVAL_MAX_CHUNKS_PER_RECORD: "5",
+      }),
+    ).toEqual({
+      vectorK: 40,
+      textK: 40,
+      finalK: 12,
+      rrfK: 10,
+      numCandidates: 500,
+      candidateOverfetch: 3,
+      maxChunksPerRecord: 5,
+      relationExpansion: false,
+    });
+  });
+
   it("기본값 표가 .env.example의 값과 같다", async () => {
     const { readFileSync } = await import("node:fs");
     const { fileURLToPath } = await import("node:url");

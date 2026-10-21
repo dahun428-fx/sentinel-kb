@@ -760,6 +760,30 @@ describe("sanitize — 입력 길이 상한 (T-004 결정 4)", () => {
     );
   });
 
+  /**
+   * **리터럴 계약 앵커** (T-043).
+   *
+   * 위 테스트들은 입력 길이를 `DEFAULT_MAX_INPUT_CHARS`에서 만든다 — 상수를 옮기면 입력도
+   * 함께 따라가므로 전부 통과한다. 실측(T-043): 65536→70000 뮤턴트를 `.env.example`의
+   * `SANITIZE_MAX_INPUT_CHARS`와 **함께** 넣으면 유닛 스위트가 **전건 통과**했다.
+   * (T-041이 근거로 적은 "65536→131072 사망"은 극단값이라 상한 드리프트를 재지 못한다.
+   * 그때 죽은 것도 던지는 테스트가 아니라 입력이 커져 느려진 **벽시계 단언**이었다.)
+   *
+   * 값의 근거: T-004 결정 4, `.env.example`의 `SANITIZE_MAX_INPUT_CHARS=65536`.
+   */
+  it("기본 상한이 65536자다 (T-004 결정 4)", () => {
+    expect(DEFAULT_MAX_INPUT_CHARS).toBe(65_536);
+  });
+
+  it("상한을 리터럴 크기로도 확인한다 — 65537자는 던지고 65536자는 던지지 않는다", () => {
+    // 좌변이 상수에서 파생되지 않는 유일한 자리다. 상한을 올리면 65537자가 통과해 여기서 죽고,
+    // 내리면 65536자가 던져서 여기서 죽는다. 양방향 드리프트를 다 잡는다.
+    expect(() => sanitize("x".repeat(65_537), { maskEmail: false })).toThrow(
+      SanitizeInputTooLargeError,
+    );
+    expect(sanitize("x".repeat(65_536), { maskEmail: false }).text).toHaveLength(65_536);
+  });
+
   it("옵션으로 상한을 낮출 수 있다", () => {
     expect(() => sanitize("123456", { maskEmail: false, maxInputChars: 5 })).toThrow(
       SanitizeInputTooLargeError,

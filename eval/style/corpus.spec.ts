@@ -60,6 +60,23 @@ describe("사람 글", () => {
     expect(corpus.missing).toHaveLength(1);
   });
 
+  /**
+   * **리터럴 계약 앵커** (T-043).
+   *
+   * 아래 `toBeLessThanOrEqual(PIECE_MAX_CHARS)`는 좌변도 `clip(raw)`이 같은 상수로 자른
+   * 결과라 **상한을 올리면 무조건 통과한다**. 실측(T-043): 4000→3000 뮤턴트가 유닛
+   * 스위트를 **전건 통과**했다. (T-041이 근거로 적은 "4000→40 사망"은 극단값이라,
+   * 오염 검사가 40자에서 겹침을 못 찾아 죽은 것이지 상한을 잰 것이 아니다 —
+   * T-041 스스로 M2에서 경고한 극단값 착시가 자기 레지스트리에 그대로 들어갔다.)
+   *
+   * 값의 근거: 스펙이 숫자를 정하지 않았다. `corpus.ts`의 `PIECE_MAX_CHARS` 주석이 유일한
+   * 출처다 — "judge가 문체가 아니라 길이를 재게 되는 것"을 막는 값이고, 아티클 길이(수천 자)와
+   * 같은 자릿수여야 한다. 스펙이 정하지 않았다고 앵커를 생략하면 그 근거마저 조용히 흘러간다.
+   */
+  it("글 상한이 리터럴 4000자다 (corpus.ts PIECE_MAX_CHARS 근거)", () => {
+    expect(PIECE_MAX_CHARS).toBe(4000);
+  });
+
   it("모든 글을 같은 상한으로 자른다 — 길이 자체가 신호가 되면 안 된다", async () => {
     const corpus = await loadHumanCorpus(REPO_ROOT);
 
