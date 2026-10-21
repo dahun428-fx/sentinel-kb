@@ -13,6 +13,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration --passWithNoTests",
+    "test:e2e": "pnpm --filter @sentinel/web --fail-if-no-match run test:e2e",
     "build": "tsc -b",
     "dev": "pnpm -r --parallel dev",
     "dev:compose": "docker compose up --build",
