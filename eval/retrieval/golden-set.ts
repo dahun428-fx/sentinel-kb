@@ -2,6 +2,12 @@
  * 골든셋 **로더**. 출처: specs/05 "골든셋: query 30개 × 정답 recordIds (`eval_cases`, 사람 승인분만)".
  *
  * ## ⚠️ 이 파일에는 골든셋 **데이터**가 없다. 의도적이다.
+ *
+ * > **해소 (2026-10-21 확인, T-047).** 아래 `seedBatch` 선행 조건은 더 이상 사실이 아니다.
+ * > 커밋 `02899c2`가 `--reset`을 제자리 PATCH + `seedManifest` 장부로 바꿔 `_id`를 보존한다
+ * > (`scripts/seed.int.spec.ts:335`). 남은 선행 조건은 실 임베딩 자격증명과 골든셋 작성이다.
+ * > 아래 문단은 당시 기록이다. `goldenSetWarnings`의 0건 경고 문구는 T-047 Findings F-1로 후속 처리한다.
+ *
  * T-013 스펙의 `## ⚠️ 착수 전 결정 필요`가 그 이유를 적어 두었다:
  * `scripts/seed.ts`가 `POST /v1/records`로 시드를 넣으므로 **`--reset`을 돌릴 때마다 전 레코드의
  * ObjectId가 새로 발급된다.** 골든셋은 `expectedRecordIds: ObjectId[]`로 정답을 지목하므로

@@ -52,7 +52,7 @@ sentinel-kb는 여러 소프트웨어 프로젝트에서 발생한 **트러블�
 | ID | 제약 |
 |---|---|
 | CON-01 | 임베딩·LLM 호출 비용이 유한하므로 실모델 호출은 eval 계층으로 한정 |
-| CON-02 | Atlas Search는 로컬 에뮬레이터가 없어 벡터 관련 통합 테스트는 테스트 클러스터 필요 |
+| CON-02 | ~~Atlas Search는 로컬 에뮬레이터가 없어 벡터 관련 통합 테스트는 테스트 클러스터 필요~~ → **정정(2026-10-21 확인, T-047)**: `mongodb/mongodb-atlas-local` 컨테이너로 `$vectorSearch`·`$search`를 로컬·CI에서 검증한다(`specs/05-test-strategy.md:7–12`). 실 임베딩 품질 판정만 자격증명이 필요하다 |
 | CON-03 | 단일 EC2 인스턴스 운영. 서버는 stateless여야 함 |
 | CON-04 | MCP 도구 개수는 5개로 제한 (에이전트 인지 부하) |
 
