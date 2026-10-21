@@ -1,5 +1,5 @@
 # T-047: 문서 리뷰 반영 — 진입점 연결 + 해소된 차단 사유 정정
-refs: docs/analysis/DOCUMENTATION-REVIEW-2026-10-21.md, docs/plan/UPLIFT-PLAN.md
+refs: docs/analysis/DOCUMENTATION-REVIEW-2026-10-21.md, docs/analysis/DOCUMENTATION-RECHECK-2026-10-21.md, docs/plan/UPLIFT-PLAN.md
 M: - | deps: -
 
 ## 배경
@@ -33,6 +33,8 @@ M: - | deps: -
 - `specs/tasks/T-044-dead-second-defenses.md` 14행의 NUL 바이트를 텍스트 `\u0000`으로 교체.
 - `docs/plan/WBS.md` 9번 하위 번호(8.1~8.4 → 9.1~9.4).
 - `CLAUDE.md` 명령어 표의 존재하지 않는 `pnpm eval`을 실제 스크립트로 교체.
+- 재점검(`DOCUMENTATION-RECHECK-2026-10-21.md`) 반영: P3의 Anthropic 키 요구 명시와 Q-13 등재(R1),
+  P8 뒤 실사용 승인 게이트 분리와 사내 확장 조건 연결(R2). R3은 Findings F-1 그대로.
 - 이 태스크 등재: `specs/tasks/README.md` 표·추가 이력, README 지표 재생성(`pnpm sync:readme`).
 
 ## Out of scope
@@ -52,7 +54,8 @@ M: - | deps: -
 4. `grep -n '해소' docs/DECISIONS-PENDING.md | grep -E '§0|§3|0\.|3\.'` 및
    `grep -c '02899c2' eval/retrieval/golden-set.ts eval/retrieval/README.md docs/DECISIONS-PENDING.md` → 각 1 이상.
 5. `pnpm sync:readme && git diff --exit-code README.md` (재생성 후 추가 변경 없음).
-6. `pnpm lint && pnpm typecheck && pnpm test` 그린. 통합 테스트는 CI `verify`에서 판정한다.
+6. `grep -n 'ANTHROPIC_API_KEY' docs/plan/UPLIFT-PLAN.md`가 P3 행을 포함하고, `grep -c '실사용 승인 (P8과 별도 게이트)' docs/plan/UPLIFT-PLAN.md` → `1`.
+7. `pnpm lint && pnpm typecheck && pnpm test` 그린. 통합 테스트는 CI `verify`에서 판정한다.
 
 ## Context budget
 - 읽기: `docs/analysis/DOCUMENTATION-REVIEW-2026-10-21.md`, `docs/plan/UPLIFT-PLAN.md`,
@@ -60,7 +63,7 @@ M: - | deps: -
   `docs/analysis/SRS.md` CON 표, `specs/00-product.md` 성공 지표, `specs/05-test-strategy.md`,
   `eval/retrieval/{golden-set.ts,README.md}`, `scripts/seed.ts` 머리 주석, `CLAUDE.md`, `package.json` scripts,
   `specs/tasks/{README.md,T-044-dead-second-defenses.md}`
-- 근거 대조용(수정하지 않음): `packages/core/src/embedder/voyage.ts`, `packages/core/src/retriever/retrieve.ts`,
+- 근거 대조용(수정하지 않음): `docker-compose.yml`, `packages/core/src/llm/{config.ts,index.ts}`, `packages/core/src/embedder/voyage.ts`, `packages/core/src/retriever/retrieve.ts`,
   `packages/core/src/llm/anthropic.ts`, `packages/mcp/src/tools/suggest-resolution.ts`,
   `tools/dogfood-report.ts`, `docs/dogfooding.md`, `packages/contracts/src/record.ts`
 
