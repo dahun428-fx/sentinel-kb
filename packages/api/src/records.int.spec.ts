@@ -433,6 +433,22 @@ describe("Acceptance 5 — 시크릿 마스킹, 플래그 기록, 응답 경고"
     expect(response.body).not.toHaveProperty("warning");
   });
 
+  it("시크릿으로 보이는 태그는 400으로 거부하고 몇 번째인지만 말한다 (T-066, T-052 F-1)", async () => {
+    const created = await createIncident(ALPHA, { tags: ["nginx", "AKIAIOSFODNN7EXAMPLE"] });
+
+    expect(created.status).toBe(400);
+    expect(errorCode(created)).toBe("VALIDATION_FAILED");
+    expect(JSON.stringify(created.body)).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(JSON.stringify(created.body)).toContain('"tags",1');
+    expect(await db.collection("records").countDocuments({ tags: "AKIAIOSFODNN7EXAMPLE" })).toBe(0);
+  });
+
+  it("PATCH로도 시크릿 태그를 넣지 못한다 (T-066)", async () => {
+    const id = (await createIncident()).body["_id"] as string;
+    const patched = await request("PATCH", `/v1/records/${id}`, ALPHA, { tags: ["ghp_FAKE0000FAKE0000FAKE0000FAKE0000FAKE"] });
+    expect(patched.status).toBe(400);
+  });
+
   it("선택 필드의 빈 문자열은 미지정으로 받아 저장한다 — 엉뚱한 400을 내지 않는다 (T-059, P1 리뷰 A3)", async () => {
     const created = await createIncident(ALPHA, { rootCause: "", prevention: "   " });
 

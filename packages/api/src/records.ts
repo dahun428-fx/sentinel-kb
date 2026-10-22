@@ -20,7 +20,7 @@ import {
   type Relation,
   type SanitizeFlag,
 } from "@sentinel/contracts";
-import type { ResolvedSanitizeOptions } from "@sentinel/core";
+import { applyMasking, type ResolvedSanitizeOptions } from "@sentinel/core";
 import {
   recordsCollection,
   toContractRecord,
@@ -97,6 +97,29 @@ function assertNoServerOwnedKeys(body: unknown, allowTypeKey: boolean): void {
 }
 
 /** Zod 실패를 400으로 옮긴다. issue 목록을 `details`에 실어 클라이언트가 필드를 특정할 수 있게 한다. */
+/**
+ * 시크릿으로 보이는 태그를 거부한다 (T-066, T-052 F-1 / T-007 R-4).
+ *
+ * 태그는 `{tags:1}` 인덱스와 `chunks.meta.tags` 필터의 정확 일치 키라 마스킹할 수 없다 — 마스킹하면 저장 태그와 질의 태그가
+ * 갈려 조회가 조용히 깨진다. 그렇다고 그대로 두면 목록 응답(`RecordSummary.tags`)과 MCP 출력으로 시크릿이 나간다.
+ * 그래서 R-4가 제안한 대로 거부한다. 새 상태 코드가 아니라 기존 입력 검증 400이다. 몇 번째 태그인지만 말하고 값은 싣지 않는다.
+ */
+function assertNoSecretTags(tags: readonly string[] | undefined): void {
+  if (tags === undefined) return;
+  const issues = tags.flatMap((tag, index) =>
+    applyMasking(tag, false).masked.length > 0
+      ? [{ path: ["tags", index], message: "시크릿으로 보이는 값은 태그로 쓸 수 없다" }]
+      : [],
+  );
+  if (issues.length === 0) return;
+  throw new HttpError(
+    400,
+    API_ERROR_CODES.VALIDATION_FAILED,
+    "태그에 시크릿으로 보이는 값이 있다. 태그는 정확 일치 키라 마스킹할 수 없으니 빼고 다시 보내라.",
+    issues,
+  );
+}
+
 function validationError(error: { issues: unknown }): HttpError {
   return new HttpError(
     400,
@@ -204,6 +227,7 @@ export function registerRecordRoutes(app: FastifyInstance, deps: RecordRoutesDep
       }
     }
     // 태그는 마스킹하지 않고 **길이만** 합계에 넣는다 — 정확 일치 키라 마스킹이 조회를 깬다.
+    assertNoSecretTags(input.tags);
     const sanitized = sanitizeFields(raw, deps.sanitizeOptions, input.tags);
 
     const now = deps.now();
@@ -381,6 +405,7 @@ export function registerRecordRoutes(app: FastifyInstance, deps: RecordRoutesDep
     const relationNotes = ((patch["relations"] as readonly { note?: string }[] | undefined) ?? [])
       .map((relation) => relation.note ?? "")
       .filter((note) => note !== "");
+    assertNoSecretTags(patch["tags"] as string[] | undefined);
     const sanitized = sanitizeFields(raw, deps.sanitizeOptions, [
       ...((patch["tags"] as string[]) ?? []),
       ...relationNotes,
