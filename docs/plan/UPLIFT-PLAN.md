@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | 진행 중 (P0) |
+| 상태 | 진행 중 (P3 대기 — 사용자 환경 준비) |
 | 작성일 | 2026-10-21 |
 | 기준 커밋 | `f86db75` (origin/main) |
 | 역할 | 2026-10-21 이후 **진행 순서·완료 기준의 기준 문서**. 제품 요구는 `specs/`를 따른다 (`docs/README.md` "어디부터 읽나") |
@@ -14,6 +14,7 @@
 |---|---|---|
 | 2026-10-21 | 1 | 최초 작성. 현황 점검, 우선순위, 결정 기록 |
 | 2026-10-21 | 2 | 문서 리뷰(`docs/analysis/DOCUMENTATION-REVIEW-2026-10-21.md`) 반영 (T-047). 외부 전송 경로 정정, 품질 기준 3층 구분, 리뷰 지적 심각도와 진입 규칙, 단계별 선행 조건·완료 증거·중단 조건, P5 앞 적재 도구 단계 추가, 첫 화면 요약 |
+| 2026-10-22 | 4 | P0 완료, P1 AI 리뷰 결과(§4-2), P2 처리(T-048~T-052 수정, T-053~T-061 등재). P4·P7·P9 선행 조건에 리뷰 결과 반영 |
 | 2026-10-22 | 3 | 재점검(`docs/analysis/DOCUMENTATION-RECHECK-2026-10-21.md`) 반영 (T-047). P3의 Anthropic 키 요구 명시(R1, Q-13), 실사용 승인을 P8과 분리해 사내 확장 판단 조건으로 연결(R2) |
 
 ---
@@ -23,9 +24,9 @@
 | 항목 | 내용 |
 |---|---|
 | 목표 | 본인 프로젝트의 장애를 sentinel-kb에 기록하고, 다음 장애 때 검색해서 다시 쓰는 상태 |
-| 현재 단계 | **P0 GitHub 최신화** (남은 것: F-1, F-5) |
-| 다음 행동 | Q-2(F-1 수정 시점), Q-4(T-045 반영) 결정 → P0 완료 → P1 AI 평가 |
-| 막힌 결정 | P1 전: Q-2, Q-4, Q-5, Q-6 / P3 전: Q-13 / P4 전: Q-1, Q-10 / P5 전: Q-9, Q-11 |
+| 현재 단계 | **P0·P1·P2 완료. P3 로컬 실행 대기** |
+| 다음 행동 | 사용자: `.env` 작성(키 생성, Q-13), Docker로 `pnpm dev:compose` 기동 → P3 완료 증거 확인. 이어서 Voyage 키 발급(P4) |
+| 막힌 결정 | P4 전: Q-1, Q-10 / P5 전: Q-9, Q-11 / T-056 eval 정의 변경 승인 / T-052 F-1 태그 시크릿 처리 |
 | 하지 않는 것 | `troubleshooting-harness` 스킬 개선, M7 아티클 확장 (§1-1) |
 
 ---
@@ -73,7 +74,7 @@ sentinel-kb는 M0~M7 태스크 대부분이 구현됐지만 한 번도 운영된
 | 항목 | 내용 |
 |---|---|
 | 선행 조건 | P1 완료 |
-| 할 일 | §4-1 진입 규칙에 따라 Critical 수정·재검증, Major 수정 또는 수용 기록, Minor 백로그 등재 (`specs/tasks/T-048~`) |
+| 할 일 | §4-1 진입 규칙에 따라 Critical 수정·재검증, Major 수정 또는 수용 기록, Minor 백로그 등재 (`specs/tasks/T-050~`) |
 | 완료 증거 | Critical 0건 (수정 커밋 + 재검증 결과 링크). Major는 전부 "수정됨" 또는 "수용: 영향·임시 조치·담당 태스크·재검토 시점" 기재 |
 | 중단 조건 | 수정되지 않은 Critical이 있으면 그 Critical이 영향을 주는 단계로 진입 금지 |
 | 후속 | P3 |
@@ -92,9 +93,9 @@ sentinel-kb는 M0~M7 태스크 대부분이 구현됐지만 한 번도 운영된
 
 | 항목 | 내용 |
 |---|---|
-| 선행 조건 | P3 완료. Q-1(실행 위치), Q-10(외부 전송 허용 범위) 결정. Voyage 키 발급 |
+| 선행 조건 | P3 완료. Q-1(실행 위치), Q-10(외부 전송 허용 범위) 결정. Voyage 키 발급. **P3에서 쓴 로컬 DB 볼륨 삭제** — fake 벡터와 Voyage 벡터가 같은 `embeddingVersion`으로 섞이면 검색이 정상 응답 모양으로 실패한다(§4-2 C1, T-053이 코드로 막기 전까지의 절차) |
 | 할 일 | ① 연결 스모크: 레코드 1건 저장 → 임베딩 → 검색에서 `vectorRank`·`textRank`가 동시에 non-null인 hit 확인. ② 적재 완료: 시드 50건 재임베딩 |
-| 완료 증거 | ① 스모크 결과 1건. ② 다음 값을 기록: 대상 record 수, chunk 수, 전 chunk의 `embeddingVersion`이 기대값과 일치하는 비율(100%), `jobs` 대기 0·실패 0, 검색 인덱스 상태 READY |
+| 완료 증거 | ① 스모크 결과 1건. ② 다음 값을 기록: 대상 record 수, chunk 수, 전 chunk의 `embeddingVersion`이 기대값과 일치하는 비율(100%), `jobs`에서 `done`이 아닌 것 0(대기·실행 중·실패·dead 모두, §4-2 C2), 검색 인덱스 상태 READY. ③ 시드 레코드 제목 3개로 `/v1/answer`를 불러 `maxVectorScore` 분포를 기록(임계값 0.62 근거, §4-2 U1). ④ GitHub 시크릿 등록 후 `nightly-eval` 스케줄 복구(T-048 F-1) |
 | 중단 조건 | 실패 job이 남거나 `embeddingVersion` 혼재. 품질 판정은 여기서 하지 않는다 (P6) |
 | 후속 | P5a |
 
@@ -132,7 +133,7 @@ sentinel-kb는 M0~M7 태스크 대부분이 구현됐지만 한 번도 운영된
 
 | 항목 | 내용 |
 |---|---|
-| 선행 조건 | P6 중간 기준 통과 |
+| 선행 조건 | P6 중간 기준 통과. T-058(피드백 집계), T-059(입력 오류), T-057(답변 잘림) 처리 — 셋 다 첫 실사용에서 바로 드러난다 (§4-2) |
 | 할 일 | 사용하는 프로젝트의 Claude Code에 MCP 등록. 각 CLAUDE.md에 세 규칙 추가: 디버깅 전 `search_knowledge`, 해결 후 `record_knowledge`, 결과가 도움이 됐으면 `give_feedback(helped: true)`. 이벤트 로그(`eval/dogfood-log.jsonl`, `docs/dogfooding.md:69–81` 형식)를 누가 남기는지 정함 |
 | 완료 증거 | **계측 스모크**: `search`·`record`·`hit` 이벤트를 한 번씩 발생시키고, 로그 파일과 `tools/dogfood-report.cli.ts` 리포트 양쪽에서 각각 1건으로 집계되는 것을 확인 |
 | 중단 조건 | 리포트가 이벤트를 세지 못함 |
@@ -160,6 +161,7 @@ sentinel-kb는 M0~M7 태스크 대부분이 구현됐지만 한 번도 운영된
 ### P9. 배포 (필요 시)
 
 여러 기기·claude.ai에서 접속할 필요가 생기면 EC2 배포 (`docs/runbook.md`). `deploy`·`infra` 워크플로는 AWS 설정이 없으면 의도적으로 실패한다 (F-2, F-3).
+선행 조건: T-061(배포 `.env`의 `$` 값). 사내 확장이면 T-060(인용 위조·명령 블록 방어)과 §4-2 S10(프로젝트별 읽기 권한)도.
 
 ### 보류
 
@@ -220,11 +222,43 @@ M7 아티클 파이프라인 (T-029~T-034). 저장 → 검색 → 재사용 흐�
 
 ### 4-2. 평가 결과 (P1)
 
-P1 실행 후 기록한다.
+2026-10-22 실행. 도구는 로컬 리뷰 에이전트 3개(검색·적재 경로, API·MCP, 보안)이고 범위는 Q-6 (b) 실사용 경로다.
+각 지적은 리뷰가 코드 위치로 확인했고, Critical과 주요 Major는 직접 다시 확인했다(C1, C2, S1, S2, S4, A2).
+"미확인"은 실 API 지연처럼 실행 없이 확인할 수 없는 부분이다.
 
 | # | 심각도 | 영역 | 지적 | 영향 단계 | 처리 |
 |---|---|---|---|---|---|
-| | | | | | |
+| S1 | Critical | sanitizer | 마스킹 규칙 7종뿐. postgres·redis URI, PEM, JWT, `PASSWORD=`, GitHub 토큰 등이 평문 저장·외부 전송 | P4, P5 | **수정** T-051. 27건 마스킹 + 오탐 17건 고정 |
+| S2 | Critical | api | 검색어·`suggest_resolution` 에러 원문이 마스킹 없이 Voyage·Anthropic으로. 피드백 query가 `eval_cases`에 평문 | P4, P7 | **수정** T-052 |
+| S4 | Critical | 배포(로컬) | 로컬 compose가 nginx를 0.0.0.0에 열고 `.env.example`에 공개된 키 | P3 | **수정** T-050 |
+| C1 | Critical | embedder | fake와 Voyage 벡터가 같은 `embeddingVersion`에 섞여 `found:false`가 정상 응답 모양으로 나감 | P4~P6 | **절차로 차단** (P4 선행 조건: DB 볼륨 삭제 + 벡터 점수 확인). 코드 수정 T-053 |
+| S5 | Critical(공개 시) | git | 회사 메일이 든 커밋 `109a2ee`가 로컬 브랜치 4개·백업 1개에 남음 | — | **수정** 해당 브랜치·worktree 삭제(2026-10-22). 원본은 저장소 밖 보관 |
+| C2 | Major | worker | 죽은 프로세스의 `running` 잡을 회수하지 않음 | P4, P5 | 수용: P4·P5 완료 증거로 확인, 남으면 수동 복구. T-054 |
+| C3 | Major | worker | 429에 10초 만에 `dead`. `failed`/`dead` 재투입 경로 없음 | P4~P6 | 수용: 같은 확인. T-054 |
+| C4 | Major | api/worker | 제목·상태 변경이 청크에 반영 안 됨. draft로 되돌려도 검색됨 | P5, P8 | 수용: 제목 수정 시 본문도 고쳐 재임베딩. T-055 |
+| C5 | Major | eval | Recall@5가 실제로는 Recall@3~5. 실데이터 소수면 자명하게 높음 | P6 | T-056 (eval 정의 변경 — 사람 승인). P6 전 처리 |
+| A1 | Major | mcp | `suggest_resolution` 답이 인용 제목에 밀려 수십 자로 잘림 | P7, P8 | T-057. P7 전 처리, 그 전엔 `search_knowledge`+`get_record` |
+| A2 | Major | 계측 | `give_feedback`이 도그푸딩 리포트에 집계되지 않음 | P7, P8 | T-058. P7 선행 조건 |
+| A3 | Major | mcp/api | 빈 문자열 선택 필드가 엉뚱한 오류로 거부되고 상세가 버려짐 | P7, P8 | T-059. P7 선행 조건 |
+| A4 | Major | mcp | `/v1/answer` 재시도가 겹쳐 최악 30초·LLM 6회 (지연 미확인) | P4, P7 | T-057 |
+| A5 | Major | api | 없는 recordId 피드백 수용(a). query·note 평문 저장(b) | P6, P8 | (b) **수정** T-052. (a) T-059 |
+| S3 | Major | api | `relations[].note`·피드백 note·태그 마스킹 누락 | P5 | note **수정** T-052. 태그는 T-052 F-1 (스펙 결정 필요) |
+| S6 | Major | generator | 여는 `<chunk` 태그로 인용 위조 | P7, P9 | T-060. 1인 사용 영향 작음, 사내 확장 전 필수 |
+| S7 | Major | generator | 코드 블록은 인용 검사 제외인데 "인용된 기록에만 근거" 머리말 | P7 | T-060 |
+| S8 | Major(미확인) | 배포 | 배포 `.env`에서 `$`가 든 값이 보간돼 바뀜 | P9 | T-061 |
+| C6 | Minor | worker | 영구 실패에도 `attempts` 증가 | — | T-053 |
+| C7 | Minor | db | 인덱스 drift 검사가 차원만 비교 | P3, P4 | 백로그 (T-053에서 함께 검토) |
+| A6 | Minor | mcp | 기본 검색마다 불필요한 limit 안내문 | P7 | T-059 |
+| S9 | Minor | 문서 | 로컬 atlas-local 안전 기동법 없음 | P3 | T-061. P3 전 runbook 우선 |
+| C8 | 개선 | embedder | Voyage `input_type` 미전송 | P4, P6 | T-053. P5 적재 전 |
+| C9 | 개선 | 검색 | `lucene.standard`가 한국어 어절을 못 나눔 (T-010 F-6) | P6 | 백로그. P6 결과의 korean-prose 분해를 보고 판단 |
+| U1 | 개선(미확인) | generator | 임계값 0.62의 실측 근거 없음 | P4, P6 | P4 완료 증거 ③ |
+| A7 | 개선 | mcp | `CORE_API_URL=""` 처리, stdio가 전 키 요구 | P3, P7 | T-059 |
+| S10 | 개선 | 권한 | 프로젝트 간 읽기 전면 허용, 웹 UI 단일 계정 | P9 | 사내 확장 전 재검토 |
+| S11 | 개선 | CI | `ci.yml` 토큰 권한 미지정 | — | **수정** T-048 |
+
+**P2 판정:** 미수정 Critical은 C1 하나이고 영향 단계는 P4~P6이다. P4 선행 조건의 절차가 그 경로를 막으므로 P3 진입은 허용된다(§4-1).
+Major는 전부 수정되거나 담당 태스크·임시 조치·재검토 시점(표의 "P7 전" 등)이 적혀 있다.
 
 ---
 
@@ -258,6 +292,9 @@ DB를 로컬(atlas-local)에 두어도 아래 경로로 텍스트가 외부 API�
 | D-1 | 10-21 | 트러블슈팅 지식 저장소는 sentinel-kb를 고도화한다. `troubleshooting-harness` 개선이나 별도 git 저장소(`troubleshooting-kb`)는 진행하지 않는다 | sentinel-kb가 같은 목표(여러 프로젝트 공유 트러블슈팅 보관소 + MCP)로 이미 대부분 구현돼 있음 |
 | D-2 | 10-21 | 진행 순서: GitHub 최신화 → AI 평가·피드백 → 로컬 테스트 | 사용자 결정 |
 | D-3 | 10-21 | 평가 방식은 AI 코드 리뷰 | 우선순위 재조정 근거로 쓸 구체적 지적이 필요함 |
+| D-7 | 10-22 | Q-2 (a): F-1을 P1 전에 수정 (T-048). Q-3 (a): nightly 스케줄을 P4까지 중지 (T-048). Q-4 (a): T-045를 cherry-pick | 권장안 채택 (사용자 위임 "스스로 판단해서 완료") |
+| D-8 | 10-22 | Q-5 (b) 로컬 리뷰 에이전트, Q-6 (b) 실사용 경로 | `/code-review ultra`는 사용자만 실행할 수 있다. 필요하면 P3 전에 추가로 돌린다 |
+| D-9 | 10-22 | 검색어 마스킹 기준을 '저장 여부'에서 '외부 전송 여부'로 바꾼다 (T-007 R-2 변경) | §5의 외부 전송 경로. 시크릿을 제3자에 보내는 비용이 검색 결과 차이보다 크다 |
 | D-4 | 10-21 | 미머지 브랜치는 main에 직접 머지 후 push (브랜치별 PR 생략) | 셋 다 2차 감사 지적 수정. 1인 작업이라 PR 리뷰 이득이 적음 |
 | D-5 | 10-21 | 세션 내보내기 파일은 push 전 기록에서 제거, 원본은 저장소 밖 보관, `.gitignore` 패턴 추가 | 회사 메일 주소 포함. 공개 저장소 기록에 남으면 삭제 불가 |
 | D-6 | 10-21 | 문서 리뷰 지적은 T-047로 처리하고, 코드·테스트가 걸린 부분(`goldenSetWarnings` 문구)은 후속 태스크로 분리 | CLAUDE.md "태스크 단위로만 작업", "테스트를 고쳐서 통과시키지 않는다" |
@@ -269,13 +306,13 @@ DB를 로컬(atlas-local)에 두어도 아래 경로로 텍스트가 외부 API�
 | # | 필요한 시점 | 질문 | 선택지 | 권장 |
 |---|---|---|---|---|
 | Q-1 | P4 전 | 1차 실행 위치 | (a) 로컬 맥북: Docker Compose + atlas-local, `sentinel-kb-local`(stdio) (b) 처음부터 EC2 (c) 서버 로컬, 데이터 Atlas 클라우드 | **(a)**. 검색 품질 검증 전에 운영 비용을 늘리지 않는다. **원문 DB는 로컬에 남지만 임베딩 입력·검색어는 Voyage로, 생성 입력은 Anthropic으로 나간다** (§5). Docker가 켜져 있을 때만 쓸 수 있다 |
-| Q-2 | P1 전 | F-1 deploy-config 결함 수정 시점 | (a) P1 전 수정 (b) P2에서 수정 | **(a)**. 원인이 명확한 한 줄 수정 |
-| Q-3 | P1 전 | F-4 nightly-eval 매일 실패 | (a) 자격증명이 생길 때까지 스케줄 비활성화 (b) 자격증명이 없으면 건너뛰고 경고 (c) 그대로 | **(a)**. (b)는 이 저장소의 "가짜 그린 금지" 규약(`deploy.yml` 주석)과 충돌 |
-| Q-4 | P1 전 | F-5 T-045 처리 | (a) `c764f0a`를 main에 cherry-pick, 내보내기 파일 제외, 원 브랜치 삭제 (b) 보류 | **(a)** |
-| Q-5 | P1 전 | 리뷰 도구 | (a) `/code-review ultra` (클라우드 멀티 에이전트, 유료, 사용자가 직접 실행) (b) 로컬 리뷰 에이전트 (`code-reviewer`, `security-auditor`) (c) 둘 다 | 확인 필요 |
-| Q-6 | P1 전 | 리뷰 범위 | (a) 저장소 전체 (b) 실사용 경로: core(sanitizer, retriever, embedder), api, mcp, worker (c) (b) + 배포 설정 | **(b)**. M7은 보류 범위 |
+| Q-2 | 해소 (D-7) | F-1 deploy-config 결함 수정 시점 | (a) P1 전 수정 (b) P2에서 수정 | **(a)**. 원인이 명확한 한 줄 수정 |
+| Q-3 | 해소 (D-7) | F-4 nightly-eval 매일 실패 | (a) 자격증명이 생길 때까지 스케줄 비활성화 (b) 자격증명이 없으면 건너뛰고 경고 (c) 그대로 | **(a)**. (b)는 이 저장소의 "가짜 그린 금지" 규약(`deploy.yml` 주석)과 충돌 |
+| Q-4 | 해소 (D-7) | F-5 T-045 처리 | (a) `c764f0a`를 main에 cherry-pick, 내보내기 파일 제외, 원 브랜치 삭제 (b) 보류 | **(a)** |
+| Q-5 | 해소 (D-8) | 리뷰 도구 | (a) `/code-review ultra` (클라우드 멀티 에이전트, 유료, 사용자가 직접 실행) (b) 로컬 리뷰 에이전트 (`code-reviewer`, `security-auditor`) (c) 둘 다 | 확인 필요 |
+| Q-6 | 해소 (D-8) | 리뷰 범위 | (a) 저장소 전체 (b) 실사용 경로: core(sanitizer, retriever, embedder), api, mcp, worker (c) (b) + 배포 설정 | **(b)**. M7은 보류 범위 |
 | Q-7 | — | M7 아티클 | (a) 보류 (b) 코드 제거 (c) 병행 | **(a)**. 머지됐고 테스트가 통과하므로 지우지 않는다 |
-| Q-8 | P0 후 | 백업 브랜치 `backup/main-before-export-removal` | F-5 처리 후 삭제 | 원본 파일은 저장소 밖 보관 중 |
+| Q-8 | 해소 (10-22 삭제) | 백업 브랜치 `backup/main-before-export-removal` | F-5 처리 후 삭제 | 원본 파일은 저장소 밖 보관 중 |
 | Q-9 | P5b 전 | severity 기준 (SEV1~NOTE) | — | 등급별 기준을 한 줄씩 정한다 (`DECISIONS-PENDING.md` §5) |
 | Q-10 | P4 전 | 외부 API로 보내도 되는 자료 범위 | (a) 개인 프로젝트 자료만 (b) 회사 자료도 허용 (사내 정책 확인 후) (c) 회사 자료는 요약·익명화 후 | **(a)로 시작**. 회사 자료는 사내 정책(외부 AI API 전송)을 확인한 뒤 (b)/(c) 결정 |
 | Q-11 | P5a 전 | 적재 방식 | (a) Markdown → `CreateRecordInput` 변환 스크립트 (태스크 신설) (b) Claude Code에서 MCP `record_knowledge`로 한 건씩 (c) `postmortem-interview` 프롬프트로 대화형 기록 | **(b)**. 7건이라 도구를 만들 규모가 아니고, 실제 기록 경로(MCP)를 같이 검증한다 |
@@ -340,9 +377,12 @@ DB를 로컬(atlas-local)에 두어도 아래 경로로 텍스트가 외부 API�
 | | T-033 아티클 UI | BLOCKED / IN PROGRESS (두 기록이 다름) |
 | | T-034 스타일 eval | PARTIAL |
 | M7 감사 후속 | T-041, T-043, T-044 | 머지됨 |
-| | T-045 간헐 실패 봉합 | **미머지** (F-5) |
+| | T-045 간헐 실패 봉합 | GREEN (2026-10-22 cherry-pick, F-5 해소) |
 | 미분류 | T-037 | GREEN |
-| | T-047 문서 리뷰 반영 | 진행 중 |
+| | T-047 문서 리뷰 반영 | GREEN (2026-10-22 main) |
+| UPLIFT P0~P2 | T-048 CI 더미 env·nightly 중지·권한, T-049 골든셋 경고 문구 | GREEN |
+| | T-050 로컬 노출, T-051 마스킹 범위, T-052 검색어·피드백 마스킹 | GREEN (P1 Critical 수정) |
+| | T-053~T-061 P1 리뷰 Major | TODO (§4-2) |
 
 자동 완결률(`specs/00` 공식 정의)은 README 지표 표 기준 목표 70% 미달이다. 값은 README 표에서 읽는다.
 
@@ -365,18 +405,27 @@ DB를 로컬(atlas-local)에 두어도 아래 경로로 텍스트가 외부 API�
 4. 문서 리뷰 반영 (T-047). 이 문서 2판.
 5. 재점검(R1~R3) 반영 (T-047, 2026-10-22). 이 문서 3판. R3은 F-8로 이미 후속 처리 중이라 변경 없음.
 
+### 9-1b. 2026-10-22 완료 (P0 마무리 → P1 → P2)
+
+1. 플랜 부록 A의 회사 프로젝트명·문서 경로를 익명화하고, push 전 커밋 4개를 다시 써서 기록에서도 지웠다. 대응표는 저장소 밖 `../sentinel-kb-private-notes.md`.
+2. T-045 cherry-pick. 고병렬 전체 실행(unit + integration, Docker 포함) 반복 결과는 T-045 태스크 파일에 적는다.
+3. T-048(F-1 수정, 더미 env를 compose에서 계산해 대조하는 단언, nightly 스케줄 중지, `ci.yml` 권한), T-049(골든셋 경고 문구).
+4. P1: 로컬 리뷰 에이전트 3개 실행 → §4-2 표 28건.
+5. P2: Critical S1·S2·S4 수정(T-050~T-052), C1은 P4 절차로 차단, S5 브랜치 정리, Major는 T-053~T-061 등재.
+6. 각 수정은 뮤테이션(수정을 되돌리면 새 단언이 실패하는지)으로 단언이 실제로 잡는지 확인했다.
+
 ### 9-2. push 후 발견
 
 | # | 항목 | 내용 | 판단 |
 |---|---|---|---|
-| F-1 | `ci` → `deploy-config` 실패 | T-042가 `docker-compose.yml:273`에 `WEB_HTPASSWD_B64`를 필수(`:?`)로 추가했는데 `.github/workflows/ci.yml`의 더미 env(`/tmp/ci.env`)에는 없다 | **결함.** 더미 값 한 줄 추가로 해결 예상. Q-2 |
+| F-1 | `ci` → `deploy-config` 실패 (**해소** T-048) | T-042가 `docker-compose.yml:273`에 `WEB_HTPASSWD_B64`를 필수(`:?`)로 추가했는데 `.github/workflows/ci.yml`의 더미 env(`/tmp/ci.env`)에는 없다 | **결함.** 더미 값 한 줄 추가로 해결 예상. Q-2 |
 | F-2 | `infra` → `terraform plan` 실패 | AWS 자격증명 없음 | 의도된 실패 |
 | F-3 | `deploy` → `preflight` 실패 | AWS 저장소 변수 없음 | 의도된 실패. 실제 배포는 일어나지 않음 |
-| F-4 | `nightly-eval` 매일 실패 | `API_KEYS` 시크릿 없음 (exit 78) | 미배포 상태의 결과. 매일 실패 알림. Q-3 |
-| F-5 | `feat/T-045-test-flakes` 미머지 | 재작성 전 커밋(`109a2ee`)에서 갈라져 세션 내보내기 파일을 포함. 그대로 머지·push하면 파일이 공개된다 | `c764f0a`만 cherry-pick. Q-4 |
+| F-4 | `nightly-eval` 매일 실패 (**해소** T-048, P4에서 복구) | `API_KEYS` 시크릿 없음 (exit 78) | 미배포 상태의 결과. 매일 실패 알림. Q-3 |
+| F-5 | `feat/T-045-test-flakes` 미머지 (**해소** cherry-pick, 원 브랜치 삭제) | 재작성 전 커밋(`109a2ee`)에서 갈라져 세션 내보내기 파일을 포함. 그대로 머지·push하면 파일이 공개된다 | `c764f0a`만 cherry-pick. Q-4 |
 | F-6 | `specs/tasks/T-044-dead-second-defenses.md` 바이너리 인식 | 14행 코드 인용 `join("\u0000")`에 실제 NUL 문자가 들어가 있었음 (오프셋 897) | **해소** (T-047) |
 | F-7 | `DECISIONS-PENDING.md` §0, §3 | 해소된 항목이 미해소로 남아 있었음 | **해소** (T-047) |
-| F-8 | `eval/retrieval/golden-set.ts` `goldenSetWarnings` | 0건 경고가 해소된 `seedBatch`를 선행 조건으로 출력. 테스트 2개가 그 문구를 단언 | T-047 Findings F-1. 후속 태스크 |
+| F-8 | `eval/retrieval/golden-set.ts` `goldenSetWarnings` (**해소** T-049) | 0건 경고가 해소된 `seedBatch`를 선행 조건으로 출력. 테스트 2개가 그 문구를 단언 | T-047 Findings F-1. 후속 태스크 |
 
 ---
 
