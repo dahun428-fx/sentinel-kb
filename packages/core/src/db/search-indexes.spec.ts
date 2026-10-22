@@ -217,6 +217,13 @@ function createStubDb(existing: StubIndex[], options: { collections?: string[] }
   };
 }
 
+/** 정의 파일 그대로의 인덱스 정의(차원 치환 후). 기존 인덱스 스텁이 돌려주는 값이다. */
+function planDefinition(name: string): Document {
+  const plan = buildSearchIndexPlans(TEST_DIM).find((candidate) => candidate.name === name);
+  if (plan === undefined) throw new Error(`정의 파일에 ${name}이 없다`);
+  return structuredClone(plan.definition);
+}
+
 describe("ensureSearchIndexes (Acceptance 1: 멱등)", () => {
   it("아무것도 없으면 두 인덱스를 만든다", async () => {
     const db = createStubDb([]);
@@ -235,16 +242,10 @@ describe("ensureSearchIndexes (Acceptance 1: 멱등)", () => {
    * 잡을 수 없다 — 여기가 유일한 잠금 지점이다.
    */
   it("이미 있으면 createSearchIndex를 부르지 않는다", async () => {
+    // 기존 인덱스는 정의 파일 그대로다. T-065부터 정의를 대조하므로 스텁도 실제 정의를 돌려준다.
     const db = createStubDb([
-      {
-        name: "vec_idx",
-        status: "READY",
-        queryable: true,
-        latestDefinition: {
-          fields: [{ type: "vector", path: "embedding", numDimensions: TEST_DIM }],
-        },
-      },
-      { name: "text_idx", status: "READY", queryable: true, latestDefinition: {} },
+      { name: "vec_idx", status: "READY", queryable: true, latestDefinition: planDefinition("vec_idx") },
+      { name: "text_idx", status: "READY", queryable: true, latestDefinition: planDefinition("text_idx") },
     ]);
 
     const results = await ensureSearchIndexes(db, { dim: TEST_DIM });
@@ -393,9 +394,60 @@ describe("ensureSearchIndexes: dim 대조 (Acceptance 2 후반)", () => {
   });
 
   it("text_idx는 dim 대조 대상이 아니다", async () => {
-    const db = createStubDb([{ name: "text_idx", latestDefinition: {} }]);
+    const db = createStubDb([{ name: "text_idx", latestDefinition: planDefinition("text_idx") }]);
     const results = await ensureSearchIndexes(db, { dim: TEST_DIM });
     expect(results.find((r) => r.name === "text_idx")?.action).toBe("existing");
+  });
+});
+
+describe("ensureSearchIndexes: 정의 drift (T-065, P1 리뷰 C7)", () => {
+  const vecWith = (similarity: string): Document => {
+    const definition = structuredClone(planDefinition("vec_idx"));
+    (definition["fields"] as Document[])[0] = { ...(definition["fields"] as Document[])[0], similarity };
+    return definition;
+  };
+
+  it("similarity가 다르면 DEFINITION_DRIFT로 멈춘다 — 원시 cosine 환산이 조용히 틀려진다", async () => {
+    const db = createStubDb([{ name: "vec_idx", latestDefinition: vecWith("dotProduct") }]);
+    await expect(ensureSearchIndexes(db, { dim: TEST_DIM })).rejects.toMatchObject({
+      code: "SEARCH_INDEX_DEFINITION_DRIFT",
+    });
+    expect(db.created).toEqual([]);
+  });
+
+  it("filter 경로가 빠졌으면 멈춘다", async () => {
+    const definition = structuredClone(planDefinition("vec_idx"));
+    definition["fields"] = (definition["fields"] as Document[]).filter((f) => f["path"] !== "meta.project");
+    const db = createStubDb([{ name: "vec_idx", latestDefinition: definition }]);
+    await expect(ensureSearchIndexes(db, { dim: TEST_DIM })).rejects.toMatchObject({
+      code: "SEARCH_INDEX_DEFINITION_DRIFT",
+    });
+  });
+
+  it("text_idx의 analyzer가 다르면 멈춘다", async () => {
+    const definition = structuredClone(planDefinition("text_idx"));
+    ((definition["mappings"] as Document)["fields"] as Document)["text"] = {
+      type: "string",
+      analyzer: "lucene.korean",
+    };
+    const db = createStubDb([
+      { name: "vec_idx", latestDefinition: planDefinition("vec_idx") },
+      { name: "text_idx", latestDefinition: definition },
+    ]);
+    await expect(ensureSearchIndexes(db, { dim: TEST_DIM })).rejects.toMatchObject({
+      code: "SEARCH_INDEX_DEFINITION_DRIFT",
+    });
+  });
+
+  it("서버가 기본값을 덧붙인 정의는 통과한다 — 부분집합 비교다", async () => {
+    const text = structuredClone(planDefinition("text_idx"));
+    text["analyzer"] = "lucene.standard";
+    text["searchAnalyzer"] = "lucene.standard";
+    const db = createStubDb([
+      { name: "vec_idx", latestDefinition: planDefinition("vec_idx") },
+      { name: "text_idx", latestDefinition: text },
+    ]);
+    await expect(ensureSearchIndexes(db, { dim: TEST_DIM })).resolves.toHaveLength(2);
   });
 });
 

@@ -25,6 +25,8 @@ export const SEARCH_INDEX_ERROR_CODES = {
   DEFINITION_INVALID: "SEARCH_INDEX_DEFINITION_INVALID",
   /** 이미 존재하는 `vec_idx`의 numDimensions가 `EMBEDDING_DIM`과 다름. */
   DIM_MISMATCH: "SEARCH_INDEX_DIM_MISMATCH",
+  /** 이미 존재하는 인덱스의 정의가 정의 파일과 다름(similarity·경로·analyzer 등). T-065. */
+  DEFINITION_DRIFT: "SEARCH_INDEX_DEFINITION_DRIFT",
   /** 서버가 검색 인덱스를 지원하지 않음(평범한 mongod·memory-server). */
   UNSUPPORTED: "SEARCH_INDEX_UNSUPPORTED",
   /** 인덱스 빌드가 FAILED로 끝남 — 재시도 대상이 아니다. */
@@ -321,6 +323,42 @@ function assertDimMatches(plan: SearchIndexPlan, existing: ExistingSearchIndex, 
   );
 }
 
+/**
+ * 정의 파일의 모든 항목이 기존 인덱스 정의에 같은 값으로 있는지 본다 (T-065, P1 리뷰 C7).
+ *
+ * 차원만 보던 시절에는 `similarity`가 바뀌어도(예: cosine → dotProduct) 그대로 통과했다. 그러면 retriever의
+ * `2s−1` 원시 cosine 환산(retrieve.ts)이 조용히 틀린 값을 낸다. analyzer나 filter 경로가 바뀐 경우도 같다.
+ *
+ * **부분집합 비교다** — 서버가 기본값을 덧붙여 돌려줄 수 있으므로 기존 정의에 더 있는 키는 문제 삼지 않는다.
+ * 배열(벡터 필드 목록)은 정의 파일의 원소마다 기존 쪽에 그것을 포함하는 원소가 있어야 한다.
+ * 자동으로 고치지 않는 이유는 `assertDimMatches`와 같다.
+ */
+function assertDefinitionMatches(plan: SearchIndexPlan, existing: ExistingSearchIndex): void {
+  if (existing.latestDefinition === undefined) return;
+  if (isSubsetOf(plan.definition, existing.latestDefinition)) return;
+  throw new SearchIndexError(
+    SEARCH_INDEX_ERROR_CODES.DEFINITION_DRIFT,
+    `${plan.collection}.${plan.name}의 정의가 정의 파일(packages/core/src/db/search-indexes/${plan.name}.json)과 다르다. ` +
+      "자동으로 재생성하지 않는다 — 의도한 변경이면 인덱스를 지우고 다시 만들어라(벡터 인덱스면 specs/02 §마이그레이션 규칙).",
+  );
+}
+
+function isSubsetOf(expected: unknown, actual: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return (
+      Array.isArray(actual) &&
+      expected.every((item) => actual.some((candidate) => isSubsetOf(item, candidate)))
+    );
+  }
+  if (isRecord(expected)) {
+    return (
+      isRecord(actual) &&
+      Object.entries(expected).every(([key, value]) => isSubsetOf(value, actual[key]))
+    );
+  }
+  return expected === actual;
+}
+
 export interface EnsureSearchIndexesOptions {
   /** 명시하지 않으면 `EMBEDDING_DIM`에서 읽는다. */
   readonly dim?: number;
@@ -352,6 +390,7 @@ export async function ensureSearchIndexes(
 
     if (existing !== undefined) {
       assertDimMatches(plan, existing, dim);
+      assertDefinitionMatches(plan, existing);
       results.push({
         name: plan.name,
         collection: plan.collection,
