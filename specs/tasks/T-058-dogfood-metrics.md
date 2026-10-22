@@ -27,4 +27,13 @@ M: M5 | deps: T-022,T-024
 ## 처리 메모
 - **P7 선행 조건으로 묶는다.** P7 계측 스모크(UPLIFT §2 P7)가 이 결함을 잡는다.
 
-STATUS: TODO
+## 결과 (2026-10-22)
+
+- `tools/dogfood-db.ts`: DB 행 → 이벤트 순수 변환(`toDbEvents`), 로그와 병합(`mergeWithDbEvents`, DB를 쓰면 로그의
+  record·hit 줄은 버리고 search만 남긴다), 어댑터(`loadDbEvents`).
+- CLI `--from-db`, `--since=YYYY-MM-DD`(일괄 적재분 제외, UPLIFT Q-12). 기존 로그 전용 동작은 그대로.
+- 테스트: 단위 3건, 통합 2건 — 실제 `/v1/records`·`/v1/feedback` 경로로 쓴 뒤 기록 1·적중 1(helped:false는 제외).
+- 실동작: 로컬 스택에서 `/v1/feedback`(helped:true) 1회 후 `--from-db` 리포트 "기록 1건 · 적중 1건".
+- `docs/dogfooding.md`에 사용법, UPLIFT P7·P8 판정 명령 갱신.
+
+STATUS: GREEN

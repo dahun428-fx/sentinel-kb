@@ -80,6 +80,10 @@
 | `record`     | `record_knowledge`가 `recordId`를 돌려준 직후                       | `ts`, `recordId`, `type`     |
 | `hit` (적중) | `give_feedback(helped: true)`를 보낸 직후                           | `ts`, `recordId`             |
 
+> **T-058 이후:** `record`·`hit`은 손으로 적지 않아도 된다. 리포트를 `--from-db`로 돌리면 DB의 `records`·`feedbacks`
+> (`give_feedback(helped:true)`)에서 센다. 다른 저장소에서 일하는 에이전트는 이 파일에 쓸 수 없으므로 DB가 정본이다.
+> 손으로 적어야 하는 것은 DB가 모르는 `search`뿐이다.
+
 **`results: 0`을 반드시 적는다.** 0건 검색이야말로 재고 싶은 값이다 —
 "프로토콜은 지켰는데 KB가 비어 있다"와 "아무도 안 불렀다"는 고치는 사람이 다르다.
 빠뜨리면 두 사건이 똑같이 "검색 0회"로 보인다.
@@ -103,8 +107,10 @@
 ## 4. 리포트 — `eval/reports/dogfood-{ISO주}.json`
 
 ```bash
-pnpm exec tsx tools/dogfood-report.cli.ts                 # 오늘이 속한 주
+pnpm exec tsx tools/dogfood-report.cli.ts                 # 오늘이 속한 주 (로그 파일만)
 pnpm exec tsx tools/dogfood-report.cli.ts --week=2026-W34 # 특정 주
+# 기록·적중을 DB에서 센다 (T-058). 도그푸딩 시작일 이전의 일괄 적재분은 --since로 뺀다 (UPLIFT Q-12)
+MONGODB_URI=... MONGODB_DB=sentinel pnpm exec tsx tools/dogfood-report.cli.ts --from-db --since=2026-11-01
 ```
 
 리포트 JSON은 stdout으로, 요약 두 줄은 stderr로 나간다(`mcp:ping`과 같은 규약).

@@ -21,6 +21,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { closeDb, getDb } from "@sentinel/core/db";
+
+import { loadDbEvents, mergeWithDbEvents } from "./dogfood-db.js";
 import {
   buildDogfoodReport,
   DOGFOOD_LOG_PATH,
@@ -40,6 +43,8 @@ const HELP = `dogfood-report — ${DOGFOOD_LOG_PATH}를 ISO 주 단위로 집계
   --week=YYYY-Www   집계할 ISO 주 (기본: 오늘이 속한 주)
   --log=<경로>      이벤트 로그 (기본: <root>/${DOGFOOD_LOG_PATH})
   --root=<경로>     레포 루트 (기본: 이 파일 기준 상위)
+  --from-db         기록·적중을 DB(records, feedbacks)에서 읽는다. MONGODB_URI·MONGODB_DB 필요 (T-058)
+  --since=YYYY-MM-DD  --from-db일 때 이 날짜 이전에 만든 기록·피드백은 뺀다 (일괄 적재분 제외, UPLIFT Q-12)
   --help            이 도움말
 
 리포트 JSON은 stdout으로, 요약은 stderr로 나간다.
@@ -58,7 +63,7 @@ function resolve(root: string, value: string): string {
   return isAbsolute(value) ? value : join(root, value);
 }
 
-function main(argv: readonly string[]): void {
+async function main(argv: readonly string[]): Promise<void> {
   if (argv.some((arg) => arg === "--help" || arg === "-h")) {
     process.stderr.write(`${HELP}\n`);
     return;
@@ -80,7 +85,21 @@ function main(argv: readonly string[]): void {
     );
   }
 
-  const report = buildDogfoodReport(parseDogfoodLog(raw), { week, generatedAt: new Date() });
+  const logEvents = parseDogfoodLog(raw);
+  let events = logEvents;
+  if (argv.includes("--from-db")) {
+    const sinceRaw = readFlag(argv, "since");
+    const since = sinceRaw === undefined ? undefined : new Date(`${sinceRaw}T00:00:00.000Z`);
+    if (since !== undefined && Number.isNaN(since.getTime())) {
+      throw new ConfigError(`--since는 YYYY-MM-DD 형식이어야 한다: ${String(sinceRaw)}`);
+    }
+    try {
+      events = mergeWithDbEvents(logEvents, await loadDbEvents(await getDb(), since));
+    } finally {
+      await closeDb();
+    }
+  }
+  const report = buildDogfoodReport(events, { week, generatedAt: new Date() });
   const outPath = join(root, DOGFOOD_REPORT_DIR, dogfoodReportFileName(report.week));
   mkdirSync(dirname(outPath), { recursive: true });
   const json = `${JSON.stringify(report, null, 2)}\n`;
@@ -91,7 +110,7 @@ function main(argv: readonly string[]): void {
 }
 
 try {
-  main(process.argv.slice(2));
+  await main(process.argv.slice(2));
 } catch (error) {
   if (
     error instanceof DogfoodLogError ||
