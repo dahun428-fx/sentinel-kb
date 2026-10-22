@@ -355,6 +355,12 @@ describe("입력 검증", () => {
  * ----------------------------------------------------------------------- */
 
 describe("retriever 호출 인자", () => {
+  it("쿼리의 시크릿을 지우고 넘긴다 — 쿼리는 임베딩을 위해 Voyage로 나간다 (T-052)", async () => {
+    await search({ query: "postgres://app:FAKE0000pw@db/x 접속이 거부된다" });
+
+    expect(calls[0]?.query).toBe("postgres://[MASKED:db-credentials]@db/x 접속이 거부된다");
+  });
+
   it("limit을 생략하면 계약 기본값 5가 내려간다 — RETRIEVAL_FINAL_K(8)가 아니다", async () => {
     await search({ query: "결제 큐 멈춤" });
 

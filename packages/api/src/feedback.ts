@@ -17,6 +17,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { ObjectId, type Collection, type Db, type Filter } from "mongodb";
 
 import { API_ERROR_CODES, HttpError } from "./errors.js";
+import { maskOutboundText } from "./sanitize-record.js";
 
 // ---------------------------------------------------------------- 저장 형상
 
@@ -176,8 +177,20 @@ async function upsertEvalCaseCandidate(db: Db, query: string, recordId: ObjectId
   }
 }
 
-/** 라우트가 부르는 저장 경로 전체. 피드백은 항상, 후보는 `helped=true`일 때만. */
-export async function storeFeedback(db: Db, input: StoreFeedbackInput): Promise<void> {
+/**
+ * 라우트가 부르는 저장 경로 전체. 피드백은 항상, 후보는 `helped=true`일 때만.
+ *
+ * `query`와 `note`는 **저장 전에 마스킹한다** (T-052, P1 보안 리뷰 S2·S3). 에이전트가 보내는 query는
+ * 에러 원문이라 접속 문자열·토큰이 섞이기 쉽고, `eval_cases`로 복사된 query는 프로젝트 구분 없이
+ * 남아 eval 때 다시 외부 API로 나간다. 문서 `_id`도 마스킹한 query로 만든다 — 같은 원문은 같은
+ * 마스킹 결과를 내므로 upsert 동일성은 유지된다.
+ */
+export async function storeFeedback(db: Db, raw: StoreFeedbackInput): Promise<void> {
+  const input: StoreFeedbackInput = {
+    ...raw,
+    query: maskOutboundText(raw.query),
+    ...(raw.note === undefined ? {} : { note: maskOutboundText(raw.note) }),
+  };
   const recordId = toObjectId(input.recordId);
   if (recordId === undefined) {
     // `ObjectIdString`이 이미 24자 hex를 강제하므로 도달할 수 없다.

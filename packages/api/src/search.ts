@@ -23,12 +23,13 @@
  * 유사도로 읽히는 값이 필요하면 그것은 `vectorScore`이고, `SearchHit`에는 자리가 없다
  * (T-018/T-019가 쓴다). 자리를 만드는 것은 contracts 개정이라 인간 승인 사항이다.
  *
- * ## 쿼리를 새니타이즈하지 않는다 (T-007 R-2)
+ * ## 쿼리는 `sanitize()`가 아니라 마스킹만 거친다 (T-007 R-2 → T-052에서 변경)
  *
- * `sanitize()`는 **저장되는 텍스트**를 마스킹하는 게이트다. 검색 쿼리는 저장되지 않고,
- * 마스킹하면 `api_key=` 같은 토큰을 찾으려는 질의가 `[MASKED:api-key]` 질의로 **조용히
- * 바뀌어** 다른 결과를 낸다 — 검색은 입력을 그대로 해석해야 하는 읽기 경로다.
- * 길이 상한도 여기서 다시 걸지 않는다: 상한 초과는 413 `SANITIZE_INPUT_TOO_LARGE`로 나가는데
+ * `sanitize()`는 **저장되는 텍스트**의 게이트다. 검색 쿼리는 저장되지 않으므로 T-007은 쿼리를
+ * 손대지 않기로 했다(R-2). 그러나 쿼리는 **임베딩을 위해 Voyage로 나간다** — 저장 여부가 아니라
+ * 외부 전송이 기준이어야 했다(P1 보안 리뷰 S2). 그래서 `maskOutboundText()`로 시크릿만 지운다.
+ * 대가는 `api_key=…` 값 자체로 찾는 질의의 결과가 달라지는 것이다. 주변 단어로는 여전히 찾힌다.
+ * 길이 상한은 여기서 다시 걸지 않는다: 상한 초과는 413 `SANITIZE_INPUT_TOO_LARGE`로 나가는데
  * 그 코드는 openapi의 `/v1/search` 응답에 등재돼 있지 않아, 새니타이즈를 켜는 순간
  * **문서에 없는 상태 코드**가 이 경로에서 나온다. 과대 입력은 Fastify의 바디 상한이 막는다.
  */
@@ -43,6 +44,7 @@ import {
 import type { FastifyInstance, FastifyReply } from "fastify";
 
 import { API_ERROR_CODES, HttpError } from "./errors.js";
+import { maskOutboundText } from "./sanitize-record.js";
 
 export interface SearchRoutesDeps {
   readonly retriever: Retriever;
@@ -208,7 +210,7 @@ export function registerSearchRoutes(app: FastifyInstance, deps: SearchRoutesDep
     let result: RetrievalResult;
     try {
       result = await deps.retriever.retrieve({
-        query: input.query,
+        query: maskOutboundText(input.query),
         /*
          * **`SearchRequest.limit`이 이긴다.** Zod의 `.default(5)`가 이미 적용된 뒤라
          * 이 값은 항상 정의돼 있고, 그래서 `RETRIEVAL_FINAL_K`(기본 8)는 여기서 절대

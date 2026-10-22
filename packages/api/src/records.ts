@@ -42,7 +42,12 @@ import {
   PATCHABLE_STORED_FIELDS,
   summarySourceField,
 } from "./record-fields.js";
-import { sanitizeFields, toSanitizeWarning, type SanitizedFields } from "./sanitize-record.js";
+import {
+  maskOutboundText,
+  sanitizeFields,
+  toSanitizeWarning,
+  type SanitizedFields,
+} from "./sanitize-record.js";
 import { buildSummary } from "./summary.js";
 
 export interface RecordRoutesDeps {
@@ -366,8 +371,18 @@ export function registerRecordRoutes(app: FastifyInstance, deps: RecordRoutesDep
      * 서버 내부의 전체 치환은 못 막으므로, 여기서 키를 하나씩 쌓는 것이 유일한 방어다.
      */
     const contractPatch: Record<string, unknown> = {};
+    // `relations[].note`는 자유 텍스트라 마스킹해도 깨지는 조회가 없다 (T-007 R-4 중 note 부분,
+    // T-052에서 결정). 태그는 정확 일치 키라 여전히 마스킹하지 않는다 — R-4의 남은 쟁점이다.
+    let relationNoteMasked = false;
     for (const [key, value] of Object.entries(patch)) {
-      if (key === "context") {
+      if (key === "relations") {
+        contractPatch[key] = (value as readonly Relation[]).map((relation) => {
+          if (relation.note === undefined) return relation;
+          const masked = maskOutboundText(relation.note);
+          if (masked !== relation.note) relationNoteMasked = true;
+          return { ...relation, note: masked };
+        });
+      } else if (key === "context") {
         contractPatch[key] = sanitizedContext(sanitized);
       } else if (sanitized.texts[key] !== undefined) {
         contractPatch[key] = sanitized.texts[key];
@@ -387,8 +402,11 @@ export function registerRecordRoutes(app: FastifyInstance, deps: RecordRoutesDep
     }
     // 플래그는 **합집합**이다. 이번 PATCH는 건드린 필드만 검사했으므로, 손대지 않은 섹션에서
     // 나온 플래그를 지울 근거가 없다. 지우면 "검사 결과 깨끗함"이라고 거짓말하게 된다.
-    if (sanitized.flags.length > 0) {
-      contractPatch["sanitizeFlags"] = unionFlags(existing.sanitizeFlags, sanitized.flags);
+    const patchFlags: readonly SanitizeFlag[] = relationNoteMasked
+      ? unionFlags(sanitized.flags, ["secret-masked"])
+      : sanitized.flags;
+    if (patchFlags.length > 0) {
+      contractPatch["sanitizeFlags"] = unionFlags(existing.sanitizeFlags, patchFlags);
     }
     contractPatch["updatedAt"] = now;
 

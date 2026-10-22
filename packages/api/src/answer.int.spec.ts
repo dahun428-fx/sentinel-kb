@@ -358,6 +358,36 @@ describe("무관한 쿼리 (Acceptance 2)", () => {
    * **대조군.** 위 다섯이 전부 false인 것이 게이트 때문이지 배선이 죽어서가 아님을 못박는다.
    * 이게 없으면 `generateAnswer`를 통째로 `found:false` 반환으로 바꿔도 전부 통과한다.
    */
+  it("쿼리의 시크릿은 검색에도 생성 요청에도 실리지 않는다 (T-052)", async () => {
+    const secret = "AKIAIOSFODNN7EXAMPLE";
+    const seen: string[] = [];
+    const retriever: Retriever = {
+      config: {} as Retriever["config"],
+      retrieve: ({ query }): Promise<RetrievalResult> => {
+        seen.push(query);
+        return Promise.resolve({
+          hits: [makeChunk()],
+          maxVectorScore: 0.99,
+          vectorCandidateCount: 1,
+          textCandidateCount: 0,
+        });
+      },
+    };
+    const { app, model } = makeHarness(retriever);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/answer",
+      headers: AUTH,
+      payload: { query: `${secret} 키로 접속할 때 커넥션 풀이 고갈된다` },
+    });
+
+    expect(response.json()).toMatchObject({ found: true });
+    expect(seen).toEqual(["[MASKED:aws-access-key] 키로 접속할 때 커넥션 풀이 고갈된다"]);
+    expect(model.calls).toHaveLength(1);
+    expect(JSON.stringify(model.calls)).not.toContain(secret);
+  });
+
   it("대조군: 코퍼스와 같은 질의는 found:true다", async () => {
     const { app, model } = makeHarness(makeRetriever());
 

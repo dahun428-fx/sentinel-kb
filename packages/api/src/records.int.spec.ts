@@ -432,6 +432,32 @@ describe("Acceptance 5 — 시크릿 마스킹, 플래그 기록, 응답 경고"
     expect(response.body).not.toHaveProperty("warning");
   });
 
+  it("PATCH의 relations[].note도 마스킹하고 secret-masked 플래그를 단다 (T-052)", async () => {
+    const id = (await createIncident(ALPHA)).body["_id"] as string;
+    const target = (await createIncident(ALPHA)).body["_id"] as string;
+
+    const patched = await request("PATCH", `/v1/records/${id}`, ALPHA, {
+      relations: [
+        {
+          type: "related",
+          targetRecordId: target,
+          note: "지난주와 같다, 키 AKIAIOSFODNN7EXAMPLE 교체",
+        },
+      ],
+    });
+
+    expect(patched.status).toBe(200);
+    expect(patched.body["relations"]).toEqual([
+      {
+        type: "related",
+        targetRecordId: target,
+        note: "지난주와 같다, 키 [MASKED:aws-access-key] 교체",
+      },
+    ]);
+    expect(patched.body["sanitizeFlags"]).toContain("secret-masked");
+    expect(JSON.stringify(await storedRecord(id))).not.toContain("AKIAIOSFODNN7EXAMPLE");
+  });
+
   it("PATCH의 플래그는 합집합이다 — 손대지 않은 섹션의 플래그를 지우지 않는다", async () => {
     const id = (
       await createIncident(ALPHA, {

@@ -26,6 +26,7 @@
  */
 import type { SanitizeFlag } from "@sentinel/contracts";
 import {
+  applyMasking,
   sanitize,
   SanitizeInputTooLargeError,
   type MaskKind,
@@ -129,4 +130,19 @@ export function toSanitizeWarning(result: SanitizedFields): SanitizeWarning | un
     masked: result.masked,
     injectionRules: result.injectionRules,
   };
+}
+
+/**
+ * 저장되지는 않지만 **외부 API로 나가는** 텍스트의 시크릿을 지운다 (T-052, P1 보안 리뷰 S2).
+ *
+ * 검색어와 `suggest_resolution`의 에러 원문은 임베딩을 위해 Voyage로, 생성을 위해 Anthropic으로
+ * 그대로 나갔다. 에이전트는 에러 메시지를 "그대로 붙여 넣으라"는 안내를 받으므로 접속 문자열이나
+ * 토큰이 섞이는 것이 보통이다. 마스킹하면 `api_key=` 같은 값으로 찾는 질의는 결과가 달라지지만,
+ * 주변 단어로 여전히 검색된다 — 시크릿을 제3자에게 보내는 것과 맞바꿀 이유가 없다.
+ *
+ * 길이 상한은 걸지 않는다(`sanitize()`가 아니라 `applyMasking()`). 상한 초과가 문서에 없는 413을
+ * 검색 경로에서 내게 되기 때문이다(search.ts 머리 주석). 과대 입력은 Fastify 바디 상한이 막는다.
+ */
+export function maskOutboundText(text: string): string {
+  return applyMasking(text, false).text;
 }

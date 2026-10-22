@@ -54,6 +54,7 @@ import {
 import type { FastifyInstance, FastifyReply } from "fastify";
 
 import { API_ERROR_CODES, HttpError } from "./errors.js";
+import { maskOutboundText } from "./sanitize-record.js";
 
 export interface AnswerRoutesDeps {
   readonly retriever: Retriever;
@@ -315,7 +316,8 @@ export function registerAnswerRoutes(app: FastifyInstance, deps: AnswerRoutesDep
     let retrieval: RetrievalResult;
     try {
       retrieval = await deps.retriever.retrieve({
-        query: input.query,
+        // 검색어는 Voyage로, 생성 문맥은 Anthropic으로 나간다. 두 곳 모두 마스킹한 값을 쓴다 (T-052).
+        query: maskOutboundText(input.query),
         ...(input.project === undefined ? {} : { project: input.project }),
       });
     } catch (error) {
@@ -354,7 +356,7 @@ export function registerAnswerRoutes(app: FastifyInstance, deps: AnswerRoutesDep
     let result: GenerateResult;
     try {
       result = await generateAnswer({
-        query: input.query,
+        query: maskOutboundText(input.query),
         retrieval,
         model: deps.chatModel,
         ...(deps.generatorConfig === undefined ? {} : { config: deps.generatorConfig }),

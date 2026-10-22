@@ -125,6 +125,22 @@ async function goldenSet(): Promise<EvalCaseDocument[]> {
 // ---------------------------------------------------------------- 저장
 
 describe("POST /v1/feedback", () => {
+  it("query·note의 시크릿을 지우고 저장한다 — eval_cases 후보에도 원문이 남지 않는다 (T-052)", async () => {
+    const response = await postFeedback({
+      recordId: RECORD_A,
+      query: "mongodb+srv://svc:RealFAKE0000@cluster0.example.net 인증 실패",
+      helped: true,
+      note: "token=abc123FAKE0000 로 재시도했다",
+    });
+    expect(response.status).toBe(204);
+
+    const stored = JSON.stringify([await feedbacks(), await candidates()]);
+    expect(stored).not.toContain("RealFAKE0000");
+    expect(stored).not.toContain("abc123FAKE0000");
+    expect(stored).toContain("[MASKED:db-credentials]");
+    expect(stored).toContain("[MASKED:credential]");
+  });
+
   it("피드백을 저장하고 204를 준다 — 계약에 응답 스키마가 없으므로 본문을 만들지 않는다", async () => {
     const response = await postFeedback({
       recordId: RECORD_A,
