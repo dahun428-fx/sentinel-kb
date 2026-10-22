@@ -74,6 +74,24 @@ interface ComposeConfig {
   readonly services: Record<string, ComposeService>;
 }
 
+/**
+ * docker 실행에 필요한 변수만 남긴 환경 (T-063).
+ *
+ * compose는 `${VAR}`를 **셸 환경에서 먼저** 찾고 `--env-file`은 그다음이다. `deploy.yml`이 워크플로 전체에
+ * `IMAGE_TAG: github.sha`를 걸어 두어, 그 워크플로의 verify 잡에서만 fixture의 `test-tag`가 덮이고
+ * "모든 앱 이미지가 ECR에서 온다"가 실패했다. 테스트가 돌리는 곳의 env가 판정을 바꾸면 안 된다.
+ */
+function hermeticEnv(): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) =>
+        ["PATH", "HOME", "USER", "TMPDIR", "LANG"].includes(key) ||
+        key.startsWith("DOCKER_") ||
+        key.startsWith("XDG_"),
+    ),
+  );
+}
+
 function runComposeConfig(
   files: readonly string[],
   envFile: string,
@@ -83,7 +101,8 @@ function runComposeConfig(
     "docker",
     ["compose", ...args, "--env-file", envFile, "config", "--format", "json"],
     // `--env-file`이 기본 `.env` 탐색을 대체하므로 개발자 로컬의 `.env`가 결과를 흔들지 않는다.
-    { cwd: repoRoot, encoding: "utf8" },
+    // 셸 env는 `hermeticEnv()`가 걸러낸다 — 그쪽이 `--env-file`보다 우선하기 때문이다.
+    { cwd: repoRoot, encoding: "utf8", env: hermeticEnv() },
   );
   return { status: result.status ?? -1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
@@ -96,6 +115,20 @@ function config(files: readonly string[], envFile: string): ComposeConfig {
 
 const BASE = ["docker-compose.yml"];
 const PROD = ["docker-compose.yml", "docker-compose.prod.yml"];
+
+describe.skipIf(!HAS_DOCKER)("실행 환경의 env가 판정을 바꾸지 않는다 (T-063)", () => {
+  it("셸에 IMAGE_TAG가 있어도 fixture 값으로 해소된다 — deploy.yml이 워크플로 전체에 거는 값이다", () => {
+    const previous = process.env["IMAGE_TAG"];
+    process.env["IMAGE_TAG"] = "leaked-from-workflow";
+    try {
+      const resolved = config(PROD, writeEnvFile());
+      expect(resolved.services["core-api"]?.image).toContain(":test-tag");
+    } finally {
+      if (previous === undefined) delete process.env["IMAGE_TAG"];
+      else process.env["IMAGE_TAG"] = previous;
+    }
+  });
+});
 
 describe.skipIf(!HAS_DOCKER)("compose 베이스 계약 (T-026)", () => {
   const resolved = config(BASE, writeEnvFile());
