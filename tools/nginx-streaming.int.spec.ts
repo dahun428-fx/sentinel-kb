@@ -464,6 +464,9 @@ describe.skipIf(!HAS_DOCKER)("MCP 도구 목록을 nginx 경유로 조회한다 
         // `tools/list`는 core-api를 부르지 않는다. 도달 불가 주소를 줘서 혹시라도
         // 부르면 테스트가 조용히 성공하지 않게 한다.
         CORE_API_URL: "http://127.0.0.1:1",
+        // 컨테이너의 nginx가 `host.docker.internal`로 닿아야 한다. T-061부터 기본 listen 주소가 127.0.0.1이라,
+        // Linux(CI)에서는 브리지 IP로 들어오는 연결을 받지 못해 502가 났다(맥 Docker Desktop은 loopback으로 넘겨 통과했다).
+        HOST: "0.0.0.0",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

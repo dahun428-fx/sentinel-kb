@@ -42,4 +42,7 @@ M: M6 | deps: T-025,T-026
 ## Findings
 - **F-1** `mongodb/mongodb-atlas-local:latest`가 테스트·CI·로컬 문서 모두에서 고정되지 않았다. 재현성이 필요해지면 digest로 고정.
 
+- **F-2 (push 후 CI)** `nginx-streaming.int.spec.ts`가 호스트에 띄운 MCP에 컨테이너 nginx가 닿아야 하는데, 기본 listen이 127.0.0.1이 되자
+  Linux CI에서 502가 났다(맥 Docker Desktop은 loopback으로 넘겨 로컬에서는 통과). 그 테스트의 spawn env에 `HOST=0.0.0.0`을 줬다.
+
 STATUS: GREEN
