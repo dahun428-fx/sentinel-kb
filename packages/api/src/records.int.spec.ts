@@ -656,6 +656,50 @@ describe("embed job 삽입 (specs/03 §1-1, T-008 F-5)", () => {
     expect(await db.collection("jobs").countDocuments({})).toBe(0);
   });
 
+  it("제목만 바꿔도 재임베딩 잡이 생긴다 — 제목은 청크 텍스트 앞머리다 (T-055, P1 리뷰 C4)", async () => {
+    const id = (await createIncident()).body["_id"] as string;
+    await db.collection("jobs").deleteMany({});
+
+    await request("PATCH", `/v1/records/${id}`, ALPHA, { title: "더 분명한 새 제목" });
+
+    expect(await db.collection("jobs").countDocuments({})).toBe(1);
+  });
+
+  it("severity·tags만 바꾸면 잡 없이 청크 메타를 제자리에서 맞춘다 (T-055)", async () => {
+    const id = (await createIncident()).body["_id"] as string;
+    const recordId = new ObjectId(id);
+    await db.collection("jobs").deleteMany({});
+    await db.collection("chunks").insertOne({
+      recordId,
+      section: "symptom",
+      seq: 0,
+      embeddingVersion: 7,
+      text: "x",
+      meta: { type: "incident", project: "sentinel-kb", severity: "SEV3", tags: ["old"], sanitizeFlags: [] },
+    });
+
+    await request("PATCH", `/v1/records/${id}`, ALPHA, { severity: "SEV1", tags: ["queue", "new"] });
+
+    expect(await db.collection("jobs").countDocuments({})).toBe(0);
+    expect(await db.collection("chunks").findOne({ recordId })).toMatchObject({
+      meta: { severity: "SEV1", tags: ["queue", "new"] },
+    });
+  });
+
+  it("published에서 draft로 내리면 그 레코드의 청크를 지운다 — 검색에서 사라져야 한다 (T-055)", async () => {
+    const id = (await createIncident()).body["_id"] as string;
+    const recordId = new ObjectId(id);
+    await db.collection("chunks").insertMany([
+      { recordId, section: "symptom", seq: 0, embeddingVersion: 7, text: "x" },
+      { recordId: new ObjectId(), section: "symptom", seq: 0, embeddingVersion: 7, text: "다른 레코드" },
+    ]);
+
+    await request("PATCH", `/v1/records/${id}`, ALPHA, { status: "draft" });
+
+    expect(await db.collection("chunks").countDocuments({ recordId })).toBe(0);
+    expect(await db.collection("chunks").countDocuments({})).toBe(1);
+  });
+
   it("draft로 내리면 잡을 넣지 않는다", async () => {
     const id = (await createIncident()).body["_id"] as string;
     await db.collection("jobs").deleteMany({});

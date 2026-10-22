@@ -145,6 +145,9 @@ function withWarning(record: RecordSchema, sanitized: SanitizedFields): unknown 
 /** specs/02의 플래그 순서를 유지한 합집합. */
 const FLAG_ORDER: readonly SanitizeFlag[] = ["secret-masked", "injection-suspect"];
 
+/** `chunks.meta`로 복사되는 레코드 필드 중 PATCH로 바뀔 수 있는 것. 출처: `packages/worker/src/ingest.ts` `toChunkMeta`. */
+const CHUNK_META_FIELDS = ["severity", "tags", "sanitizeFlags"] as const;
+
 function unionFlags(a: readonly SanitizeFlag[], b: readonly SanitizeFlag[]): SanitizeFlag[] {
   const seen = new Set<SanitizeFlag>([...a, ...b]);
   return FLAG_ORDER.filter((flag) => seen.has(flag));
@@ -452,11 +455,32 @@ export function registerRecordRoutes(app: FastifyInstance, deps: RecordRoutesDep
     }
 
     const sectionChanged = Object.keys(patch).some((key) => isBodySectionField(key));
+    // 제목은 청크 텍스트 앞머리(`[title] (section) `)로 임베딩되고 BM25가 찾는 필드다. 바뀌면 다시 만든다 (T-055, P1 리뷰 C4).
+    const titleChanged = patch["title"] !== undefined;
     const becamePublished = updated.status === "published" && existing.status !== "published";
     // specs/04: "본문 섹션 변경 시 재임베딩 job". 여기에 draft→published 전환을 더한다 —
     // draft로 만들어진 레코드는 생성 시 잡이 없었으므로 이 전환이 유일한 임베딩 기회다.
-    if (updated.status === "published" && (sectionChanged || becamePublished)) {
+    if (updated.status === "published" && (sectionChanged || titleChanged || becamePublished)) {
       await enqueueEmbedJob(deps.db, updated._id, now);
+    }
+    // severity·tags·sanitizeFlags는 `chunks.meta`로 복사돼 검색 필터·결과에 쓰인다. 벡터와 무관하므로 다시 임베딩하지 않고
+    // 제자리에서 맞춘다 (T-055). 다시 임베딩하면 태그 하나 고칠 때마다 임베딩 비용이 든다.
+    if (CHUNK_META_FIELDS.some((key) => contractPatch[key] !== undefined)) {
+      await deps.db.collection("chunks").updateMany(
+        { recordId: updated._id },
+        {
+          $set: {
+            "meta.severity": updated.severity,
+            "meta.tags": updated.tags,
+            "meta.sanitizeFlags": updated.sanitizeFlags,
+          },
+        },
+      );
+    }
+    // published에서 내려가면 청크를 지운다 (T-055). retriever에는 상태 필터가 없어 남은 청크가 계속 검색됐다.
+    // 다시 published가 되면 위 전환 규칙이 잡을 넣는다.
+    if (existing.status === "published" && updated.status !== "published") {
+      await deps.db.collection("chunks").deleteMany({ recordId: updated._id });
     }
 
     return reply.send(withWarning(toContractRecordOrThrow(updated, "write"), sanitized));

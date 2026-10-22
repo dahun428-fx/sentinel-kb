@@ -236,7 +236,7 @@ M7 아티클 파이프라인 (T-029~T-034). 저장 → 검색 → 재사용 흐�
 | S5 | Critical(공개 시) | git | 회사 메일이 든 커밋 `109a2ee`가 로컬 브랜치 4개·백업 1개에 남음 | — | **수정** 해당 브랜치·worktree 삭제(2026-10-22). 원본은 저장소 밖 보관 |
 | C2 | Major | worker | 죽은 프로세스의 `running` 잡을 회수하지 않음 | P4, P5 | **수정** T-054 (리스 만료 회수) |
 | C3 | Major | worker | 429에 10초 만에 `dead`. `failed`/`dead` 재투입 경로 없음 | P4~P6 | **수정** T-054 (Retry-After, requeue CLI, 기동 시 키 확인) |
-| C4 | Major | api/worker | 제목·상태 변경이 청크에 반영 안 됨. draft로 되돌려도 검색됨 | P5, P8 | 수용: 제목 수정 시 본문도 고쳐 재임베딩. T-055 |
+| C4 | Major | api/worker | 제목·상태 변경이 청크에 반영 안 됨. draft로 되돌려도 검색됨 | P5, P8 | **수정** T-055 |
 | C5 | Major | eval | Recall@5가 실제로는 Recall@3~5. 실데이터 소수면 자명하게 높음 | P6 | T-056 (eval 정의 변경 — 사람 승인). P6 전 처리 |
 | A1 | Major | mcp | `suggest_resolution` 답이 인용 제목에 밀려 수십 자로 잘림 | P7, P8 | T-057. P7 전 처리, 그 전엔 `search_knowledge`+`get_record` |
 | A2 | Major | 계측 | `give_feedback`이 도그푸딩 리포트에 집계되지 않음 | P7, P8 | T-058. P7 선행 조건 |
