@@ -25,7 +25,7 @@
  */
 import { spawnSync } from "node:child_process";
 
-import { MongoClient, type Db } from "mongodb";
+import { MongoClient, type Collection, type Db } from "mongodb";
 
 export const ATLAS_LOCAL_IMAGE = "mongodb/mongodb-atlas-local:latest";
 /** 이미지 pull(~2GB)까지 감안한 부팅 상한. */
@@ -129,6 +129,7 @@ export async function startAtlasLocal(options: StartAtlasLocalOptions): Promise<
 }
 
 function waitForHealthy(containerName: string, deadline: number): void {
+  let lastStatus = "unknown";
   while (Date.now() < deadline) {
     const status = docker([
       "inspect",
@@ -137,10 +138,15 @@ function waitForHealthy(containerName: string, deadline: number): void {
       containerName,
     ]).stdout.trim();
     if (status === "healthy" || status === "nohealth") return;
-    if (status === "unhealthy") throw new Error("atlas-local 컨테이너가 unhealthy다");
+    // `unhealthy`는 끝 상태가 아니다 — 헬스체크가 다시 성공하면 healthy로 돌아온다. 부하가 큰 순간 mongot 기동이
+    // 늦어 잠깐 unhealthy가 됐다가 회복하는데, 즉시 실패시키면 같은 실행의 atlas 파일들이 한꺼번에 죽었다 (T-062).
+    // 제한 시간까지 회복하지 않으면 아래에서 실패한다.
+    lastStatus = status;
     spawnSync("sleep", ["1"]);
   }
-  throw new Error("atlas-local 컨테이너가 제한 시간 안에 healthy가 되지 않았다");
+  throw new Error(
+    `atlas-local 컨테이너가 제한 시간 안에 healthy가 되지 않았다(마지막 상태: ${lastStatus})`,
+  );
 }
 
 async function connectWithRetry(
@@ -216,4 +222,56 @@ export async function pollUntil<Row>(
     last = await run();
   }
   return last;
+}
+
+/**
+ * 컬렉션에 넣은 문서가 **전부** 두 검색 인덱스에 보일 때까지 기다린다 (T-062).
+ *
+ * 인덱스가 READY여도 방금 넣은 문서는 mongot에 늦게 반영된다. 테스트마다 "무언가 보이면 시작"으로 기다리면,
+ * 특정 문서를 전제로 하는 단언이 반영 전 순간에 간헐 실패했다(고병렬 실측: 척도·필터·장문 슬롯 테스트).
+ * `$vectorSearch`(필터 없음)와 `$search`(`exists`)로 보이는 문서 수가 `expected`에 닿을 때까지 폴링한다.
+ * 시간 안에 닿지 않으면 던진다 — 조용히 시작하면 그 뒤 단언이 엉뚱한 이유로 실패한다.
+ */
+export async function waitForIndexedDocuments(
+  collection: Collection,
+  options: {
+    readonly expected: number;
+    readonly dim: number;
+    readonly timeoutMs: number;
+    readonly vectorIndex?: string;
+    readonly textIndex?: string;
+    readonly textPath?: string;
+  },
+): Promise<void> {
+  const { expected, dim, timeoutMs } = options;
+  const probe = Array.from({ length: dim }, (_, i) => (i === 0 ? 1 : 0));
+  const counts = async (): Promise<[number, number]> => {
+    const vector = await collection
+      .aggregate([
+        {
+          $vectorSearch: {
+            index: options.vectorIndex ?? "vec_idx",
+            path: "embedding",
+            queryVector: probe,
+            numCandidates: Math.max(expected * 2, 100),
+            limit: expected,
+          },
+        },
+        { $count: "n" },
+      ])
+      .toArray();
+    const text = await collection
+      .aggregate([
+        { $search: { index: options.textIndex ?? "text_idx", exists: { path: options.textPath ?? "text" } } },
+        { $count: "n" },
+      ])
+      .toArray();
+    return [Number(vector[0]?.["n"] ?? 0), Number(text[0]?.["n"] ?? 0)];
+  };
+  const last = await pollUntil(counts, ([v, t]) => v >= expected && t >= expected, timeoutMs);
+  if (last[0] < expected || last[1] < expected) {
+    throw new Error(
+      `검색 인덱스에 문서 ${String(expected)}건이 반영되지 않았다(vector ${String(last[0])}, text ${String(last[1])}, ${String(timeoutMs)}ms).`,
+    );
+  }
 }

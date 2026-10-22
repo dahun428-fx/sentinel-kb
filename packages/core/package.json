@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./db": "./src/db/index.ts",
-    "./testing": "./src/testing/atlas-local.ts"
+    "./testing": "./src/testing/atlas-local.ts",
+    "./testing/memory-server": "./src/testing/memory-server.ts"
   },
   "scripts": {
     "dev": "node -e \"console.log('[@sentinel/core] no dev server (library package)')\""

@@ -29,4 +29,27 @@ T-045 결과 절의 고병렬 75회에서 T-045 처방 밖의 실패 4회가 나
 - 읽기: `packages/core/src/testing/atlas-local.ts`, `packages/core/src/retriever/retrieve.int.spec.ts`, `packages/core/src/db/search-indexes.int.spec.ts`,
   `packages/api/src/records.int.spec.ts`(beforeAll), `tools/nginx-streaming.int.spec.ts`, `vitest.config.ts`
 
-STATUS: TODO
+## 결과 (2026-10-22)
+
+측정은 로컬 맥북 Docker Desktop, `npx vitest run` 반복. 회차마다 실패 로그 전체를 남겨 원인을 확인했다.
+
+| 회 | 조건 | 실패 | 확인된 원인 |
+|---|---|---|---|
+| 1 | 수정 일부, 로컬 스택 실행 중 + 다른 작업 병행 | 4/40 | MongoMemoryServer `Port "50232" already in use`, 단위(mermaid) 5s 초과, Docker BuildKit 중단·atlas unhealthy, 필터 테스트 색인 지연 |
+| 2 | 로컬 스택 중지, 병행 작업 없음 | 5/40 | 단위·통합 동시 실행으로 atlas 컨테이너 unhealthy·mermaid 초과, 다른 색인 지연 테스트, nginx ECONNRESET, nginx 타이밍 단언(435ms vs 434ms) |
+| 3 | 아래 수정 전부 | **0/40** | — |
+
+수정:
+- **실행 순서**: `vitest.config.ts`에 `sequence.groupOrder`(unit 0, integration 1). `npx vitest run`도 `pnpm verify`처럼 단위 다음에 통합을 돈다.
+- **MongoMemoryServer 포트 경합**: `@sentinel/core/testing/memory-server`의 `startMemoryServer()` — 포트 충돌일 때만 다시 띄운다. 11개 파일 적용.
+- **색인 반영**: `waitForIndexedDocuments()` — 넣은 문서가 `$vectorSearch`·`$search` 양쪽에 전부 보일 때까지 대기. retrieve·search-indexes int에 적용,
+  필터 테스트 두 곳은 기대 문서가 보일 때까지 대기. 단언은 바꾸지 않았다.
+- **atlas-local `unhealthy`**: 끝 상태가 아니므로 제한 시간까지 회복을 기다린다.
+- **nginx 하네스**: `/health` 연속 2회 응답(본문 소비)을 준비로 본다. "첫 바이트가 끝보다 먼저"는 `totalMs − firstAt`로 재 연결 수립 시간을 뺀다.
+
+## Findings
+- **F-1** `nginx-streaming.int.spec.ts`의 `/mcp` 설정 대조군은 `proxy_buffering on`에서도 통과한다(원래 단언·새 단언 모두, 각 1~2회 확인).
+  테스트 주석의 "그 줄을 지우면 이 테스트만 빨개진다"는 지금은 사실이 아니다. 오리진 프레임 간격·크기에서 nginx가 버퍼링해도 바로
+  흘려보내는 것으로 보인다. 버퍼링을 실제로 드러내는 계기(큰 프레임 또는 `proxy_buffer_size`보다 작은 간격)를 다시 설계할 후속 태스크가 필요하다.
+
+STATUS: GREEN

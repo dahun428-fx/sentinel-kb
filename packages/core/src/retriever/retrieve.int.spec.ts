@@ -25,6 +25,7 @@ import {
   ATLAS_LOCAL_BOOT_TIMEOUT_MS,
   dockerAvailable,
   pollUntil,
+  waitForIndexedDocuments,
   startAtlasLocal,
   warnDockerMissing,
   type AtlasLocalHandle,
@@ -300,10 +301,33 @@ beforeAll(async () => {
 
   retriever = createRetriever({ db, embedder, config: CONFIG });
 
+  // 넣은 청크가 **전부** 두 인덱스에 보일 때까지 기다린다 (T-062). 아래 개별 대기만으로는 type 필터·장문 슬롯 테스트가
+  // 전제로 하는 청크가 아직 반영되지 않은 순간이 남았다(고병렬 실측).
+  await waitForIndexedDocuments(db.collection("chunks"), {
+    expected: ALL_CHUNKS.length,
+    dim: DIM,
+    timeoutMs: QUERY_TIMEOUT_MS,
+  });
+
   // 검색 인덱스는 READY 이후에도 새 문서를 반영하는 데 잠깐 걸린다.
   await pollUntil(
     () => retriever.retrieve({ query: LITERAL_QUERY }),
     (result) => result.textCandidateCount > 0 && result.vectorCandidateCount > 0,
+    QUERY_TIMEOUT_MS,
+  );
+  // 척도 단언의 전제가 되는 두 청크가 **각각** 보일 때까지 기다린다 (T-062). 위 대기는 "무언가 보인다"만 확인해,
+  // 동일 방향 청크가 아직 색인되지 않은 순간에 `maxVectorScore`가 0으로 나와 간헐 실패했다(고병렬 40회 중 1회).
+  await pollUntil(
+    () => retriever.retrieve({ query: KOREAN_PROSE_QUERY }),
+    (result) => (result.maxVectorScore ?? 0) > 0.99,
+    QUERY_TIMEOUT_MS,
+  );
+  await pollUntil(
+    () => retriever.retrieve({ query: LITERAL_QUERY, limit: 8 }),
+    (result) =>
+      result.hits.some(
+        (hit) => hit.recordId === R_LITERAL.toHexString() && hit.vectorScore !== null,
+      ),
     QUERY_TIMEOUT_MS,
   );
   // 정반대 벡터 픽스처(격리 프로젝트)도 반영될 때까지 기다린다.

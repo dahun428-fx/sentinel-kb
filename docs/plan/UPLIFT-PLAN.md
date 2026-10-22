@@ -378,7 +378,7 @@ DB를 로컬(atlas-local)에 두어도 아래 경로로 텍스트가 외부 API�
 | | T-033 아티클 UI | BLOCKED / IN PROGRESS (두 기록이 다름) |
 | | T-034 스타일 eval | PARTIAL |
 | M7 감사 후속 | T-041, T-043, T-044 | 머지됨 |
-| | T-045 간헐 실패 봉합 | PARTIAL (2026-10-22 cherry-pick, F-5 해소. 지목 3지점은 75회 0건, 다른 통합 플레이크 3종은 T-062) |
+| | T-045 간헐 실패 봉합 | GREEN (2026-10-22. T-062와 합쳐 고병렬 40회 0건) |
 | 미분류 | T-037 | GREEN |
 | | T-047 문서 리뷰 반영 | GREEN (2026-10-22 main) |
 | UPLIFT P0~P2 | T-048 CI 더미 env·nightly 중지·권한, T-049 골든셋 경고 문구 | GREEN |

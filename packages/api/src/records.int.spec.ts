@@ -12,7 +12,8 @@
 import { JobSchema, RecordSchema, RecordSummary } from "@sentinel/contracts";
 import { connect, ensureIndexes } from "@sentinel/core/db";
 import type { FastifyInstance } from "fastify";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import type { MongoMemoryServer } from "mongodb-memory-server";
+import { startMemoryServer } from "@sentinel/core/testing/memory-server";
 import { ObjectId, type Db, type MongoClient } from "mongodb";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -38,7 +39,7 @@ let app: FastifyInstance;
 let clock = new Date("2026-05-01T00:00:00.000Z").getTime();
 
 beforeAll(async () => {
-  server = await MongoMemoryServer.create();
+  server = await startMemoryServer();
   client = await connect({
     uri: server.getUri(),
     dbName: DB_NAME,

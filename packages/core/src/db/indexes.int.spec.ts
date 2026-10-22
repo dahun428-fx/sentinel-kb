@@ -1,4 +1,5 @@
-import { MongoMemoryServer } from "mongodb-memory-server";
+import type { MongoMemoryServer } from "mongodb-memory-server";
+import { startMemoryServer } from "../testing/memory-server.js";
 import type { Db, MongoClient } from "mongodb";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -20,7 +21,7 @@ let client: MongoClient;
 let db: Db;
 
 beforeAll(async () => {
-  server = await MongoMemoryServer.create();
+  server = await startMemoryServer();
   client = await connect({
     uri: server.getUri(),
     dbName: DB_NAME,

@@ -194,12 +194,19 @@ async function startNginx(containerName: string, upstreams: string): Promise<Har
     throw new Error(`nginx 호스트 포트를 읽지 못했다: ${portLine}`);
   }
 
-  // nginx가 리슨할 때까지 기다린다.
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  // nginx가 리슨하고 업스트림까지 응답할 때까지 기다린다. **연속 2회** 응답을 끝까지 읽어야 준비로 본다 (T-062).
+  // 한 번 닿은 직후 첫 실제 요청이 ECONNRESET으로 죽는 경우가 고병렬에서 두 번 관측됐다 — 포트 프록시가 nginx보다
+  // 먼저 연결을 받았다가 끊는 창으로 보인다. 응답 본문을 버리지 않고 소비해 연결도 깨끗이 닫는다.
+  let consecutive = 0;
+  for (let attempt = 0; attempt < 80 && consecutive < 2; attempt += 1) {
     try {
-      await fetch(`http://127.0.0.1:${String(proxyPort)}/`, { signal: AbortSignal.timeout(1000) });
-      break;
+      const probe = await fetch(`http://127.0.0.1:${String(proxyPort)}/health`, {
+        signal: AbortSignal.timeout(1000),
+      });
+      await probe.arrayBuffer();
+      consecutive += 1;
     } catch {
+      consecutive = 0;
       await sleep(250);
     }
   }
@@ -339,11 +346,12 @@ describe.skipIf(!HAS_DOCKER)("SSE 스트리밍이 nginx를 청크 단위로 통�
       `도착이 ${String(Math.round(spread))}ms 안에 몰렸다 (오리진은 ${String(expectedSpread)}ms에 걸쳐 보냈다) — 버퍼링 의심`,
     ).toBeGreaterThan(expectedSpread / 2);
 
-    // 첫 바이트가 스트림 종료를 기다리지 않았다.
+    // 첫 바이트가 스트림 종료를 기다리지 않았다. 연결 수립 시간은 빼고 잰다 (T-062) — 예전 `firstAt < totalMs / 2`는
+    // 부하로 연결이 435ms 걸리자 스트리밍이 정상인데도 실패했다. 버퍼링이면 첫 바이트와 끝이 붙어 이 값이 0에 가깝다.
     expect(
-      firstAt,
+      totalMs - firstAt,
       `첫 바이트가 ${String(Math.round(firstAt))}ms에 왔다 (전체 ${String(Math.round(totalMs))}ms) — 끝까지 기다렸다면 버퍼링이다`,
-    ).toBeLessThan(totalMs / 2);
+    ).toBeGreaterThan(expectedSpread / 2);
   }, 60_000);
 
   /**
@@ -361,7 +369,8 @@ describe.skipIf(!HAS_DOCKER)("SSE 스트리밍이 nginx를 청크 단위로 통�
     const firstAt = arrivals[0]?.atMs ?? 0;
     const lastAt = arrivals[arrivals.length - 1]?.atMs ?? 0;
     expect(lastAt - firstAt).toBeGreaterThan(((FRAME_COUNT - 1) * FRAME_GAP_MS) / 2);
-    expect(firstAt).toBeLessThan(totalMs / 2);
+    // 연결 수립 시간을 뺀 "첫 바이트 이후 남은 시간" (T-062, 위 테스트와 같은 이유).
+    expect(totalMs - firstAt).toBeGreaterThan(((FRAME_COUNT - 1) * FRAME_GAP_MS) / 2);
   }, 60_000);
 
   /**

@@ -16,7 +16,8 @@ import { CreateRecordInput } from "@sentinel/contracts";
 import { createFakeEmbedder, readSanitizeOptions, type Embedder } from "@sentinel/core";
 import { connect, ensureIndexes } from "@sentinel/core/db";
 import { ObjectId as ObjectIdCtor, type Db, type MongoClient, type ObjectId } from "mongodb";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import type { MongoMemoryServer } from "mongodb-memory-server";
+import { startMemoryServer } from "@sentinel/core/testing/memory-server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -53,7 +54,7 @@ let db: Db;
 let seedRecords: SeedRecord[];
 
 beforeAll(async () => {
-  server = await MongoMemoryServer.create();
+  server = await startMemoryServer();
   client = await connect({
     uri: server.getUri(),
     dbName: DB_NAME,

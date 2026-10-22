@@ -16,7 +16,8 @@
 import { connect, ensureIndexes } from "@sentinel/core/db";
 import type { FastifyInstance } from "fastify";
 import { ObjectId, type Db, type MongoClient } from "mongodb";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import type { MongoMemoryServer } from "mongodb-memory-server";
+import { startMemoryServer } from "@sentinel/core/testing/memory-server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { parseApiKeys } from "@sentinel/core";
@@ -43,7 +44,7 @@ let db: Db;
 let app: FastifyInstance;
 
 beforeAll(async () => {
-  server = await MongoMemoryServer.create();
+  server = await startMemoryServer();
   client = await connect({
     uri: server.getUri(),
     dbName: DB_NAME,

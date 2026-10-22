@@ -45,6 +45,10 @@ export default defineConfig({
           testTimeout: 5_000,
           hookTimeout: 10_000,
           setupFiles: ["./vitest.timeouts.setup.ts"],
+          // 단위가 먼저, 통합은 그다음이다 (T-062). 순서를 정하지 않으면 `npx vitest run`이 두 계층을 동시에 돌려
+          // atlas-local(mongot) 컨테이너 여러 개와 CPU 무거운 단위 테스트가 겹쳐 둘 다 간헐 실패했다(고병렬 40회 중 5회).
+          // `pnpm verify`가 이미 `test && test:integration`으로 순차 실행하는 것과 같게 맞춘다.
+          sequence: { groupOrder: 0 },
         },
       },
       {
@@ -71,6 +75,7 @@ export default defineConfig({
            */
           testTimeout: 30_000,
           hookTimeout: 30_000,
+          sequence: { groupOrder: 1 },
         },
       },
     ],

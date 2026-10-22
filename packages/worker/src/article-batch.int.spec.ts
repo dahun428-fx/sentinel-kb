@@ -15,7 +15,8 @@ import { ArticleSchema } from "@sentinel/contracts";
 import { articlesCollection, ensureIndexes } from "@sentinel/core/db";
 import { ObjectId, type Db, type MongoClient } from "mongodb";
 import { MongoClient as Client } from "mongodb";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import type { MongoMemoryServer } from "mongodb-memory-server";
+import { startMemoryServer } from "@sentinel/core/testing/memory-server";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { runArticleTriggerBatch } from "./article-batch.js";
@@ -39,7 +40,7 @@ let client: MongoClient;
 let db: Db;
 
 beforeAll(async () => {
-  server = await MongoMemoryServer.create();
+  server = await startMemoryServer();
   client = await Client.connect(server.getUri());
   db = client.db(DB_NAME);
   await ensureIndexes(db);

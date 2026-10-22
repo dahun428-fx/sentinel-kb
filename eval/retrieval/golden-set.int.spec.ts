@@ -9,7 +9,8 @@
  */
 import { evalCasesCollection, type EvalCaseDocument } from "@sentinel/api";
 import { connect } from "@sentinel/core/db";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import type { MongoMemoryServer } from "mongodb-memory-server";
+import { startMemoryServer } from "@sentinel/core/testing/memory-server";
 import { ObjectId, type Db, type MongoClient } from "mongodb";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -23,7 +24,7 @@ let client: MongoClient;
 let db: Db;
 
 beforeAll(async () => {
-  server = await MongoMemoryServer.create();
+  server = await startMemoryServer();
   client = await connect({
     uri: server.getUri(),
     dbName: DB_NAME,

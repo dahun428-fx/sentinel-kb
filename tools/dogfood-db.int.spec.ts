@@ -8,7 +8,8 @@ import { createApp } from "@sentinel/api";
 import { connect, ensureIndexes } from "@sentinel/core/db";
 import { parseApiKeys } from "@sentinel/core";
 
-import { MongoMemoryServer } from "mongodb-memory-server";
+import type { MongoMemoryServer } from "mongodb-memory-server";
+import { startMemoryServer } from "@sentinel/core/testing/memory-server";
 import type { Db, MongoClient } from "mongodb";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -25,7 +26,7 @@ let db: Db;
 let app: ReturnType<typeof createApp>;
 
 beforeAll(async () => {
-  server = await MongoMemoryServer.create();
+  server = await startMemoryServer();
   client = await connect({
     uri: server.getUri(),
     dbName: "sentinel_dogfood_int_test",

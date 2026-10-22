@@ -91,4 +91,4 @@ M: M7 | deps: -
 - **F-1** T-043 인계: 벽시계 단언이 사라졌으므로 `DEFAULT_MAX_INPUT_CHARS`의 유일한 killer도 사라졌다(`tools/assertion-audit.ts:328`이 이미 예고).
   상한 초과 입력이 던지는 것을 보는 행동 단언은 T-043 몫이다.
 
-STATUS: PARTIAL — Acceptance 1 미충족(통합 플레이크 3종, T-062). 나머지 Acceptance 충족.
+STATUS: GREEN — T-062 이후 고병렬 40회 0건으로 Acceptance 1 충족(2026-10-22). 이전 판정은 PARTIAL이었다.

@@ -28,7 +28,9 @@ import {
 import {
   ATLAS_LOCAL_BOOT_TIMEOUT_MS,
   dockerAvailable,
+  pollUntil,
   pollUntilNonEmpty,
+  waitForIndexedDocuments,
   startAtlasLocal,
   warnDockerMissing,
   type AtlasLocalHandle,
@@ -156,10 +158,14 @@ describe.skipIf(!HAS_DOCKER)("READY 이후의 실제 쿼리 (Acceptance 3)", () 
         embeddingVersion: 1,
       },
     ]);
-  });
+    // 두 문서가 모두 두 인덱스에 보일 때까지 기다린다 (T-062).
+    await waitForIndexedDocuments(chunks(), { expected: 2, dim: DIM, timeoutMs: QUERY_TIMEOUT_MS });
+  }, QUERY_TIMEOUT_MS + 10_000);
 
   it("$vectorSearch가 1건을 돌려준다", async () => {
-    const hits = await pollUntilNonEmpty(() =>
+    // 결과가 "하나라도" 나오면 멈추던 대기는, 무관한 문서만 먼저 색인된 순간에 그 문서를 1위로 받아 간헐 실패했다 (T-062).
+    // 같은 방향 문서가 색인될 때까지 기다린다. 시간 안에 오지 않으면 아래 단언이 그대로 실패한다.
+    const hits = await pollUntil(() =>
       chunks()
         .aggregate([
           {
@@ -174,6 +180,7 @@ describe.skipIf(!HAS_DOCKER)("READY 이후의 실제 쿼리 (Acceptance 3)", () 
           { $project: { _id: 0, text: 1, score: { $meta: "vectorSearchScore" } } },
         ])
         .toArray(),
+      (rows) => String(rows[0]?.["text"] ?? "").includes("proxy_buffering"),
       QUERY_TIMEOUT_MS,
     );
 
@@ -205,7 +212,11 @@ describe.skipIf(!HAS_DOCKER)("READY 이후의 실제 쿼리 (Acceptance 3)", () 
     );
     expect(mine.map((h) => h["meta"]?.["project"])).toEqual(["sentinel-kb"]);
 
-    const other = await vectorSearchFiltered({ "meta.project": "bizcare-web" });
+    // 다른 프로젝트 문서도 색인될 때까지 기다린다 — 한 번만 조회하면 반영 전 순간에 [] 를 받는다 (T-062, 고병렬 실측).
+    const other = await pollUntilNonEmpty(
+      () => vectorSearchFiltered({ "meta.project": "bizcare-web" }),
+      QUERY_TIMEOUT_MS,
+    );
     expect(other.map((h) => h["meta"]?.["project"])).toEqual(["bizcare-web"]);
 
     const none = await vectorSearchFiltered({ "meta.project": "no-such-project" });
