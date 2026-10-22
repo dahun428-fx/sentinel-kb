@@ -68,3 +68,27 @@ M: M7 | deps: -
   다만 **벽시계 단언을 고치면 T-043이 의존하던 killer가 사라진다**는 사실을
   Findings에 명시해 인계하라.
 - `specs/tasks/T-028`의 F-11이 같은 플레이크를 이미 기록했다. 세 번째 관측이다.
+
+## 결과 (2026-10-22, UPLIFT P0)
+
+`c764f0a`를 세션 내보내기 파일이 든 부모(`109a2ee`) 없이 cherry-pick했다. 커밋 메시지가 원인별 처방을 적고 있다
+(deploy-rollback은 타임아웃이 아니라 SIGPIPE, sanitize 선형성은 CPU 시간 비, 계층별 타임아웃).
+
+**고병렬 반복** — 로컬 맥북, Docker 켬, `npx vitest run`(unit + integration 동시) 75회:
+
+| 묶음 | 횟수 | 실패 | 실패 내용 |
+|---|---|---|---|
+| 1 | 20 | 1 | `packages/api/src/records.int.spec.ts` 파일 전체가 `beforeAll`에서 실패(57건 skip). 25초 만에 끝나 120초 타임아웃은 아님. MongoMemoryServer 기동 경합으로 추정 |
+| 2 | 15 | 0 | — |
+| 3 | 40 | 3 | `retrieve.int.spec.ts` cosine 척도 2건(`maxVectorScore` 0 — 문서가 vector 인덱스에 아직 반영되지 않음), `search-indexes.int.spec.ts` `$vectorSearch`가 다른 문서 반환(같은 원인), `nginx-streaming.int.spec.ts` ECONNRESET |
+
+3번째 묶음 동안 다른 worktree에서 테스트를 같이 돌려 부하가 더 컸다.
+
+**판정: PARTIAL.** 이 태스크가 지목한 세 지점(`deploy-rollback`, `sanitize.property` 선형성, `dependency-boundaries`)은 75회 동안 한 번도
+실패하지 않았다. Acceptance 1("간헐 실패 0건")은 **다른 원인의 통합 테스트 플레이크 3종** 때문에 충족하지 못했다. 세 종류 모두
+타임아웃·벽시계가 아니라 외부 프로세스 동기화 문제라 이 태스크의 처방(타임아웃·계기 교체)으로 고칠 대상이 아니다 → T-062.
+
+- **F-1** T-043 인계: 벽시계 단언이 사라졌으므로 `DEFAULT_MAX_INPUT_CHARS`의 유일한 killer도 사라졌다(`tools/assertion-audit.ts:328`이 이미 예고).
+  상한 초과 입력이 던지는 것을 보는 행동 단언은 T-043 몫이다.
+
+STATUS: PARTIAL — Acceptance 1 미충족(통합 플레이크 3종, T-062). 나머지 Acceptance 충족.

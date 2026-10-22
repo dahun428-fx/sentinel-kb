@@ -377,7 +377,7 @@ DB를 로컬(atlas-local)에 두어도 아래 경로로 텍스트가 외부 API�
 | | T-033 아티클 UI | BLOCKED / IN PROGRESS (두 기록이 다름) |
 | | T-034 스타일 eval | PARTIAL |
 | M7 감사 후속 | T-041, T-043, T-044 | 머지됨 |
-| | T-045 간헐 실패 봉합 | GREEN (2026-10-22 cherry-pick, F-5 해소) |
+| | T-045 간헐 실패 봉합 | PARTIAL (2026-10-22 cherry-pick, F-5 해소. 지목 3지점은 75회 0건, 다른 통합 플레이크 3종은 T-062) |
 | 미분류 | T-037 | GREEN |
 | | T-047 문서 리뷰 반영 | GREEN (2026-10-22 main) |
 | UPLIFT P0~P2 | T-048 CI 더미 env·nightly 중지·권한, T-049 골든셋 경고 문구 | GREEN |
@@ -408,7 +408,7 @@ DB를 로컬(atlas-local)에 두어도 아래 경로로 텍스트가 외부 API�
 ### 9-1b. 2026-10-22 완료 (P0 마무리 → P1 → P2)
 
 1. 플랜 부록 A의 회사 프로젝트명·문서 경로를 익명화하고, push 전 커밋 4개를 다시 써서 기록에서도 지웠다. 대응표는 저장소 밖 `../sentinel-kb-private-notes.md`.
-2. T-045 cherry-pick. 고병렬 전체 실행(unit + integration, Docker 포함) 반복 결과는 T-045 태스크 파일에 적는다.
+2. T-045 cherry-pick. 고병렬 전체 실행 75회 중 4회 실패 — 전부 T-045 처방 밖의 통합 동기화 플레이크라 T-062로 분리 (T-045 결과 절).
 3. T-048(F-1 수정, 더미 env를 compose에서 계산해 대조하는 단언, nightly 스케줄 중지, `ci.yml` 권한), T-049(골든셋 경고 문구).
 4. P1: 로컬 리뷰 에이전트 3개 실행 → §4-2 표 28건.
 5. P2: Critical S1·S2·S4 수정(T-050~T-052), C1은 P4 절차로 차단, S5 브랜치 정리, Major는 T-053~T-061 등재.
