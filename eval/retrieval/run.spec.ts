@@ -30,6 +30,26 @@ function stubSearch(table: Record<string, readonly RankedHit[]>): SearchFn {
 }
 
 describe("runRetrievalEval", () => {
+  it("청크 창이 꽉 찼는데 record가 5개보다 적으면 경고한다 — Recall@5보다 좁은 창이다 (T-056)", async () => {
+    const twoChunksEach: RankedHit[] = [R1, R1, R2, R2, R3].map((recordId, index) => ({
+      recordId,
+      score: 0.9 - index * 0.01,
+    }));
+    const run = (limit: number) =>
+      runRetrievalEval({
+        cases: [goldenCase({ caseId: "c1" })],
+        search: stubSearch({ "nginx 502": twoChunksEach }),
+        limit,
+        baselines: BASE,
+        embedding: TRUSTED,
+        now: NOW,
+      });
+
+    expect((await run(5)).warnings.join("\n")).toContain("좁은 창");
+    // 창이 꽉 차지 않았으면(코퍼스가 작아서 record가 적은 것) 경고하지 않는다.
+    expect((await run(10)).warnings.join("\n")).not.toContain("좁은 창");
+  });
+
   it("리포트의 날짜·생성시각이 주입된 시계에서만 나온다", async () => {
     const report = await runRetrievalEval({
       cases: [goldenCase({ caseId: "c1" })],

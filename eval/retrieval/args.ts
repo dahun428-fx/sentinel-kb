@@ -5,7 +5,12 @@
  * 오타난 인자는 조용히 무시하지 않고 던진다. `--limit 20`(등호 없음)을 무시하면 사용자는
  * limit=20으로 잰 줄 알고 5로 잰 리포트를 커밋한다.
  */
-export const DEFAULT_EVAL_LIMIT = 5;
+/**
+ * `/v1/search`에 요청하는 **청크** 수. Recall@5는 record 5개 위에서 잰다(`metrics.ts`)는데, 한 record가 청크 2개까지
+ * 차지하므로(`RETRIEVAL_MAX_CHUNKS_PER_RECORD=2`) 청크 5개로는 record가 3개뿐일 수 있었다 — 보고하는 값이 실제로는
+ * Recall@3~5였다 (T-056, P1 리뷰 C5). `RECALL_K × 2 = 10`이면 record 5개가 항상 창에 들어온다.
+ */
+export const DEFAULT_EVAL_LIMIT = 10;
 export const DEFAULT_EVAL_PROJECT = "sentinel-kb";
 export const DEFAULT_CORE_API_PORT = 3001;
 
@@ -73,7 +78,7 @@ export function parseRunArgs(argv: readonly string[], env: NodeJS.ProcessEnv): R
     } else {
       throw new EvalArgsError(
         `알 수 없는 인자: ${arg}. ` +
-          "사용법: pnpm eval:retrieval [--limit=5] [--project=<slug>] [--base-url=<url>] " +
+          "사용법: pnpm eval:retrieval [--limit=10] [--project=<slug>] [--base-url=<url>] " +
           "[--expected-cases=30] [--allow-fake-embeddings]",
       );
     }

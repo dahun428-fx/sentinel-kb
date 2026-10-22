@@ -13,9 +13,10 @@ import {
 const EMPTY: NodeJS.ProcessEnv = {};
 
 describe("parseRunArgs", () => {
-  it("인자가 없으면 limit=5, project=sentinel-kb다", () => {
+  // T-056: 기본 limit은 청크 10이다. 5였을 때는 record top-5 창이 3개까지 줄었다(metrics.ts의 record 단위 정의와 어긋남).
+  it("인자가 없으면 limit=10, project=sentinel-kb다", () => {
     const args = parseRunArgs([], EMPTY);
-    expect(args.limit).toBe(5);
+    expect(args.limit).toBe(10);
     expect(args.project).toBe("sentinel-kb");
     expect(args.allowFakeEmbeddings).toBe(false);
     expect(args.expectedCaseCount).toBe(30);

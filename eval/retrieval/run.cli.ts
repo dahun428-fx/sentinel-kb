@@ -5,7 +5,7 @@
  * `scripts/seed.cli.ts`가 세운 규약을 그대로 따른다: 라이브러리는 `process.exit`을 부르지 않는다.
  *
  * 사용법:
- *   pnpm eval:retrieval                          # 기본 (limit=5, project=sentinel-kb)
+ *   pnpm eval:retrieval                          # 기본 (limit=10, project=sentinel-kb)
  *   pnpm eval:retrieval --limit=20               # 후보/최종 K 스윕
  *   pnpm eval:retrieval --base-url=http://...    # 원격 core-api 대상
  *   pnpm eval:retrieval --allow-fake-embeddings  # 판정 없이 파이프라인만 확인

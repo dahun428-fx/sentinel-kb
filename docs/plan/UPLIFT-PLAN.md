@@ -27,7 +27,7 @@
 | 목표 | 본인 프로젝트의 장애를 sentinel-kb에 기록하고, 다음 장애 때 검색해서 다시 쓰는 상태 |
 | 현재 단계 | **P0~P3 완료. P4 실 임베딩 대기** |
 | 다음 행동 | 사용자: Claude Code에서 `sentinel-kb-local` 도구 확인(`docs/local-run.md` §4), Q-1·Q-10 결정, Voyage 키 발급 → P3 데이터 삭제(`local-run.md` §5) 후 P4 |
-| 막힌 결정 | P4 전: Q-1, Q-10 / P5 전: Q-9, Q-11 / T-056 eval 정의 변경 승인 / T-052 F-1 태그 시크릿 처리 |
+| 막힌 결정 | P4 전: Q-1, Q-10 / P5 전: Q-9, Q-11 / T-052 F-1 태그 시크릿 처리 |
 | 하지 않는 것 | `troubleshooting-harness` 스킬 개선, M7 아티클 확장 (§1-1) |
 
 ---
@@ -237,7 +237,7 @@ M7 아티클 파이프라인 (T-029~T-034). 저장 → 검색 → 재사용 흐�
 | C2 | Major | worker | 죽은 프로세스의 `running` 잡을 회수하지 않음 | P4, P5 | **수정** T-054 (리스 만료 회수) |
 | C3 | Major | worker | 429에 10초 만에 `dead`. `failed`/`dead` 재투입 경로 없음 | P4~P6 | **수정** T-054 (Retry-After, requeue CLI, 기동 시 키 확인) |
 | C4 | Major | api/worker | 제목·상태 변경이 청크에 반영 안 됨. draft로 되돌려도 검색됨 | P5, P8 | **수정** T-055 |
-| C5 | Major | eval | Recall@5가 실제로는 Recall@3~5. 실데이터 소수면 자명하게 높음 | P6 | T-056 (eval 정의 변경 — 사람 승인). P6 전 처리 |
+| C5 | Major | eval | Recall@5가 실제로는 Recall@3~5. 실데이터 소수면 자명하게 높음 | P6 | **수정** T-056 (창 10, 좁은 창 경고). 부분집합 분리는 P6 골든셋 작성 때 |
 | A1 | Major | mcp | `suggest_resolution` 답이 인용 제목에 밀려 수십 자로 잘림 | P7, P8 | T-057. P7 전 처리, 그 전엔 `search_knowledge`+`get_record` |
 | A2 | Major | 계측 | `give_feedback`이 도그푸딩 리포트에 집계되지 않음 | P7, P8 | T-058. P7 선행 조건 |
 | A3 | Major | mcp/api | 빈 문자열 선택 필드가 엉뚱한 오류로 거부되고 상세가 버려짐 | P7, P8 | T-059. P7 선행 조건 |

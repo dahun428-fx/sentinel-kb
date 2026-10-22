@@ -58,6 +58,8 @@ export async function runRetrievalEval(input: RunRetrievalEvalInput): Promise<Re
   const results: RetrievalCaseResult[] = [];
   const outcomes: CaseOutcome[] = [];
   const byKind = new Map<QueryKind, CaseOutcome[]>(QUERY_KINDS.map((kind) => [kind, []]));
+  /** 청크 창이 꽉 찼는데 record가 `RECALL_K`개보다 적게 접힌 케이스 수 (T-056). */
+  let narrowWindowCount = 0;
 
   for (const goldenCase of input.cases) {
     const hits = await input.search({
@@ -66,6 +68,7 @@ export async function runRetrievalEval(input: RunRetrievalEvalInput): Promise<Re
       ...(goldenCase.type === undefined ? {} : { type: goldenCase.type }),
     });
     const outcome = scoreCase(hits, goldenCase.expectedRecordIds, RECALL_K);
+    if (hits.length >= input.limit && outcome.rankedRecordIds.length < RECALL_K) narrowWindowCount += 1;
     outcomes.push(outcome);
     byKind.get(goldenCase.queryKind)?.push(outcome);
     results.push({
@@ -93,6 +96,12 @@ export async function runRetrievalEval(input: RunRetrievalEvalInput): Promise<Re
     warnings.push(
       `EMBEDDING_PROVIDER=${input.embedding.provider}로 측정했다. 이 수치는 검색 품질이 아니라 ` +
         "BM25 단독 성능에 가깝다(T-006 F-8: fake 벡터의 cosine ≈ 0). 기준선 판정은 하지 않았다.",
+    );
+  }
+  if (narrowWindowCount > 0) {
+    warnings.push(
+      `청크 ${String(input.limit)}개 창에서 record가 ${String(RECALL_K)}개보다 적게 나온 케이스가 ${String(narrowWindowCount)}건이다. ` +
+        `그 케이스는 Recall@${String(RECALL_K)}보다 좁은 창으로 쟀다 — --limit을 올려라(T-056).`,
     );
   }
   if (overall.ambiguousTieCount > 0) {
