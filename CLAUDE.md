@@ -31,7 +31,7 @@ AI-first 트러블슈팅 지식 보관소. 여러 프로젝트의 에이전트�
 pnpm verify        # lint + typecheck + unit + integration (머지 전 필수 그린)
 pnpm test          # unit only
 pnpm test:e2e      # Playwright
-pnpm eval          # RAG eval (retrieval + generation)
+pnpm eval:retrieval   # RAG eval — 검색 (eval:generation, eval:injection, eval:style도 있다)
 pnpm eval:tools    # MCP tool-selection eval
 pnpm db:seed       # 시드 데이터 적재
 pnpm dev           # 패키지 병렬 dev 서버 (M1부터 사용 가능)

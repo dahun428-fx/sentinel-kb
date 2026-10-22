@@ -1,5 +1,18 @@
 # 산출물 색인
 
+## 어디부터 읽나
+
+| 알고 싶은 것 | 기준 문서 |
+|---|---|
+| 제품이 무엇을 해야 하나 | `specs/00~08`, `packages/contracts`의 해당 계약 |
+| **지금 무엇을 해야 하나** | **`plan/UPLIFT-PLAN.md`** (2026-10-21~, 진행 상태의 기준) |
+| 특정 작업을 어떻게 구현하나 | `specs/tasks/T-xxx.md` |
+| 왜 그렇게 결정했나 | `design/SAD.md`·ADR, `DECISIONS-PENDING.md`, UPLIFT §결정 기록 |
+| 무엇을 검증했나 | 커밋과 연결된 테스트·eval 결과, `eval/loop-log.jsonl` |
+
+문서끼리 어긋나면 제품 요구는 `specs/`를, 진행 순서·완료 기준은 UPLIFT를 따른다.
+`EXECUTION-PLAN.md`와 `plan/WBS.md`는 2026-08-21 착수 계획이며 진행 상태를 담지 않는다.
+
 ## 분석 단계
 | 문서 | 내용 |
 |---|---|

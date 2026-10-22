@@ -36,11 +36,14 @@ specs/05 "Eval 1: Retrieval" 구현. **골든셋 데이터는 아직 없다** �
   지금 재면 검색 품질이 아니라 **BM25 단독 성능**이 나온다.
 - **골든셋 30건은 만들지 않았다.** `scripts/seed.ts`가 `POST /v1/records`로 시드를 넣어
   `--reset`마다 ObjectId가 새로 발급되므로, 지금 만든 `expectedRecordIds`는 다음 리셋에 통째로 죽는다.
+  > **해소 (2026-10-21 확인, T-047).** 커밋 `02899c2` 이후 `--reset`은 제자리 PATCH +
+  > `seedManifest` 장부로 `_id`를 보존한다(`scripts/seed.int.spec.ts:335`). ID 문제는 닫혔고,
+  > 골든셋이 없는 이유는 이제 실 임베딩 자격증명이 없어서다. 아래 1번 단계는 건너뛴다.
 - `eval/baselines.json`은 **건드리지 않았다.** 측정하지 않은 숫자를 기준선으로 쓰지 않는다.
 
 ## 자격증명이 생겼을 때 — 무엇을 하면 되나
 
-1. **`seedBatch` 마커를 결정한다 (G3, 인간 승인).**
+1. ~~**`seedBatch` 마커를 결정한다 (G3, 인간 승인).**~~ → **해소됨.** `02899c2`의 대체 구현으로 불필요하다 (당시 기록 보존).
    `RecordSchema`가 `.strict()`라 contracts 재개방이다. 이게 먼저다 — 골든셋을 만든 뒤에
    결정하면 30건을 다시 매핑해야 한다. 같은 변경이 T-009 F-6, T-024도 함께 해소한다.
 2. **자격증명을 주입한다.** `EMBEDDING_PROVIDER=voyage`, `VOYAGE_API_KEY=…`(.env.example 참조).
