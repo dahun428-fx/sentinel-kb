@@ -35,7 +35,7 @@ const BETA = "Bearer key-beta"; // project: bizcare-web
 
 const SANITIZE_OPTIONS = { maskEmail: false, maxInputChars: 65_536 } as const;
 
-/** 리터럴 ObjectId hex. 레코드 존재 여부는 이 라우트의 관심사가 아니다(Findings 참조). */
+/** 리터럴 ObjectId hex. 두 레코드는 beforeAll에서 만든다 — 없는 레코드는 골든셋 후보가 되지 않는다(T-059). */
 const RECORD_A = "6650a1b2c3d4e5f601020304";
 const RECORD_B = "6650a1b2c3d4e5f601020305";
 const QUERY = "결제 큐가 멈췄을 때 무엇을 봤나";
@@ -56,6 +56,11 @@ beforeAll(async () => {
     serverSelectionTimeoutMS: 10_000,
   });
   db = client.db(DB_NAME);
+  // 피드백은 저장된 레코드에 대해 온다. T-059부터 존재하지 않는 레코드는 골든셋 후보가 되지 않으므로 두 레코드를 둔다.
+  await db.collection("records").insertMany([
+    { _id: new ObjectId(RECORD_A), title: "A" },
+    { _id: new ObjectId(RECORD_B), title: "B" },
+  ]);
   app = createApp({
     db,
     apiKeys: API_KEYS,
@@ -125,6 +130,15 @@ async function goldenSet(): Promise<EvalCaseDocument[]> {
 // ---------------------------------------------------------------- 저장
 
 describe("POST /v1/feedback", () => {
+  it("존재하지 않는 레코드에 대한 helped:true는 저장하되 골든셋 후보로 올리지 않는다 (T-059, P1 리뷰 A5-a)", async () => {
+    const ghost = "6650a1b2c3d4e5f6010203ff";
+    const response = await postFeedback({ recordId: ghost, query: "환각 recordId", helped: true });
+
+    expect(response.status).toBe(204);
+    expect(await feedbacks()).toHaveLength(1);
+    expect(await candidates()).toHaveLength(0);
+  });
+
   it("query·note의 시크릿을 지우고 저장한다 — eval_cases 후보에도 원문이 남지 않는다 (T-052)", async () => {
     const response = await postFeedback({
       recordId: RECORD_A,

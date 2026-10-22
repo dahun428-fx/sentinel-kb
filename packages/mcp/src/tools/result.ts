@@ -29,8 +29,9 @@ export function toToolError(toolName: string, error: unknown): CallToolResult {
     return errorResult(`${toolName}: 내부 오류 — 쓰기 요청이 읽기 경로로 갔다. ${error.message}`);
   }
   if (error instanceof CoreApiError) {
+    const fields = error.fields.length === 0 ? "" : ` 문제 필드: ${error.fields.join(", ")}`;
     return errorResult(
-      `${toolName} 실패 (${error.code}, HTTP ${String(error.statusCode)}): ${error.message}`,
+      `${toolName} 실패 (${error.code}, HTTP ${String(error.statusCode)}): ${error.message}${fields}`,
     );
   }
   if (error instanceof CoreApiTransportError) {

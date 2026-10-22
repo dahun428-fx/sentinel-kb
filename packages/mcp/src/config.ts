@@ -37,7 +37,8 @@ export function readMcpConfig(env: NodeJS.ProcessEnv): McpConfig {
   return {
     apiKeys: parseApiKeys(env["API_KEYS"]),
     port: readPositiveInt(env["MCP_PORT"], DEFAULT_MCP_PORT),
-    coreApiBaseUrl: env["CORE_API_URL"]?.trim() ?? DEFAULT_CORE_API_URL,
+    // 빈 문자열도 미설정이다 (T-059, P1 리뷰 A7). `?? 기본값`은 ""를 남겨 모든 요청이 `/v1/...` 상대 경로로 나가 실패했다.
+    coreApiBaseUrl: env["CORE_API_URL"]?.trim() || DEFAULT_CORE_API_URL,
     coreApiTimeoutMs: readPositiveInt(env["CORE_API_TIMEOUT_MS"], 10_000),
     coreApiMaxAttempts: readPositiveInt(env["CORE_API_MAX_ATTEMPTS"], 3),
     bearerKey: bearerKey === undefined || bearerKey === "" ? undefined : bearerKey,

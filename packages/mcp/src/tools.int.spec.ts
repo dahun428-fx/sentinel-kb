@@ -286,6 +286,15 @@ describe("Acceptance 2 — search_knowledge 응답 토큰 예산 (NFR-03)", () =
     expect(estimateTokens(text).high).toBeLessThanOrEqual(MCP_SEARCH_TOKEN_BUDGET);
   });
 
+  it("limit을 생략하면 3건을 요청하고 클램프 안내를 붙이지 않는다 (T-059, P1 리뷰 A6)", async () => {
+    routes.set("POST /v1/search", { status: 200, body: { results: [searchHit()] } });
+
+    const { text } = await callTool("search_knowledge", { query: "SSE 끊김" });
+
+    expect((outbound("POST", "/v1/search")?.body as { limit?: number }).limit).toBe(3);
+    expect(text).not.toContain("상위 3건만 냈다");
+  });
+
   /** 계약(`SearchRequest.limit`)의 상한까지는 열어 두되 그 너머는 여전히 스키마가 막는다. */
   it("계약 상한을 넘는 limit=21은 스키마가 거부한다", async () => {
     routes.set("POST /v1/search", { status: 200, body: { results: [searchHit()] } });
@@ -490,6 +499,35 @@ describe("Acceptance 4 — record_knowledge의 project는 키에서 주입된다
     symptom: "증상 텍스트가 열 글자를 넘는다",
     resolution: "해결 절차가 열 글자를 넘는다",
   };
+
+  it("빈 문자열 선택 필드는 보내지 않는다 — '모르면 비운다'를 따른 호출이 저장된다 (T-059, P1 리뷰 A3)", async () => {
+    routes.set("POST /v1/records", { status: 201, body: recordWire() });
+
+    const { isError } = await callTool("record_knowledge", { ...VALID_INCIDENT, rootCause: "", prevention: "  " }, KEY_A);
+
+    expect(isError).toBe(false);
+    expect(outbound("POST", "/v1/records")?.body).not.toHaveProperty("rootCause");
+    expect(outbound("POST", "/v1/records")?.body).not.toHaveProperty("prevention");
+  });
+
+  it("4xx 오류에 문제 필드 경로를 싣는다 — 무엇을 고칠지 알게 (T-059)", async () => {
+    routes.set("POST /v1/records", {
+      status: 400,
+      body: {
+        error: {
+          code: "VALIDATION_FAILED",
+          message: "레코드 입력이 스키마를 만족하지 않는다.",
+          details: [{ path: ["symptom"], message: "too short" }, { path: ["tags", 2], message: "x" }],
+        },
+      },
+    });
+
+    const { text, isError } = await callTool("record_knowledge", VALID_INCIDENT, KEY_A);
+
+    expect(isError).toBe(true);
+    expect(text).toContain("문제 필드: symptom, tags.2");
+    expect(text).not.toContain("too short");
+  });
 
   /**
    * project 주입이 **키를 따라가는지** 본다. 상수로 박으면 여기서 죽는다 —

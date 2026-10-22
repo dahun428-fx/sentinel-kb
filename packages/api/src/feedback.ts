@@ -202,7 +202,9 @@ export async function storeFeedback(db: Db, raw: StoreFeedbackInput): Promise<vo
   }
 
   await upsertFeedback(db, input, recordId);
-  if (input.helped) {
+  // 존재하지 않는 레코드는 골든셋 후보 정답이 될 수 없다 (T-059, P1 리뷰 A5-a). 오타·환각 recordId가 후보에 섞이면
+  // 사람이 승인할 때까지 아무도 모른다. 피드백 자체는 남긴다 — 404로 바꾸는 것은 API 계약(specs/04) 변경이라 하지 않았다.
+  if (input.helped && (await db.collection("records").countDocuments({ _id: recordId }, { limit: 1 })) > 0) {
     await upsertEvalCaseCandidate(db, input.query, recordId);
   }
 }

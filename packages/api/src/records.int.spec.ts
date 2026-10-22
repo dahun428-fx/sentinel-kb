@@ -432,6 +432,14 @@ describe("Acceptance 5 — 시크릿 마스킹, 플래그 기록, 응답 경고"
     expect(response.body).not.toHaveProperty("warning");
   });
 
+  it("선택 필드의 빈 문자열은 미지정으로 받아 저장한다 — 엉뚱한 400을 내지 않는다 (T-059, P1 리뷰 A3)", async () => {
+    const created = await createIncident(ALPHA, { rootCause: "", prevention: "   " });
+
+    expect(created.status).toBe(201);
+    expect(created.body).not.toHaveProperty("rootCause");
+    expect(created.body).not.toHaveProperty("prevention");
+  });
+
   it("PATCH의 relations[].note도 마스킹하고 secret-masked 플래그를 단다 (T-052)", async () => {
     const id = (await createIncident(ALPHA)).body["_id"] as string;
     const target = (await createIncident(ALPHA)).body["_id"] as string;

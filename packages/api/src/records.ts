@@ -153,6 +153,26 @@ function unionFlags(a: readonly SanitizeFlag[], b: readonly SanitizeFlag[]): San
   return FLAG_ORDER.filter((flag) => seen.has(flag));
 }
 
+/**
+ * 선택 텍스트 필드(`rootCause`, `prevention`)의 빈 문자열·공백을 "미지정"으로 바꾼다 (T-059, P1 리뷰 A3).
+ *
+ * 생성 입력 스키마는 `""`를 받지만 저장 스키마는 `min(1)`이라, 빈 값이 입력 검증을 통과한 뒤 저장 직전에
+ * "마스킹 라벨이 길이 제약을 넘겼을 수 있다"는 엉뚱한 400으로 실패했다. 도구 설명이 "모르면 비운다"고 안내하므로
+ * 에이전트가 흔히 이렇게 보낸다. 계약을 바꾸지 않고 경계에서 정규화한다.
+ */
+const BLANKABLE_OPTIONAL_TEXT = ["rootCause", "prevention"] as const;
+
+function withoutBlankOptionalText(body: unknown): unknown {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return body;
+  const blank = new Set<string>(
+    BLANKABLE_OPTIONAL_TEXT.filter((key) => {
+      const value = (body as Record<string, unknown>)[key];
+      return typeof value === "string" && value.trim() === "";
+    }),
+  );
+  return Object.fromEntries(Object.entries(body).filter(([key]) => !blank.has(key)));
+}
+
 // ---------------------------------------------------------------- 라우트
 
 export function registerRecordRoutes(app: FastifyInstance, deps: RecordRoutesDeps): void {
@@ -162,7 +182,7 @@ export function registerRecordRoutes(app: FastifyInstance, deps: RecordRoutesDep
   app.post("/v1/records", async (request, reply): Promise<FastifyReply> => {
     assertNoServerOwnedKeys(request.body, true);
 
-    const parsed = CreateRecordInput.safeParse(request.body);
+    const parsed = CreateRecordInput.safeParse(withoutBlankOptionalText(request.body));
     if (!parsed.success) throw validationError(parsed.error);
     const input = parsed.data;
 

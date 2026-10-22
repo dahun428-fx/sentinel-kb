@@ -71,7 +71,9 @@ const inputSchema = {
   project: SearchRequest.shape.project.describe(
     "특정 프로젝트로 좁힐 때만 채운다. 비우면 전체 프로젝트를 검색한다 — 다른 프로젝트의 사례를 찾는 것이 이 지식보관소의 목적이므로 기본값(비움)을 권한다.",
   ),
-  limit: SearchRequest.shape.limit.describe(
+  // 계약의 `.default(5)`를 떼어 낸다 (T-059, P1 리뷰 A6). 기본값이 붙어 있으면 생략한 호출도 5를 요청한 것으로 보여
+  // 매번 "limit=5를 요청했지만 3건만 냈다"는 안내가 붙었다. 생략은 생략으로 받는다.
+  limit: SearchRequest.shape.limit.removeDefault().optional().describe(
     `결과 개수. 계약상 1–20이지만 응답 토큰 예산(약 800, NFR-03) 때문에 서버가 ${String(MCP_SEARCH_LIMIT_MAX)}건으로 줄여서 낸다 — 더 큰 값을 보내도 오류가 아니라 ${String(MCP_SEARCH_LIMIT_MAX)}건과 그 사실을 알리는 문구를 받는다. 더 필요하면 질의를 나눠 여러 번 부르는 편이 싸다.`,
   ),
 };
@@ -100,7 +102,7 @@ export function registerSearchKnowledge(server: McpServer, context: McpContext):
     { title: "지식보관소 검색", description: SEARCH_KNOWLEDGE_DESCRIPTION, inputSchema },
     async (args) => {
       const requested = args.limit;
-      const effective = Math.min(requested, MCP_SEARCH_LIMIT_MAX);
+      const effective = Math.min(requested ?? MCP_SEARCH_LIMIT_MAX, MCP_SEARCH_LIMIT_MAX);
       try {
         // `POST /v1/search`는 부수효과 없는 읽기 POST다 — `read()`가 재시도해도 안전하다.
         const raw = await context.coreApi.read({
@@ -119,7 +121,7 @@ export function registerSearchKnowledge(server: McpServer, context: McpContext):
           }),
         });
         const hits = parseSearchHits(raw);
-        if (effective >= requested) return textResult(renderSearchHits(hits));
+        if (requested === undefined || effective >= requested) return textResult(renderSearchHits(hits));
         // 안내 문구도 NFR-03 예산 **안에서** 낸다 — 목록 예산을 그만큼 줄인다.
         const note = clampNote(requested, effective);
         return textResult(

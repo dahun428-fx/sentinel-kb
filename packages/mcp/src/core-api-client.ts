@@ -33,6 +33,8 @@ export class CoreApiError extends Error {
     message: string,
     /** 몇 번 시도한 끝에 난 오류인지. 재시도 정책이 실제로 걸렸는지 진단하는 근거. */
     readonly attempts: number,
+    /** 4xx `details`(Zod issue 목록)에서 뽑은 문제 필드 경로. 에이전트가 무엇을 고칠지 알게 한다 (T-059). */
+    readonly fields: readonly string[] = [],
   ) {
     super(message);
     this.name = "CoreApiError";
@@ -150,6 +152,7 @@ const defaultSleep = (ms: number): Promise<void> =>
 function toApiError(status: number, rawBody: string, attempts: number): CoreApiError {
   let code = "CORE_API_ERROR";
   let message = `core-api가 ${String(status)}를 반환했다.`;
+  let fields: string[] = [];
   try {
     const parsed: unknown = JSON.parse(rawBody);
     if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
@@ -159,13 +162,25 @@ function toApiError(status: number, rawBody: string, attempts: number): CoreApiE
         const m: unknown = (error as { message?: unknown }).message;
         if (typeof c === "string") code = c;
         if (typeof m === "string") message = m;
+        fields = issuePaths((error as { details?: unknown }).details);
       }
     }
   } catch {
     // 본문이 JSON이 아니다. 본문을 메시지에 붙이지 않는다 — 프록시 오류 페이지가
     // 통째로 에이전트 컨텍스트에 실려 토큰 예산을 먹는다(NFR-03).
   }
-  return new CoreApiError(status, code, message, attempts);
+  return new CoreApiError(status, code, message, attempts, fields);
+}
+
+/** Zod issue 배열에서 `path`만 뽑는다(최대 10개). 값은 싣지 않는다 — 입력이 응답에 되돌아 새지 않게. */
+function issuePaths(details: unknown): string[] {
+  if (!Array.isArray(details)) return [];
+  const paths = details
+    .map((issue: unknown) => (issue as { path?: unknown } | null)?.path)
+    .filter((path): path is unknown[] => Array.isArray(path))
+    .map((path) => path.map(String).join("."))
+    .filter((path) => path.length > 0);
+  return [...new Set(paths)].slice(0, 10);
 }
 
 export function createCoreApiClient(options: CoreApiClientOptions): CoreApiClient {

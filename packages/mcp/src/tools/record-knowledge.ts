@@ -105,9 +105,13 @@ export function registerRecordKnowledge(server: McpServer, context: McpContext):
     async (args) => {
       // 미지정 필드를 **키 자체로 넣지 않는다.** `CreateRecordInput`은 `.strict()`라
       // `symptom: undefined`가 divergence 갈래에서 "미승인 키"로 거부된다.
+      // 빈 문자열·공백만 있는 선택 필드도 "미지정"으로 본다 (T-059, P1 리뷰 A3). 필수 필드가 비면 빠진 키로 남아
+      // 스키마가 그 필드 이름을 대며 거부한다.
       const candidate: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(args)) {
-        if (value !== undefined) candidate[key] = value;
+        if (value === undefined) continue;
+        if (typeof value === "string" && value.trim() === "") continue;
+        candidate[key] = value;
       }
 
       const parsed = CreateRecordInput.safeParse(candidate);

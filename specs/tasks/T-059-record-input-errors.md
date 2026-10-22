@@ -31,4 +31,20 @@ M: M3 | deps: T-015,T-022
 ## 처리 메모
 - P7 전에 처리한다. 계약 변경(`.min(1)`)을 고르면 G3.
 
-STATUS: TODO
+## 결과 (2026-10-22)
+
+- **A3**: MCP `record_knowledge`와 API `POST /v1/records` 양쪽에서 선택 텍스트(`rootCause`, `prevention`)의 빈 값·공백을
+  미지정으로 정규화. 계약(`.min(1)` 추가)은 바꾸지 않았다(G3 불필요). 4xx `details`의 issue 경로를 도구 오류에
+  "문제 필드: …"로 싣는다(값은 싣지 않는다).
+- **A5-a**: 존재하지 않는 레코드에 대한 `helped:true`는 피드백만 저장하고 골든셋 후보에 올리지 않는다. 404로 바꾸는 안은
+  `/v1/feedback` 계약(specs/04) 변경이라 하지 않았다(Findings F-1). 피드백 테스트 fixture에 두 레코드를 추가했다 — 단언은 그대로.
+- **A6**: MCP 입력에서 계약의 `.default(5)`를 떼어 생략은 생략으로 받는다. 생략 시 3건 요청, 안내문 없음.
+- **A7**: `CORE_API_URL=""`·공백은 기본 주소. (stdio가 전 키를 요구하는 문제는 Findings F-2)
+- 테스트: MCP 통합 3, MCP 단위 2, API 통합 2. 빈 값 건너뛰기·후보 가드를 되돌리면 2건 실패.
+
+## Findings
+- **F-1** 없는 recordId 피드백을 404로 거부할지는 specs/04 개정 결정이다. 지금은 후보 오염만 막는다.
+- **F-2** stdio 모드가 자기 키를 찾으려고 `API_KEYS` 전체를 요구한다. 1인 사용에서는 무해하고, 사내 확장(P9) 전에
+  `SENTINEL_KB_PROJECT` 또는 core-api 조회로 바꾸는 것이 좋다.
+
+STATUS: GREEN

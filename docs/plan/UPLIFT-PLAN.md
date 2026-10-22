@@ -134,7 +134,7 @@ sentinel-kb는 M0~M7 태스크 대부분이 구현됐지만 한 번도 운영된
 
 | 항목 | 내용 |
 |---|---|
-| 선행 조건 | P6 중간 기준 통과. T-058(피드백 집계), T-059(입력 오류), T-057(답변 잘림) 처리 — 셋 다 첫 실사용에서 바로 드러난다 (§4-2) |
+| 선행 조건 | P6 중간 기준 통과. (T-057·T-058·T-059는 2026-10-22 처리 완료) |
 | 할 일 | 사용하는 프로젝트의 Claude Code에 MCP 등록. 각 CLAUDE.md에 세 규칙 추가: 디버깅 전 `search_knowledge`, 해결 후 `record_knowledge`, 결과가 도움이 됐으면 `give_feedback(helped: true)`. 이벤트 로그(`eval/dogfood-log.jsonl`, `docs/dogfooding.md:69–81` 형식)를 누가 남기는지 정함 |
 | 완료 증거 | **계측 스모크**: `search`·`record`·`hit` 이벤트를 한 번씩 발생시키고, 로그 파일과 `tools/dogfood-report.cli.ts` 리포트 양쪽에서 각각 1건으로 집계되는 것을 확인 |
 | 중단 조건 | 리포트가 이벤트를 세지 못함 |
@@ -240,21 +240,21 @@ M7 아티클 파이프라인 (T-029~T-034). 저장 → 검색 → 재사용 흐�
 | C5 | Major | eval | Recall@5가 실제로는 Recall@3~5. 실데이터 소수면 자명하게 높음 | P6 | **수정** T-056 (창 10, 좁은 창 경고). 부분집합 분리는 P6 골든셋 작성 때 |
 | A1 | Major | mcp | `suggest_resolution` 답이 인용 제목에 밀려 수십 자로 잘림 | P7, P8 | **수정** T-057 |
 | A2 | Major | 계측 | `give_feedback`이 도그푸딩 리포트에 집계되지 않음 | P7, P8 | **수정** T-058 (`--from-db`) |
-| A3 | Major | mcp/api | 빈 문자열 선택 필드가 엉뚱한 오류로 거부되고 상세가 버려짐 | P7, P8 | T-059. P7 선행 조건 |
+| A3 | Major | mcp/api | 빈 문자열 선택 필드가 엉뚱한 오류로 거부되고 상세가 버려짐 | P7, P8 | **수정** T-059 |
 | A4 | Major | mcp | `/v1/answer` 재시도가 겹쳐 최악 30초·LLM 6회 (지연 미확인) | P4, P7 | **수정** T-057 (재시도 없음, 30초). 실지연은 P6에서 |
-| A5 | Major | api | 없는 recordId 피드백 수용(a). query·note 평문 저장(b) | P6, P8 | (b) **수정** T-052. (a) T-059 |
+| A5 | Major | api | 없는 recordId 피드백 수용(a). query·note 평문 저장(b) | P6, P8 | (b) **수정** T-052. (a) **수정** T-059 (후보 제외, 404는 스펙 결정) |
 | S3 | Major | api | `relations[].note`·피드백 note·태그 마스킹 누락 | P5 | note **수정** T-052. 태그는 T-052 F-1 (스펙 결정 필요) |
 | S6 | Major | generator | 여는 `<chunk` 태그로 인용 위조 | P7, P9 | T-060. 1인 사용 영향 작음, 사내 확장 전 필수 |
 | S7 | Major | generator | 코드 블록은 인용 검사 제외인데 "인용된 기록에만 근거" 머리말 | P7 | T-060 |
 | S8 | Major(미확인) | 배포 | 배포 `.env`에서 `$`가 든 값이 보간돼 바뀜 | P9 | T-061 |
 | C6 | Minor | worker | 영구 실패에도 `attempts` 증가 | — | **수정** T-053 |
 | C7 | Minor | db | 인덱스 drift 검사가 차원만 비교 | P3, P4 | 백로그 (T-053에서 함께 검토) |
-| A6 | Minor | mcp | 기본 검색마다 불필요한 limit 안내문 | P7 | T-059 |
+| A6 | Minor | mcp | 기본 검색마다 불필요한 limit 안내문 | P7 | **수정** T-059 |
 | S9 | Minor | 문서 | 로컬 atlas-local 안전 기동법 없음 | P3 | T-061. P3 전 runbook 우선 |
 | C8 | 개선 | embedder | Voyage `input_type` 미전송 | P4, P6 | **수정** T-053 |
 | C9 | 개선 | 검색 | `lucene.standard`가 한국어 어절을 못 나눔 (T-010 F-6) | P6 | 백로그. P6 결과의 korean-prose 분해를 보고 판단 |
 | U1 | 개선(미확인) | generator | 임계값 0.62의 실측 근거 없음 | P4, P6 | P4 완료 증거 ③ |
-| A7 | 개선 | mcp | `CORE_API_URL=""` 처리, stdio가 전 키 요구 | P3, P7 | T-059 |
+| A7 | 개선 | mcp | `CORE_API_URL=""` 처리, stdio가 전 키 요구 | P3, P7 | URL **수정** T-059. 전 키 요구는 P9 전 (T-059 F-2) |
 | S10 | 개선 | 권한 | 프로젝트 간 읽기 전면 허용, 웹 UI 단일 계정 | P9 | 사내 확장 전 재검토 |
 | S11 | 개선 | CI | `ci.yml` 토큰 권한 미지정 | — | **수정** T-048 |
 
