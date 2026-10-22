@@ -3,6 +3,11 @@ on:
   pull_request:
   push: { branches: [main] }
 
+# 토큰 권한을 읽기로 고정한다 (T-048, P1 보안 리뷰 S11). 없으면 저장소 기본 권한을 받는다.
+# deploy.yml·infra.yml과 같은 규약이다. actions/cache는 이 토큰이 아니라 런타임 토큰을 쓴다.
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest

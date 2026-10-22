@@ -449,6 +449,10 @@ describe("ci.yml: 게이트 사슬 (specs/05 CI 절)", () => {
     expect(verifyBlock).not.toMatch(/\|\|\s*true/);
   });
 
+  it("워크플로 토큰 권한이 읽기로 고정돼 있다 (T-048, P1 보안 리뷰 S11)", () => {
+    expect(ciYml).toMatch(/^permissions:\n {2}contents: read$/m);
+  });
+
   it("PR 에서 돈다 — 머지 전에 판정되지 않으면 게이트가 아니다", () => {
     expect(ciYml).toMatch(/^on:$/m);
     expect(ciYml).toContain("pull_request:");

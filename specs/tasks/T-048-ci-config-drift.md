@@ -17,6 +17,7 @@ M: M6 | deps: T-042, T-046
 - `ci.yml` 더미 env에 `WEB_HTPASSWD_B64` 추가.
 - `tools/workflow-contract.spec.ts`: compose base·prod의 `${VAR:?}` 목록을 **파일에서 계산해**
   더미 env가 전부 덮는지 단언. 손으로 맞춘 목록은 다시 어긋난다.
+- `ci.yml` 최상위에 `permissions: contents: read` (P1 보안 리뷰 S11). 단언 1건 추가.
 - `nightly-eval.yml`: `schedule` 트리거를 주석 처리. `workflow_dispatch`는 유지.
   자격증명이 없으면 건너뛰고 통과시키는 방식은 쓰지 않는다 (UPLIFT Q-3 (b), 가짜 그린).
 
@@ -30,7 +31,8 @@ M: M6 | deps: T-042, T-046
 2. 뮤테이션: `ci.yml`에서 `WEB_HTPASSWD_B64=` 줄을 빼면 새 단언이 `['WEB_HTPASSWD_B64']`로 실패한다.
 3. `ci.yml`의 heredoc을 그대로 꺼내 `docker compose --env-file … config`(base, base+prod)가 종료 코드 0.
 4. `grep -n "^  schedule:" .github/workflows/nightly-eval.yml` → 출력 없음, `workflow_dispatch:` 유지.
-5. `pnpm verify` 그린.
+5. `grep -n '^permissions:' .github/workflows/ci.yml` → 1행.
+6. `pnpm verify` 그린.
 
 ## Context budget
 - 읽기: `.github/workflows/{ci.yml,nightly-eval.yml}`, `tools/workflow-contract.spec.ts`,
