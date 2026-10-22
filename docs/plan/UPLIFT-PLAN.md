@@ -392,6 +392,8 @@ DB를 로컬(atlas-local)에 두어도 아래 경로로 텍스트가 외부 API�
 | | | `docs/troubleshooting/a2a-sdk-1.1.2-protobuf-drift.md` | 41 | 적재 |
 | my-recruit | 개인 GitHub | `docs/troubleshooting/docx-template-render-pipeline.md` | 161 | 적재 |
 
+회사 프로젝트명과 문서 경로는 공개 저장소에 두지 않는다. 실제 대응은 저장소 밖 `../sentinel-kb-private-notes.md`에 있다.
+
 ## 부록 B. 관련 경로
 
 | 이름 | 경로 |
