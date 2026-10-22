@@ -102,8 +102,11 @@ export interface AnswerSentence {
 
 /** 위반 1건. `kind`가 "인용이 없다"와 "지어냈다"를 가른다 — 원인이 다르다. */
 export interface CitationViolation {
-  /** `missing`: 유효 인용이 하나도 없다. `unknown`: 컨텍스트에 없는 ID를 인용했다. */
-  readonly kind: "missing" | "unknown";
+  /**
+   * `missing`: 유효 인용이 하나도 없다. `unknown`: 컨텍스트에 없는 ID를 인용했다.
+   * `ungrounded-code`: 코드 블록이 근거에 묶여 있지 않다 — 바로 앞뒤 문장에 유효 인용이 없고, 블록 내용이 컨텍스트에도 없다 (T-060).
+   */
+  readonly kind: "missing" | "unknown" | "ungrounded-code";
   /** 문장 순번(0부터). `sentences` 배열의 인덱스다. */
   readonly index: number;
   /** 문장 본문. **답변 텍스트이지 청크 본문이 아니다** — NFR-03의 대상이 아니다. */
@@ -165,6 +168,11 @@ export function splitAnswerSentences(text: string): AnswerSentence[] {
 export function verifyAnswerCitations(
   answer: string,
   allowed: readonly string[],
+  /**
+   * 컨텍스트 청크 본문. 주면 코드 블록도 검증한다 (T-060, P1 리뷰 S7). 코드 블록은 주장 문장이 아니라 인용 검사에서
+   * 빠졌는데, 에이전트가 그대로 실행할 수 있는 가장 위험한 부분이다. 주지 않으면 예전처럼 코드 블록을 보지 않는다.
+   */
+  contextTexts?: readonly string[],
 ): CitationVerification {
   const allowedSet = new Set(allowed);
   const sentences = splitAnswerSentences(answer);
@@ -191,6 +199,14 @@ export function verifyAnswerCitations(
     }
     citedClaimCount += 1;
   });
+
+  if (contextTexts !== undefined) {
+    for (const index of ungroundedCodeIndexes(sentences, allowedSet, contextTexts)) {
+      const sentence = sentences[index];
+      if (sentence === undefined) continue;
+      violations.push({ kind: "ungrounded-code", index, text: sentence.text, citations: [] });
+    }
+  }
 
   return {
     ok: claimCount > 0 && violations.length === 0,
@@ -243,6 +259,58 @@ export function stripUngroundedSentences(
 }
 
 // ─────────────────────────────────────────────────────────────── 내부 구현
+
+function normalizeCode(text: string): string {
+  return text.replace(/\s+/gu, " ").trim();
+}
+
+/**
+ * 근거 없는 코드 블록의 문장 인덱스(펜스 줄 포함). 블록은 다음 중 하나면 근거가 있다:
+ * - 블록 바로 앞(또는 뒤)의 비어 있지 않은 문장이 허용된 인용만 갖고 하나 이상 갖는다 — "이 명령으로 고쳤다 [REC-…]" 형태.
+ * - 블록 본문(펜스 줄 제외)이 공백 정규화 뒤 컨텍스트 청크 어딘가에 그대로 있다 — 기록의 명령을 옮겨 적은 경우.
+ */
+function ungroundedCodeIndexes(
+  sentences: readonly AnswerSentence[],
+  allowedSet: ReadonlySet<string>,
+  contextTexts: readonly string[],
+): number[] {
+  const context = contextTexts.map(normalizeCode);
+  const citedOk = (sentence: AnswerSentence | undefined): boolean =>
+    sentence !== undefined &&
+    sentence.citations.length > 0 &&
+    sentence.citations.every((citation) => allowedSet.has(citation));
+  const neighbor = (from: number, step: 1 | -1): AnswerSentence | undefined => {
+    for (let i = from; i >= 0 && i < sentences.length; i += step) {
+      const candidate = sentences[i];
+      if (candidate !== undefined && candidate.nonClaimReason !== NON_CLAIM_REASONS.BLANK) return candidate;
+    }
+    return undefined;
+  };
+
+  const out: number[] = [];
+  let i = 0;
+  while (i < sentences.length) {
+    if (sentences[i]?.nonClaimReason !== NON_CLAIM_REASONS.CODE) {
+      i += 1;
+      continue;
+    }
+    const start = i;
+    while (i < sentences.length && sentences[i]?.nonClaimReason === NON_CLAIM_REASONS.CODE) i += 1;
+    const block = sentences.slice(start, i);
+    const body = normalizeCode(
+      block
+        .map((sentence) => sentence.raw)
+        .filter((raw) => !isFenceLine(raw))
+        .join("\n"),
+    );
+    const grounded =
+      citedOk(neighbor(start - 1, -1)) ||
+      citedOk(neighbor(i, 1)) ||
+      (body !== "" && context.some((text) => text.includes(body)));
+    if (!grounded) for (let k = start; k < i; k += 1) out.push(k);
+  }
+  return out;
+}
 
 /** 줄 끝 문자를 붙인 채로 자른다. 이어 붙이면 원문이다. */
 function splitLines(text: string): string[] {

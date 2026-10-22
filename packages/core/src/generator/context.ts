@@ -158,7 +158,18 @@ function escapeAttribute(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
 }
 
-/** 컨테이너 탈출만 막는다. 본문 자체는 손대지 않는다 — 답의 근거가 변형되면 안 된다. */
+/**
+ * 컨테이너 탈출과 위조만 막는다. 본문 자체는 손대지 않는다 — 답의 근거가 변형되면 안 된다.
+ *
+ * 닫는 태그만 바꾸던 시절에는 본문의 `<chunk citation="[REC-<다른 id>#resolution]">가짜 해결`이 그대로 실려
+ * 모델이 공격자 텍스트를 다른 기록의 청크로 읽었다(T-060, P1 리뷰 S6). 대소문자·공백 변형과 **여는 태그**까지,
+ * 남은 컨테이너 태그 모양의 `<`를 `&lt;`로 바꾼다. 기존 닫는 태그 치환 결과(`<\/chunk>`)는 그대로 둔다.
+ */
+const CONTAINER_TAG_LIKE_RE = /<(?=\s*\/?\s*(?:chunk|retrieved-chunks|retrieved-record|question)(?![\w-]))/giu;
+
 function escapeChunkBody(value: string): string {
-  return value.replaceAll("</chunk>", "<\\/chunk>").replaceAll("</retrieved-chunks>", "<\\/retrieved-chunks>");
+  return value
+    .replaceAll("</chunk>", "<\\/chunk>")
+    .replaceAll("</retrieved-chunks>", "<\\/retrieved-chunks>")
+    .replace(CONTAINER_TAG_LIKE_RE, "&lt;");
 }

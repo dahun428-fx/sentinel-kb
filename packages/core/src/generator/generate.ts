@@ -163,7 +163,8 @@ export async function generateAnswer(options: GenerateOptions): Promise<Generate
 
   const first = await complete(model, system, [{ role: "user", content: userMessage }], config);
   let answer = first.text;
-  let verification = verifyAnswerCitations(answer, allowed);
+  const contextTexts = context.chunks.map((chunk) => chunk.text);
+  let verification = verifyAnswerCitations(answer, allowed, contextTexts);
 
   /*
    * 4. **위반 시 1회 재생성**(specs/03 §5). 직전 답변을 대화에 되싣고 무엇이 틀렸는지 알려
@@ -185,7 +186,7 @@ export async function generateAnswer(options: GenerateOptions): Promise<Generate
       config,
     );
     answer = retry.text;
-    verification = verifyAnswerCitations(answer, allowed);
+    verification = verifyAnswerCitations(answer, allowed, contextTexts);
   }
 
   const base = {
@@ -274,6 +275,9 @@ function regenerationInstruction(
 ): string {
   const missing = verification.violations.filter((v) => v.kind === "missing").length;
   const unknown = verification.violations.filter((v) => v.kind === "unknown").length;
+  const code = new Set(
+    verification.violations.filter((v) => v.kind === "ungrounded-code").map((v) => v.index),
+  ).size;
   return [
     "직전 답변이 인용 규칙(시스템 프롬프트 조항 2)을 어겼다. 다시 써라.",
     `- 인용이 없는 주장 문장: ${String(missing)}건`,
@@ -281,6 +285,11 @@ function regenerationInstruction(
       (verification.unknownCitations.length > 0
         ? ` (${verification.unknownCitations.join(", ")})`
         : ""),
+    ...(code > 0
+      ? [
+          `- 근거에 묶이지 않은 코드 블록 줄: ${String(code)}건. 명령·코드는 기록에 있는 것만 옮기고, 바로 앞 문장에 그 인용을 붙여라.`,
+        ]
+      : []),
     "사용할 수 있는 인용은 아래가 전부다. 그대로 복사해 쓰고, 여기 없는 ID는 만들지 마라.",
     allowed.join("\n"),
     "모든 주장 문장은 이 중 하나 이상의 인용으로 끝나야 한다. " +

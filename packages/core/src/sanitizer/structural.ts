@@ -61,7 +61,14 @@ const ROLE_FRAME_RE = /<\/?system\s*>/iu;
  */
 export const EMITTED_CONTAINER_TAGS = ["chunk", "retrieved-chunks", "retrieved-record"] as const;
 
-const CONTAINER_ESCAPE_RE = new RegExp(`</(?:${EMITTED_CONTAINER_TAGS.join("|")})\\s*>`, "iu");
+/**
+ * 닫는 태그(탈출)와 **여는 태그(위조)**를 모두 잡는다. 여는 `<chunk citation="…">`는 다른 기록의 청크를 사칭해
+ * 인용 검증(허용 집합 대조)을 통과한다(T-060, P1 리뷰 S6). `<question>`은 사용자 질의 프레임이다.
+ */
+const CONTAINER_ESCAPE_RE = new RegExp(
+  `<\\s*/?\\s*(?:${[...EMITTED_CONTAINER_TAGS, "question"].join("|")})(?![\\w-])[^>]{0,200}>`,
+  "iu",
+);
 
 /**
  * 단어 경계. **로케일을 `"en"`으로 고정한다** — 기본 로케일을 쓰면 개발자 셸의

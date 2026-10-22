@@ -29,4 +29,18 @@ M: M4 | deps: T-020,T-040
 ## 처리 메모
 - 1인 사용(P7·P8)에서는 공격자가 본인뿐이라 영향이 작다. **사내 확장(P9) 전 필수.**
 
-STATUS: TODO
+## 결과 (2026-10-22)
+
+- **S6**: `escapeChunkBody`가 대소문자·공백 변형과 여는 태그(`<chunk`, `<retrieved-…`, `<question`)의 `<`를 `&lt;`로 바꾼다
+  (기존 닫는 태그 치환 결과는 유지). `struct-container-escape`가 여는 태그와 `<question>`도 잡는다.
+- **S7**: `verifyAnswerCitations(answer, allowed, contextTexts)` — 코드 블록이 앞뒤 문장의 유효 인용이나 컨텍스트 원문으로
+  뒷받침되지 않으면 `ungrounded-code` 위반. 재생성 지시문에 건수를 싣고, 재차 위반이면 기존 제거 경로로 블록째 빠진다.
+  세 번째 인자를 주지 않으면 이전 동작(eval 러너 호환). MCP 머리말은 T-057에서 "명령·코드는 get_record로 확인"으로 바꿨다.
+- **하지 않은 것**: `curl … | sh` 구조 플래그. Docker 설치처럼 정상 기록에도 흔한 명령이라, 그런 기록이 `injection-suspect`로
+  생성 문맥에서 빠지는 오탐이 생긴다. 답변 쪽은 코드 블록 근거 검증이 막는다 (Findings F-1).
+- 테스트 9건. 두 방어를 되돌리면 2건 실패. `pnpm eval:injection`은 실 키가 없어 돌리지 못했다 — P6에서 회귀 확인.
+
+## Findings
+- **F-1** 레코드 본문 자체의 위험 명령 표시는 별도 판단이 필요하다(오탐 비용이 크다). P9(사내 확장) 전에 다시 본다.
+
+STATUS: GREEN
