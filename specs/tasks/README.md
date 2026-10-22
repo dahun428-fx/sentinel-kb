@@ -52,6 +52,7 @@ Acceptance는 **전부 명령어로 판정 가능**해야 한다. 판정 불가�
 | T-045 | 부하 하 간헐 실패 봉합 (testTimeout + 벽시계 단언) | M7 | - |
 | T-046 | CI 배선 복구 + 파생 문서 재동기화 | M6 | - |
 | T-047 | 문서 리뷰 반영 — 진입점 연결 + 해소된 차단 사유 정정 | - | - |
+| T-048 | CI deploy-config 더미 env 누락 수정 + nightly 스케줄 일시 중지 | M6 | T-042,T-046 |
 
 ## 백로그 추가 이력
 
@@ -115,3 +116,8 @@ Acceptance는 **전부 명령어로 판정 가능**해야 한다. 판정 불가�
   다음 작업자를 잘못된 선행 조건으로 보낸다**(`seedBatch`, PR 스택, SRS CON-02). 문서만 바꾸고
   코드·테스트는 건드리지 않는다. 같은 해소 전 내용이 런타임 경고 문구와 그 단언에도 있어
   (`eval/retrieval/golden-set.ts` `goldenSetWarnings`) T-047 Findings F-1로 후속 분리했다.
+
+- **T-048 (2026-10-21 push 후 Actions 결과에서 확정)** — T-042가 compose에 필수 변수를 더했는데
+  `ci.yml` 더미 env가 따라오지 않아 main의 `deploy-config`가 빨개졌다(UPLIFT F-1). 고치는 김에
+  더미 env 목록을 compose 파일에서 계산해 대조하는 단언을 붙였다. 같은 PR에서 시크릿 없이 매일
+  실패하던 `nightly-eval` 스케줄을 P4까지 끈다(UPLIFT Q-3).

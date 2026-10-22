@@ -464,6 +464,44 @@ describe("ci.yml: 게이트 사슬 (specs/05 CI 절)", () => {
   });
 });
 
+// ================================================= ci.yml — deploy-config 더미 env
+
+describe("ci.yml: deploy-config 더미 env 가 compose 필수 변수를 전부 덮는다 (T-048)", () => {
+  /**
+   * T-042 가 `docker-compose.yml` 에 `WEB_HTPASSWD_B64:?` 를 넣었는데 이 잡의 더미 env 에는
+   * 추가되지 않았다. 그래서 `compose config` 가 해소에 실패해 main 의 deploy-config 가
+   * 빨개졌다(UPLIFT F-1). compose-contract.int.spec.ts 는 자기 fixture 를 따로 들고 있어
+   * 이 누락을 보지 못했다 — 두 목록이 같은 소스를 보지 않았기 때문이다.
+   *
+   * 그래서 목록을 손으로 맞추지 않고 compose 파일에서 **계산한다.** `:?` 변수가 새로
+   * 생기면 이 테스트가 먼저 빨개진다.
+   */
+  const composeFiles = ["docker-compose.yml", "docker-compose.prod.yml"];
+  const required = new Set(
+    composeFiles.flatMap((file) =>
+      [...read(file).matchAll(/\$\{([A-Z0-9_]+):\?/g)].map((match) => match[1] ?? ""),
+    ),
+  );
+  const heredoc = /cat > \/tmp\/ci\.env <<'ENV'\n([\s\S]*?)\n\s*ENV\n/.exec(ciYml)?.[1] ?? "";
+  const provided = new Set(
+    heredoc
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("#"))
+      .map((line) => line.split("=")[0] ?? ""),
+  );
+
+  it("파싱 회귀 방지 — 양쪽 목록을 실제로 읽어냈다", () => {
+    expect(required.size).toBeGreaterThanOrEqual(10);
+    expect(provided.size).toBeGreaterThanOrEqual(10);
+  });
+
+  it("compose 의 모든 `${VAR:?}` 가 더미 env 에 있다", () => {
+    const missing = [...required].filter((name) => !provided.has(name)).sort();
+    expect(missing, "deploy-config 의 /tmp/ci.env 에 없는 compose 필수 변수").toEqual([]);
+  });
+});
+
 // ================================================= pnpm test:e2e
 
 describe("`pnpm test:e2e` (T-046 Acceptance 3)", () => {

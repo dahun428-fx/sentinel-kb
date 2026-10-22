@@ -88,6 +88,8 @@ jobs:
           IMAGE_TAG=ci
           DOMAIN_NAME=kb.example.com
           CERTBOT_EMAIL=ops@example.com
+          # base64("ci:{SHA}not-a-real-hash\n"). T-042가 compose에 필수로 넣은 값 (T-048).
+          WEB_HTPASSWD_B64=Y2k6e1NIQX1ub3QtYS1yZWFsLWhhc2gK
           ENV
           docker compose --env-file /tmp/ci.env -f docker-compose.yml config >/dev/null
           docker compose --env-file /tmp/ci.env \
