@@ -36,6 +36,11 @@ export const MASK_KINDS = [
   "bearer-token",
   "api-key",
   "db-credentials",
+  // T-051 (P1 보안 리뷰 S1): 아래 넷은 그 전까지 평문으로 저장·전송되던 종류다.
+  "url-credentials",
+  "private-key",
+  "jwt",
+  "credential",
   "email",
 ] as const;
 
@@ -332,8 +337,16 @@ function findUserinfoEnd(subject: string, authorityStart: number): number {
   return findBoundaryIn(subject, authorityStart, colon >= 0 ? colon : spanEnd, spanEnd);
 }
 
-/** `mongodb://` · `mongodb+srv://` 스킴. 여기서 authority가 시작한다. */
-const MONGO_SCHEME_RE = /\bmongodb(?:\+srv)?:\/\//gi;
+/**
+ * DB 접속 URI 스킴. 여기서 authority가 시작한다.
+ *
+ * 처음에는 `mongodb://` · `mongodb+srv://`만 봤다. 트러블슈팅 로그에는 postgres·mysql·redis·
+ * amqp URI도 같은 모양(`scheme://user:pass@host`)으로 찍히는데 전부 평문으로 남았다
+ * (T-051, P1 보안 리뷰 S1). URI 문법이 같으므로 경계 판정(위 `findUserinfoEnd`)을 그대로 쓴다.
+ * `postgresql+psycopg2://`처럼 드라이버 접미사가 붙은 SQLAlchemy 표기도 받는다.
+ */
+const MONGO_SCHEME_RE =
+  /\b(?:mongodb|postgres(?:ql)?|mysql|mariadb|rediss?|amqps?|mssql|sqlserver)(?:\+[a-z0-9]{1,16})?:\/\//gi;
 
 const collectMongoCredentials: MaskRule = (probe) => {
   const segments: MaskSegment[] = [];
@@ -411,7 +424,7 @@ const collectBearerToken: MaskRule = (probe) => {
  * `[A-Za-z0-9_.-]*api...`처럼 앞을 소비하게 쓰면 영숫자 런 100KB에서 시작 위치마다
  * 끝까지 훑어 O(n²)가 된다(실측 1.4초). 고정 문자열 `api`를 매치 시작점으로 두면 선형이다.
  */
-const ANCHORED_API_KEY_RE = /(?<![A-Za-z0-9])(api[_-]?key\s*[:=]\s*["'`]?)([^\s"'`,;]{4,512})/gi;
+const ANCHORED_API_KEY_RE = /(?<![A-Za-z0-9])(api[_-]?keys?\s*[:=]\s*["'`]?)([^\s"'`,;]{4,512})/gi;
 
 const collectAnchoredApiKey: MaskRule = (probe) => {
   const segments: MaskSegment[] = [];
@@ -541,6 +554,156 @@ const collectEmail: MaskRule = (probe) => {
   return segments;
 };
 
+// ---------------------------------------------------------------------------
+// T-051: P1 보안 리뷰 S1에서 실측된 평문 통과 경로
+//
+// 모든 반복에 상한을 둔다. 상한 없는 반복이 고정 문자열 앞에 오면 긴 런에서 O(n²)가 된다
+// (위 ANCHORED_API_KEY_RE 주석, sanitize.property.spec.ts의 선형성 단언).
+// ---------------------------------------------------------------------------
+
+/**
+ * 웹·파일 전송 URL의 `user:pass@`. DB 스킴과 달리 **비밀번호가 있을 때만** 지운다.
+ * `https://git@host`·`https://unpkg.com/react@18.3.1/…`처럼 `@`가 사용자명이나 경로에 쓰이는
+ * 경우가 흔하기 때문이다. userinfo에 `/`·`?`·`#`이 있으면 URL 경로의 `@`로 보고 건너뛴다
+ * (`https://host:8080/pkg/@scope/x`의 `8080/pkg/`를 비밀번호로 오인하지 않게).
+ */
+const URL_CREDENTIALS_RE =
+  /\b(?:https?|ftps?|sftp|smtps?|ldaps?|git\+https?):\/\/([^\s/?#@:]{1,128}):([^\s/?#@]{1,256})@(?=[A-Za-z0-9[])/gi;
+
+const collectUrlCredentials: MaskRule = (probe) => {
+  const segments: MaskSegment[] = [];
+  for (const match of probe.matchAll(URL_CREDENTIALS_RE)) {
+    const whole = match[0];
+    const user = match[1];
+    const pass = match[2];
+    if (whole === undefined || user === undefined || pass === undefined) continue;
+    if (isPlaceholder(pass)) continue;
+
+    const start = matchIndex(match) + whole.indexOf("//") + 2;
+    segments.push({ start, end: start + user.length + 1 + pass.length, kind: "url-credentials" });
+  }
+  return segments;
+};
+
+/**
+ * PEM 개인키 블록. 시작 줄부터 base64 본문, 있으면 끝 줄까지 지운다.
+ *
+ * 끝 줄을 요구하지 않는다 — 로그에 잘려 붙은 키도 본문은 유출이다. 줄 구분은 실제 개행과
+ * JSON·.env 안의 이스케이프 표기(`\n`) 둘 다 받는다. 본문 문자 집합에 `\`가 없어서
+ * 두 갈래가 겹치지 않는다.
+ */
+const PRIVATE_KEY_RE =
+  /-----BEGIN (?:[A-Z0-9]{1,16} ){0,3}PRIVATE KEY-----(?:(?:\\[rn]|[\r\n \t]){1,8}[A-Za-z0-9+/=:,-]{1,128}){0,400}(?:(?:\\[rn]|[\r\n \t]){1,8}-----END (?:[A-Z0-9]{1,16} ){0,3}PRIVATE KEY-----)?/g;
+
+const collectPrivateKey: MaskRule = (probe) => {
+  const segments: MaskSegment[] = [];
+  for (const match of probe.matchAll(PRIVATE_KEY_RE)) {
+    const whole = match[0];
+    if (whole === undefined) continue;
+    const start = matchIndex(match);
+    segments.push({ start, end: start + whole.length, kind: "private-key" });
+  }
+  return segments;
+};
+
+/**
+ * 앵커 없이 떠 있는 JWT. `Bearer` 뒤의 토큰은 bearer 규칙이 먼저 잡는다.
+ * 헤더가 base64url로 `{"`를 인코딩한 `eyJ`로 시작하고, 점 두 개로 세 부분이 나뉜다.
+ */
+const JWT_RE = /\beyJ[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,8192}\.[A-Za-z0-9_-]{8,2048}/g;
+
+const collectJwt: MaskRule = (probe) => {
+  const segments: MaskSegment[] = [];
+  for (const match of probe.matchAll(JWT_RE)) {
+    const whole = match[0];
+    if (whole === undefined) continue;
+    const start = matchIndex(match);
+    segments.push({ start, end: start + whole.length, kind: "jwt" });
+  }
+  return segments;
+};
+
+/**
+ * 발급처 접두사가 있는 토큰. 접두사와 길이가 발급 형식이라 앵커 없이 잡아도 오탐이 드물다.
+ * GitHub(`ghp_`·`gho_`·`ghu_`·`ghs_`·`ghr_`·`github_pat_`), GitLab(`glpat-`), Slack(`xox?-`),
+ * Google(`AIza`), Stripe(`sk_live_`·`rk_live_`·`_test_`), npm(`npm_`).
+ */
+const VENDOR_TOKEN_RE =
+  /(?<![A-Za-z0-9_-])(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{22,255}|glpat-[A-Za-z0-9_-]{20,255}|xox[abprs]-[A-Za-z0-9-]{10,255}|AIza[0-9A-Za-z_-]{35}|[sr]k_(?:live|test)_[0-9A-Za-z]{16,255}|npm_[A-Za-z0-9]{36,255})(?![A-Za-z0-9_-])/g;
+
+const collectVendorToken: MaskRule = (probe) => {
+  const segments: MaskSegment[] = [];
+  for (const match of probe.matchAll(VENDOR_TOKEN_RE)) {
+    const whole = match[0];
+    if (whole === undefined) continue;
+    const start = matchIndex(match);
+    segments.push({ start, end: start + whole.length, kind: "api-key" });
+  }
+  return segments;
+};
+
+/**
+ * 이름이 자격증명임을 말하는 설정 줄. `DB_PASSWORD=…`, `JWT_SECRET: …`, `GITHUB_TOKEN=…`.
+ *
+ * API 키 규칙과 같은 원리다: 키 이름보다 강한 문맥 증거는 없으므로 값의 모양을 따지지 않는다.
+ * 앞 글자가 영숫자면 매치하지 않는다(`MYPASSWORD`는 놓치고 `DB_PASSWORD`는 잡는다).
+ * 접두사를 소비하지 않는 이유는 ANCHORED_API_KEY_RE 주석과 같다.
+ * `/etc/passwd: …` 같은 경로는 앞 글자 `/`로 거른다. `max_tokens`·`token_type`처럼
+ * 키워드 뒤에 다른 글자가 이어지면 `:`/`=`가 바로 오지 않아 걸리지 않는다.
+ */
+const ANCHORED_CREDENTIAL_RE =
+  /(?<![A-Za-z0-9/.])((?:password|passwd|secret|token|private[_-]?key|credentials?)\s{0,8}[:=]\s{0,8}["'`]?)([^\s"'`,;]{4,512})/gi;
+/** camelCase 설정 키(`dbPassword:`, `clientSecret=`). 앞 글자가 소문자·숫자인 경우만. */
+const CAMEL_CREDENTIAL_RE =
+  /(?<=[a-z0-9])((?:Password|Passwd|Secret|Token|PrivateKey|Credentials?)\s{0,8}[:=]\s{0,8}["'`]?)([^\s"'`,;]{4,512})/g;
+
+function collectAnchored(re: RegExp, probe: string, kind: MaskKind): MaskSegment[] {
+  const segments: MaskSegment[] = [];
+  for (const match of probe.matchAll(re)) {
+    const anchor = match[1];
+    const value = match[2];
+    if (anchor === undefined || value === undefined) continue;
+    if (isPlaceholder(value)) continue;
+
+    const start = matchIndex(match) + anchor.length;
+    segments.push({ start, end: start + value.length, kind });
+  }
+  return segments;
+}
+
+const collectAnchoredCredential: MaskRule = (probe) => [
+  ...collectAnchored(ANCHORED_CREDENTIAL_RE, probe, "credential"),
+  ...collectAnchored(CAMEL_CREDENTIAL_RE, probe, "credential"),
+];
+
+/**
+ * 한국어 문장 속 자격증명. `비밀번호는 hunter2Secret 입니다`.
+ *
+ * 값은 **ASCII이고 숫자나 기호를 하나 이상** 포함해야 한다. 그래야 `비밀번호 변경`,
+ * `토큰 만료로`, `암호화` 같은 평문이 걸리지 않는다. 숫자·기호가 없는 영단어 비밀번호는
+ * 놓친다 — 이 규칙의 알려진 한계다.
+ */
+const KOREAN_CREDENTIAL_RE =
+  /((?:비밀번호|패스워드|암호|토큰|시크릿)[ \t]{0,4}(?:은|는|이|가|:|=)?[ \t]{0,4}["'`]?)((?=[!-~]{0,127}[0-9!@#$%^&*()+=?~])[!-~]{4,128})(?![!-~])/g;
+
+const collectKoreanCredential: MaskRule = (probe) =>
+  collectAnchored(KOREAN_CREDENTIAL_RE, probe, "credential").map((segment) => {
+    // 값 뒤에 붙은 문장부호(`hunter2Secret.`)는 남긴다.
+    const value = probe.slice(segment.start, segment.end);
+    const trimmed = value.replace(/[.,)\]]+$/, "");
+    return { ...segment, end: segment.start + trimmed.length };
+  });
+
+/** `Authorization: Basic <base64>` — base64 안은 `user:pass` 평문이다. */
+const BASIC_AUTH_RE = /(Authorization\s{0,8}:\s{0,8}Basic[ \t]{1,8})([A-Za-z0-9+/]{4,1024}={0,2})/gi;
+/** `curl -u user:pass` — 비밀번호 부분만 지운다. 사용자명은 진단 정보다. */
+const CURL_USER_RE = /(?<![\w-])((?:-u|--user)[ \t]{1,8}["']?[^\s:"']{1,128}:)([^\s"']{1,256})/g;
+
+const collectBasicCredential: MaskRule = (probe) => [
+  ...collectAnchored(BASIC_AUTH_RE, probe, "credential"),
+  ...collectAnchored(CURL_USER_RE, probe, "credential"),
+];
+
 /**
  * 규칙 적용 순서. 더 구체적인 규칙이 먼저 와야 라벨이 정확해진다.
  * 예: `Bearer sk-ant-...`는 bearer 규칙이 먼저 잡아 `bearer-token`으로 표시된다.
@@ -548,12 +711,19 @@ const collectEmail: MaskRule = (probe) => {
  * 먼저 온 규칙의 구간과 겹치는 뒤 규칙의 구간은 버려진다.
  */
 const MASK_RULES: readonly MaskRule[] = [
+  collectPrivateKey,
   collectMongoCredentials,
+  collectUrlCredentials,
   collectBearerToken,
+  collectBasicCredential,
   collectAnchoredApiKey,
+  collectVendorToken,
   collectBareApiKey,
+  collectJwt,
   collectAwsAccessKey,
   collectAnchoredAwsSecretKey,
+  collectAnchoredCredential,
+  collectKoreanCredential,
   collectStandaloneAwsSecretKey,
 ];
 
@@ -632,18 +802,21 @@ export function applyMasking(text: string, maskEmailEnabled: boolean): MaskingRe
     cursor = edit.end;
   }
 
-  // 4. 뒤에서 앞으로 치환해 오프셋이 밀리지 않게 한다.
+  // 4. 앞에서부터 조각을 모아 한 번에 잇는다. 구간이 겹치지 않고 정렬돼 있어 오프셋이 밀리지 않는다.
+  //    예전에는 뒤에서부터 치환할 때마다 문자열 전체를 복사해 치환 수 × 길이가 들었다
+  //    (64K 입력에 짧은 시크릿이 수천 개면 수백 ms, T-051 실측).
   const hits = new Set<MaskKind>();
-  let out = text;
-  for (let i = disjoint.length - 1; i >= 0; i -= 1) {
-    const edit = disjoint[i];
-    if (edit === undefined) continue;
-    out = `${out.slice(0, edit.start)}${maskLabel(edit.kind)}${out.slice(edit.end)}`;
+  const parts: string[] = [];
+  let from = 0;
+  for (const edit of disjoint) {
+    parts.push(text.slice(from, edit.start), maskLabel(edit.kind));
+    from = edit.end;
     hits.add(edit.kind);
   }
+  parts.push(text.slice(from));
 
   return {
-    text: out,
+    text: parts.join(""),
     masked: MASK_KINDS.filter((kind) => hits.has(kind)),
   };
 }
