@@ -163,6 +163,26 @@ export function oneLine(text: string): string {
   return text.replace(/\s+/gu, " ").trim();
 }
 
+/**
+ * 줄 구조는 살리고 공백만 정리한다 (T-057, P1 리뷰 A1). 답변의 번호 절차와 여러 줄 명령을 한 줄로 접으면
+ * 에이전트가 단계를 구분하지 못한다. 줄 안의 연속 공백, 줄 끝 공백, 연속된 빈 줄만 접는다.
+ */
+export function tidyLines(text: string): string {
+  return text
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[^\S\n]+/gu, " ").trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
+}
+
+/** 인용 머리줄(`citationMetaLine`)과 같은 모양의 줄. */
+const CITATION_LINE_LIKE = /^\s*\d+ [0-9a-f]{24} #/u;
+
+/** 답변 렌더에서 인용 제목 하나가 받을 수 있는 상한(추정 토큰). 나머지는 전부 답변 몫이다. */
+const ANSWER_TITLE_CAP_TOKENS = 16;
+
 /** 앞에서 `maxChars` **코드포인트**만 남긴다. `String.slice`는 이모지를 반토막 낸다. */
 function sliceCodePoints(text: string, maxChars: number): string {
   const chars = Array.from(text);
@@ -395,7 +415,12 @@ export function renderAnswer(
   citations: readonly AnswerCitationLike[],
   budgetTokens: number = MCP_SEARCH_TOKEN_BUDGET,
 ): string {
-  const prose = oneLine(answer);
+  // 줄은 살리되, 인용 머리줄(`1 <recordId> #섹션`)처럼 생긴 줄은 인용으로 읽히지 않게 앞에 `> `를 붙인다.
+  // 한 줄로 접던 시절에는 `oneLine`이 이 위조를 막았다(format.spec "목록 구조 위조 차단").
+  const prose = tidyLines(answer)
+    .split("\n")
+    .map((line) => (CITATION_LINE_LIKE.test(line) ? `> ${line}` : line))
+    .join("\n");
   const metas = citations.map((citation, index) => citationMetaLine(citation, index + 1));
   const titles = citations.map((citation) =>
     sliceCodePoints(oneLine(citation.title), TITLE_MAX_CHARS),
@@ -404,9 +429,19 @@ export function renderAnswer(
   const fixedCost = metas.reduce((sum, meta) => sum + estimateTokens(`${meta}\n`).high, 0);
 
   const build = (proseBudget: number): string => {
-    // 답변이 먼저 요구량을 채우고, 남은 몫이 제목으로 흘러간다(waterFill의 잔여 재배분).
-    const demands = [estimateTokens(prose).high, ...titles.map((t) => estimateTokens(t).high)];
-    const [answerBudget = 0, ...titleBudgets] = waterFill(demands, proseBudget);
+    // **답변이 먼저다** (T-057, P1 리뷰 A1). 예전에는 답변과 제목을 한 번에 waterFill했는데, waterFill은 작은
+    // 요구부터 채우므로 늘 가장 큰 답변이 마지막에 남은 몫만 받았다 — 인용 5개면 1,410자 답변이 31자로 잘렸다.
+    // 제목에는 개당 상한만큼만 떼어 두고 나머지를 답변에 준 뒤, 답변이 남긴 몫을 제목이 나눈다.
+    const titleDemands = titles.map((t) => estimateTokens(t).high);
+    const titleReserve = titleDemands.reduce(
+      (sum, demand) => sum + Math.min(demand, ANSWER_TITLE_CAP_TOKENS),
+      0,
+    );
+    const answerBudget = Math.min(
+      estimateTokens(prose).high,
+      Math.max(0, proseBudget - titleReserve),
+    );
+    const titleBudgets = waterFill(titleDemands, Math.max(0, proseBudget - answerBudget));
     const blocks = citations.map((_, index) =>
       [metas[index] ?? "", truncateToTokens(titles[index] ?? "", titleBudgets[index] ?? 0)]
         .filter((line) => line.length > 0)

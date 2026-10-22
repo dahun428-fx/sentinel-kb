@@ -238,10 +238,10 @@ M7 아티클 파이프라인 (T-029~T-034). 저장 → 검색 → 재사용 흐�
 | C3 | Major | worker | 429에 10초 만에 `dead`. `failed`/`dead` 재투입 경로 없음 | P4~P6 | **수정** T-054 (Retry-After, requeue CLI, 기동 시 키 확인) |
 | C4 | Major | api/worker | 제목·상태 변경이 청크에 반영 안 됨. draft로 되돌려도 검색됨 | P5, P8 | **수정** T-055 |
 | C5 | Major | eval | Recall@5가 실제로는 Recall@3~5. 실데이터 소수면 자명하게 높음 | P6 | **수정** T-056 (창 10, 좁은 창 경고). 부분집합 분리는 P6 골든셋 작성 때 |
-| A1 | Major | mcp | `suggest_resolution` 답이 인용 제목에 밀려 수십 자로 잘림 | P7, P8 | T-057. P7 전 처리, 그 전엔 `search_knowledge`+`get_record` |
+| A1 | Major | mcp | `suggest_resolution` 답이 인용 제목에 밀려 수십 자로 잘림 | P7, P8 | **수정** T-057 |
 | A2 | Major | 계측 | `give_feedback`이 도그푸딩 리포트에 집계되지 않음 | P7, P8 | T-058. P7 선행 조건 |
 | A3 | Major | mcp/api | 빈 문자열 선택 필드가 엉뚱한 오류로 거부되고 상세가 버려짐 | P7, P8 | T-059. P7 선행 조건 |
-| A4 | Major | mcp | `/v1/answer` 재시도가 겹쳐 최악 30초·LLM 6회 (지연 미확인) | P4, P7 | T-057 |
+| A4 | Major | mcp | `/v1/answer` 재시도가 겹쳐 최악 30초·LLM 6회 (지연 미확인) | P4, P7 | **수정** T-057 (재시도 없음, 30초). 실지연은 P6에서 |
 | A5 | Major | api | 없는 recordId 피드백 수용(a). query·note 평문 저장(b) | P6, P8 | (b) **수정** T-052. (a) T-059 |
 | S3 | Major | api | `relations[].note`·피드백 note·태그 마스킹 누락 | P5 | note **수정** T-052. 태그는 T-052 F-1 (스펙 결정 필요) |
 | S6 | Major | generator | 여는 `<chunk` 태그로 인용 위조 | P7, P9 | T-060. 1인 사용 영향 작음, 사내 확장 전 필수 |

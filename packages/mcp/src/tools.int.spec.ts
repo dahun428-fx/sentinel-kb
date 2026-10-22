@@ -649,6 +649,15 @@ describe("suggest_resolution — /v1/answer 기반 (T-019)", () => {
    * `/v1/search`를 덧붙여 부르면 같은 질의로 검색이 두 번 나가고(NFR-01), 두 결과가 어긋날 때
    * 어느 쪽이 인용의 진실인지 알 수 없다. 도구가 자체 게이트를 만들려면 대개 여기부터 깨진다.
    */
+  it("/v1/answer가 5xx여도 재시도하지 않는다 — 비싼 생성 파이프라인을 겹쳐 돌리지 않는다 (T-057, P1 리뷰 A4)", async () => {
+    routes.set("POST /v1/answer", { status: 500, body: { error: { code: "INTERNAL_ERROR", message: "x" } } });
+
+    const { text } = await callTool("suggest_resolution", { errorText: "SSE가 30초에 끊긴다" });
+
+    expect(calls.filter((call) => call.path === "/v1/answer")).toHaveLength(1);
+    expect(text).toContain("INTERNAL_ERROR");
+  });
+
   it("core-api로 나가는 것은 POST /v1/answer 하나뿐이다", async () => {
     routes.set("POST /v1/answer", { status: 200, body: answerFound() });
 
@@ -706,12 +715,10 @@ describe("suggest_resolution — /v1/answer 기반 (T-019)", () => {
 
     const { text } = await callTool("suggest_resolution", { errorText: "SSE가 30초에 끊긴다" });
 
+    // T-057에서 예산을 줄이려고 짧게 고쳤다(추정 388 → 197토큰). 검사 대상은 문구가 아니라 "그 밖의 문장이 없다"이다.
     const GUIDANCE = [
-      "found: true (아래 답변은 인용된 기록에만 근거한다)",
-      "위 답변의 각 주장에는 `[REC-<recordId>#<섹션>]` 인용이 붙어 있고, 그 아래가 인용된 기록 목록이다. " +
-        "적용하기 전에 근거를 확인하려면 recordId로 get_record를 불러 전문을 읽어라. " +
-        "해결에 도움이 됐는지는 give_feedback으로 알려주고, 답이 맞지 않았다면 " +
-        "직접 해결한 뒤 record_knowledge로 기록하라.",
+      "found: true — 각 주장 뒤 [REC-<id>#<섹션>]이 근거다. 명령·코드는 적용 전 get_record로 확인하라.",
+      "다음: 근거 확인 get_record, 도움 여부 give_feedback, 맞지 않으면 해결 후 record_knowledge.",
     ];
     const FROM_SERVER = [
       String(fixture["answer"]),

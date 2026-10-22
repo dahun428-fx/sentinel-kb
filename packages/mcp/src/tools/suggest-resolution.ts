@@ -69,13 +69,16 @@ const NOT_FOUND_LINES = [
     "다음 프로젝트가 같은 자리를 다시 파지 않는다.",
 ];
 
-const FOUND_HEADER = "found: true (아래 답변은 인용된 기록에만 근거한다)";
+/**
+ * 머리·꼬리 문구는 짧게 둔다 (T-057, P1 리뷰 A1). 응답 예산(800토큰 추정)에서 먼저 빠지는 몫이라, 길면 답변이 잘린다.
+ * 이전 문구는 추정 388토큰이었다. 코드 블록은 인용 검증 대상이 아니므로 "모든 내용이 인용에 근거한다"고 쓰지 않는다(P1 리뷰 S7).
+ */
+const FOUND_HEADER = "found: true — 각 주장 뒤 [REC-<id>#<섹션>]이 근거다. 명령·코드는 적용 전 get_record로 확인하라.";
 
-const FOUND_FOOTER =
-  "위 답변의 각 주장에는 `[REC-<recordId>#<섹션>]` 인용이 붙어 있고, 그 아래가 인용된 기록 목록이다. " +
-  "적용하기 전에 근거를 확인하려면 recordId로 get_record를 불러 전문을 읽어라. " +
-  "해결에 도움이 됐는지는 give_feedback으로 알려주고, 답이 맞지 않았다면 " +
-  "직접 해결한 뒤 record_knowledge로 기록하라.";
+const FOUND_FOOTER = "다음: 근거 확인 get_record, 도움 여부 give_feedback, 맞지 않으면 해결 후 record_knowledge.";
+
+/** `/v1/answer` 1회의 상한(ms). 서버의 LLM 상한(8초 × 최대 2회) + 임베딩·검색을 넉넉히 덮는다. */
+export const ANSWER_TIMEOUT_MS = 30_000;
 
 export function registerSuggestResolution(server: McpServer, context: McpContext): void {
   server.registerTool(
@@ -84,14 +87,17 @@ export function registerSuggestResolution(server: McpServer, context: McpContext
     async (args) => {
       try {
         /*
-         * `read()`로 보낸다 — `/v1/answer`는 아무것도 저장하지 않는 멱등 요청이라
-         * `assertIdempotent`의 레코드 변경 경로에 해당하지 않는다.
+         * **재시도하지 않는 경로(`write()`)로, 긴 상한을 걸어** 보낸다 (T-057, P1 리뷰 A4). `/v1/answer`는 저장하지 않는
+         * 멱등 요청이지만 비싸다: 질의 임베딩 + 검색 + LLM 생성(서버 쪽 8초 × 2회)이라 기본 10초 시도 안에 끝나지
+         * 않을 수 있고, 재시도마다 서버는 앞 요청을 취소하지 않은 채 전체 파이프라인을 다시 돈다(최악 LLM 호출 6회).
+         * 한 번 기다리고 실패를 그대로 알리는 편이 낫다.
          * `stream:false`인 이유는 MCP 도구가 결과를 **한 번에** 돌려주는 계약이기 때문이다.
          * SSE는 HTTP 소비자(web UI)를 위한 것이고, 여기서 열면 프레임을 다시 합쳐야 한다.
          */
-        const raw = await context.coreApi.read({
+        const raw = await context.coreApi.write({
           method: "POST",
           path: "/v1/answer",
+          timeoutMs: ANSWER_TIMEOUT_MS,
           body: AnswerRequest.parse({
             query: args.errorText,
             ...(args.project === undefined ? {} : { project: args.project }),

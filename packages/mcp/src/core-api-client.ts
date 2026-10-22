@@ -73,6 +73,8 @@ export interface CoreApiRequest {
   /** `/v1/...`로 시작하는 경로. 쿼리스트링을 포함해도 된다. */
   readonly path: string;
   readonly body?: unknown;
+  /** 이 요청만의 시도당 상한(ms). 없으면 클라이언트 기본값. LLM 생성처럼 오래 걸리는 경로용 (T-057). */
+  readonly timeoutMs?: number;
 }
 
 export interface CoreApiClient {
@@ -177,6 +179,7 @@ export function createCoreApiClient(options: CoreApiClientOptions): CoreApiClien
   const bearerKey = options.bearerKey;
 
   async function attempt(request: CoreApiRequest, attemptNo: number): Promise<unknown> {
+    const limitMs = request.timeoutMs ?? timeoutMs;
     const headers: Record<string, string> = {
       authorization: `Bearer ${bearerKey}`,
       accept: "application/json",
@@ -190,14 +193,14 @@ export function createCoreApiClient(options: CoreApiClientOptions): CoreApiClien
         headers,
         ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
         // 시도마다 새 신호를 만든다. 하나를 재사용하면 첫 타임아웃 뒤 재시도가 즉시 중단된다.
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(limitMs),
       });
     } catch (cause: unknown) {
       // 타임아웃도 여기로 온다(AbortError). 원인 객체를 메시지에 펼치지 않는다 —
       // undici 오류에는 요청 헤더가 붙어 있을 수 있다.
       const reason = cause instanceof Error ? cause.name : "UnknownError";
       throw new CoreApiTransportError(
-        `core-api ${request.method} ${request.path} 요청이 실패했다(${reason}, 상한 ${String(timeoutMs)}ms).`,
+        `core-api ${request.method} ${request.path} 요청이 실패했다(${reason}, 상한 ${String(limitMs)}ms).`,
         attemptNo,
       );
     }
