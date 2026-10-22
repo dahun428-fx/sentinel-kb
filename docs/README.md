@@ -6,6 +6,7 @@
 |---|---|
 | 제품이 무엇을 해야 하나 | `specs/00~08`, `packages/contracts`의 해당 계약 |
 | **지금 무엇을 해야 하나** | **`plan/UPLIFT-PLAN.md`** (2026-10-21~, 진행 상태의 기준) |
+| 로컬에서 띄우고 Claude Code를 붙이려면 | `local-run.md` (UPLIFT P3) |
 | 특정 작업을 어떻게 구현하나 | `specs/tasks/T-xxx.md` |
 | 왜 그렇게 결정했나 | `design/SAD.md`·ADR, `DECISIONS-PENDING.md`, UPLIFT §결정 기록 |
 | 무엇을 검증했나 | 커밋과 연결된 테스트·eval 결과, `eval/loop-log.jsonl` |

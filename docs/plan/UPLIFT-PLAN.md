@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | 진행 중 (P3 대기 — 사용자 환경 준비) |
+| 상태 | 진행 중 (P4 대기 — Voyage 키·Q-1·Q-10) |
 | 작성일 | 2026-10-21 |
 | 기준 커밋 | `f86db75` (origin/main) |
 | 역할 | 2026-10-21 이후 **진행 순서·완료 기준의 기준 문서**. 제품 요구는 `specs/`를 따른다 (`docs/README.md` "어디부터 읽나") |
@@ -14,6 +14,7 @@
 |---|---|---|
 | 2026-10-21 | 1 | 최초 작성. 현황 점검, 우선순위, 결정 기록 |
 | 2026-10-21 | 2 | 문서 리뷰(`docs/analysis/DOCUMENTATION-REVIEW-2026-10-21.md`) 반영 (T-047). 외부 전송 경로 정정, 품질 기준 3층 구분, 리뷰 지적 심각도와 진입 규칙, 단계별 선행 조건·완료 증거·중단 조건, P5 앞 적재 도구 단계 추가, 첫 화면 요약 |
+| 2026-10-22 | 5 | P3 로컬 실행 완료와 증거(§9-1b), `docs/local-run.md`, T-063 |
 | 2026-10-22 | 4 | P0 완료, P1 AI 리뷰 결과(§4-2), P2 처리(T-048~T-052 수정, T-053~T-061 등재). P4·P7·P9 선행 조건에 리뷰 결과 반영 |
 | 2026-10-22 | 3 | 재점검(`docs/analysis/DOCUMENTATION-RECHECK-2026-10-21.md`) 반영 (T-047). P3의 Anthropic 키 요구 명시(R1, Q-13), 실사용 승인을 P8과 분리해 사내 확장 판단 조건으로 연결(R2) |
 
@@ -24,8 +25,8 @@
 | 항목 | 내용 |
 |---|---|
 | 목표 | 본인 프로젝트의 장애를 sentinel-kb에 기록하고, 다음 장애 때 검색해서 다시 쓰는 상태 |
-| 현재 단계 | **P0·P1·P2 완료. P3 로컬 실행 대기** |
-| 다음 행동 | 사용자: `.env` 작성(키 생성, Q-13), Docker로 `pnpm dev:compose` 기동 → P3 완료 증거 확인. 이어서 Voyage 키 발급(P4) |
+| 현재 단계 | **P0~P3 완료. P4 실 임베딩 대기** |
+| 다음 행동 | 사용자: Claude Code에서 `sentinel-kb-local` 도구 확인(`docs/local-run.md` §4), Q-1·Q-10 결정, Voyage 키 발급 → P3 데이터 삭제(`local-run.md` §5) 후 P4 |
 | 막힌 결정 | P4 전: Q-1, Q-10 / P5 전: Q-9, Q-11 / T-056 eval 정의 변경 승인 / T-052 F-1 태그 시크릿 처리 |
 | 하지 않는 것 | `troubleshooting-harness` 스킬 개선, M7 아티클 확장 (§1-1) |
 
@@ -413,6 +414,17 @@ DB를 로컬(atlas-local)에 두어도 아래 경로로 텍스트가 외부 API�
 4. P1: 로컬 리뷰 에이전트 3개 실행 → §4-2 표 28건.
 5. P2: Critical S1·S2·S4 수정(T-050~T-052), C1은 P4 절차로 차단, S5 브랜치 정리, Major는 T-053~T-061 등재.
 6. 각 수정은 뮤테이션(수정을 되돌리면 새 단언이 실패하는지)으로 단언이 실제로 잡는지 확인했다.
+7. push 후 Actions: `ci` 전 잡 그린(deploy-config 포함, F-1 해소 확인). `deploy`의 `pnpm verify`가 코드와 무관하게 빨갰던 원인(`deploy.yml`의
+   워크플로 env `IMAGE_TAG`가 compose 계약 테스트 fixture를 덮음)을 T-063으로 고쳐 그린. `deploy`의 '저장소 설정 확인'만 의도대로 실패(F-3).
+8. **P3 로컬 실행** (맥북, Docker Desktop, 절차는 `docs/local-run.md`):
+   - 로컬 `pnpm verify`(통합 포함, Docker) 그린: unit 2642, integration 399 (1 skip).
+   - `docker compose up --build -d` → db-init 종료 0(검색 인덱스 2개 READY, dim 1024), core-api·mcp·web·nginx healthy, worker 실행.
+   - nginx `127.0.0.1:8080`만 열림(T-050 실동작). `/health` 200, `/` 인증 없이 401.
+   - `pnpm mcp:ping` 종료 코드 0, 도구 5개. stdio(`sentinel-kb-local` 명령)로 JSON-RPC `tools/list` 5개, `search_knowledge` 호출 성공.
+   - 왕복: `postgres://app:<비번>@db` 가 든 레코드 생성 → 응답·저장 본문 `[MASKED:db-credentials]`(T-051 실동작) → 임베딩 잡 done, 청크 2 → `/v1/search`·MCP 검색으로 조회.
+   - `/v1/answer`(더미 Anthropic 키): fake 벡터 점수가 임계값 미만이라 `found:false (below-threshold)`, 모델 호출 없음. 생성 검증은 P6(실 키).
+   - core-api 로그에 질의 원문의 비밀번호 0회.
+   - 남은 것: 사용자 Claude Code 세션에서 `/mcp`로 도구 확인(`local-run.md` §4). P3 데이터는 P4 전에 삭제(C1).
 
 ### 9-2. push 후 발견
 
