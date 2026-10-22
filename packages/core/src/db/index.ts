@@ -7,6 +7,7 @@
  */
 export * from "./articles.js";
 export * from "./client.js";
+export * from "./embedding-generations.js";
 export * from "./indexes.js";
 export * from "./records.js";
 export * from "./search-indexes.js";

@@ -10,7 +10,8 @@
   },
   "scripts": {
     "dev": "tsx src/worker.cli.ts",
-    "start": "tsx src/worker.cli.ts"
+    "start": "tsx src/worker.cli.ts",
+    "reembed": "tsx src/reembed.cli.ts"
   },
   "dependencies": {
     "@sentinel/contracts": "workspace:*",

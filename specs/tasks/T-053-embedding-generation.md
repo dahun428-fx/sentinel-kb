@@ -32,4 +32,21 @@ Voyage 질의 벡터와 fake 문서 벡터의 cosine은 0 근처라 그 레코�
 ## 처리 메모
 - **임시 조치(코드 수정 전):** UPLIFT P4 선행 조건에 'P3에서 쓴 로컬 DB 볼륨 삭제'와 'P4 직후 시드 레코드 제목으로 검색해 maxVectorScore가 0.3 이상인지 확인'을 넣었다.
 
-STATUS: TODO
+## 결과 (2026-10-22)
+
+- **장부**: `packages/core/src/db/embedding-generations.ts` — `embedding_generations`에 버전별 임베더 식별자
+  (`readEmbeddingIdentity()`: `fake/dim=N` 또는 `voyage/<model>/dim=N/input-type`). contracts는 바꾸지 않았다(G3 불필요).
+  worker(`worker.cli.ts`)와 core-api(`server.ts`)가 기동 시 대조한다. 다르거나, 장부 없이 그 버전의 청크가 있으면 거부(worker 78).
+- **재임베딩**: `pnpm --filter @sentinel/worker reembed` — 워터마크가 낮은 published 레코드에 잡 투입, 대기 중인 레코드는 건너뜀.
+- **C6**: 영구 실패는 attempts를 올리지 않는다. `worker.int.spec.ts`의 기존 단언(attempts 1)은 테스트 이름("attempts를
+  태우지 않고")과 specs/03:20에 어긋나 있었다. 스펙을 기준으로 0으로 고쳤다 — 통과시키려고 낮춘 것이 아니다.
+- **C8**: `Embedder.embed(texts, { inputType })`, Voyage에 `input_type` 전송. 검색은 query, 인제스트는 document.
+- 테스트: 통합 7건(`generations.int.spec.ts`), 인제스트 용도 1건, 단위 6건(식별자 3, input_type 2, 검색 용도 1).
+- **실동작 (로컬 스택)**: P3에서 fake로 만든 v1 청크가 있는 DB에 새 이미지로 기동 → worker `Restarting (78)`,
+  core-api도 같은 메시지로 거부. `EMBEDDING_VERSION=2` + `reembed` → 장부 `[2, fake/dim=1024]`, v2 청크 2, 검색 정상.
+
+## Findings
+- **F-1** 로컬에서 core-api만 다시 만들면 nginx가 옛 IP로 접속해 502가 난다(upstream 블록이 기동 시 한 번 해석). → T-064.
+- **F-2** C7(인덱스 drift가 차원만 비교)은 이번 범위에 넣지 않았다. T-064와 같이 설정 정합성 묶음으로 남긴다.
+
+STATUS: GREEN

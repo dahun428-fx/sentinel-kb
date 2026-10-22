@@ -216,7 +216,7 @@ export function createRetriever(options: CreateRetrieverOptions): Retriever {
 }
 
 async function embedQuery(embedder: Embedder, query: string): Promise<number[]> {
-  const vectors = await embedder.embed([query]);
+  const vectors = await embedder.embed([query], { inputType: "query" });
   const vector = vectors[0];
   if (vectors.length !== 1 || vector === undefined || vector.length !== embedder.dim) {
     throw new RetrieverError(

@@ -161,7 +161,10 @@ async function embedChunks(
   sectionChunks: readonly SectionChunk[],
 ): Promise<number[][]> {
   if (sectionChunks.length === 0) return [];
-  const vectors = await embedder.embed(sectionChunks.map((chunk) => chunk.text));
+  const vectors = await embedder.embed(
+    sectionChunks.map((chunk) => chunk.text),
+    { inputType: "document" },
+  );
   if (vectors.length !== sectionChunks.length) {
     throw new WorkerError(
       WORKER_ERROR_CODES.EMBEDDING_COUNT_MISMATCH,

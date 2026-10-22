@@ -97,3 +97,19 @@ function readBatchSize(raw: string | undefined): number {
   if (!Number.isInteger(parsed) || parsed <= 0) return MAX_EMBEDDING_BATCH_SIZE;
   return Math.min(parsed, MAX_EMBEDDING_BATCH_SIZE);
 }
+
+/**
+ * 이 설정이 만드는 벡터 공간의 식별자 (T-053, P1 리뷰 C1).
+ *
+ * `embeddingVersion`은 사람이 올리는 숫자라 provider·모델을 바꾸고 버전을 그대로 두면 서로 다른 공간의
+ * 벡터가 같은 버전으로 섞인다. 그러면 질의 벡터와 문서 벡터의 cosine이 0 근처라 검색이 **정상 응답
+ * 모양으로** 실패한다. 이 문자열을 버전별 장부(`embedding_generations`)에 남겨 기동 시 대조한다.
+ *
+ * `input-type` 꼬리표는 질의/문서 구분 인코딩(C8)을 쓰는 세대라는 뜻이다. 구분 없이 만든 벡터와 섞이지 않게 한다.
+ */
+export function readEmbeddingIdentity(env: NodeJS.ProcessEnv = process.env): string {
+  const { provider, dim } = readEmbedderConfig(env);
+  if (provider === "fake") return `fake/dim=${String(dim)}`;
+  const model = env["EMBEDDING_MODEL"]?.trim() ?? "";
+  return `${provider}/${model}/dim=${String(dim)}/input-type`;
+}

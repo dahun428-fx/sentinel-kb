@@ -23,7 +23,7 @@ import {
 } from "./retrieve.js";
 import type { RetrievalConfig } from "./config.js";
 import type { PipelineStage, RetrievalDbLike } from "./types.js";
-import type { Embedder } from "../embedder/types.js";
+import type { EmbedOptions, Embedder } from "../embedder/types.js";
 
 const CONFIG: RetrievalConfig = {
   vectorK: 4,
@@ -192,6 +192,22 @@ describe("발행되는 파이프라인", () => {
 
     expect(JSON.parse(read("vec_idx.json"))).toMatchObject({ name: VECTOR_INDEX_NAME });
     expect(JSON.parse(read("text_idx.json"))).toMatchObject({ name: TEXT_INDEX_NAME });
+  });
+
+  it("질의는 query 용도로 임베딩한다 — 문서는 document다 (T-053, P1 리뷰 C8)", async () => {
+    const seen: (EmbedOptions | undefined)[] = [];
+    const recording: Embedder = {
+      ...embedder,
+      embed: (texts, options) => {
+        seen.push(options);
+        return embedder.embed(texts, options);
+      },
+    };
+    await createRetriever({ db: makeDb({}).db, embedder: recording, config: CONFIG }).retrieve({
+      query: "nginx 스트리밍",
+    });
+
+    expect(seen).toEqual([{ inputType: "query" }]);
   });
 
   it("$vectorSearch가 env 파라미터와 필터 3종을 그대로 싣는다", async () => {

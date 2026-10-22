@@ -14,12 +14,21 @@ export {
   EMBEDDING_PROVIDERS,
   readEmbedderConfig,
   readEmbeddingDim,
+  readEmbeddingIdentity,
 } from "./config.js";
 export type { EmbedderConfig, EmbeddingProvider } from "./config.js";
 export { createFakeEmbedder, deterministicVector } from "./fake.js";
 export type { FakeEmbedderOptions } from "./fake.js";
 export { EMBEDDER_ERROR_CODES, EmbedderError, realSleep } from "./types.js";
-export type { Embedder, EmbedderErrorCode, FetchLike, HttpResponseLike, SleepFn } from "./types.js";
+export type {
+  EmbedInputType,
+  EmbedOptions,
+  Embedder,
+  EmbedderErrorCode,
+  FetchLike,
+  HttpResponseLike,
+  SleepFn,
+} from "./types.js";
 export { createVoyageEmbedder, readVoyageCredentials } from "./voyage.js";
 export type { VoyageCredentials, VoyageEmbedderOptions } from "./voyage.js";
 

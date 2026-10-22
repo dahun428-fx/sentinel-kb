@@ -20,9 +20,19 @@
  * record가 아니라 여기다 — 청크에 붙는 버전은 "그 벡터를 만든 모델 세대"를 뜻한다.
  * (T-005 Findings F-1 해소. `record.embeddingVersion`의 의미는 T-008에서 결정한다.)
  */
+/**
+ * 임베딩 입력의 용도 (T-053, P1 리뷰 C8). Voyage는 검색용 질의와 저장용 문서를 다르게 인코딩하도록
+ * `input_type`을 받는다. 실데이터를 넣은 뒤에 켜면 전부 다시 임베딩해야 하므로 적재 전에 정한다.
+ */
+export type EmbedInputType = "query" | "document";
+
+export interface EmbedOptions {
+  readonly inputType?: EmbedInputType;
+}
+
 export interface Embedder {
   /** 입력 순서를 보존해 벡터를 돌려준다. `texts[i]` ↔ 반환값 `[i]`. */
-  embed(texts: string[]): Promise<number[][]>;
+  embed(texts: string[], options?: EmbedOptions): Promise<number[][]>;
   /** 벡터 차원. specs/02의 `vec_idx` dim과 반드시 같아야 한다. */
   dim: number;
   /** 모델 세대. 청크의 `embeddingVersion`으로 그대로 기록된다. */

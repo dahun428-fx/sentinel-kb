@@ -8,8 +8,14 @@
  * src에 두는 이유는 `ensure-indexes.cli.ts`와 같다 — tsconfig `include`가 `src`뿐이라
  * 밖에 두면 `pnpm typecheck`가 이 파일을 검사하지 않는다.
  */
-import { createEmbedder, EmbedderError } from "@sentinel/core";
-import { closeDb, DbConnectionError, getDb } from "@sentinel/core/db";
+import { createEmbedder, EmbedderError, readEmbeddingIdentity } from "@sentinel/core";
+import {
+  claimEmbeddingGeneration,
+  closeDb,
+  DbConnectionError,
+  EmbeddingGenerationMismatchError,
+  getDb,
+} from "@sentinel/core/db";
 
 import { createEmbedWorker, type JobOutcome } from "./worker.js";
 
@@ -46,6 +52,12 @@ async function main(): Promise<void> {
   // 순서가 중요하다: 오설정으로 죽을 거라면 DB 커넥션을 잡기 전에 죽는 편이 낫다.
   const embedder = createEmbedder();
   const db = await getDb();
+  // 이 세대를 다른 임베더가 만들었으면 여기서 멈춘다 (T-053). 섞인 벡터는 에러 없이 검색을 망가뜨린다.
+  await claimEmbeddingGeneration(db, {
+    version: embedder.version,
+    identity: readEmbeddingIdentity(),
+    now: new Date(),
+  });
 
   const worker = createEmbedWorker({
     db,
@@ -71,7 +83,7 @@ async function main(): Promise<void> {
 try {
   await main();
 } catch (error) {
-  if (error instanceof EmbedderError) {
+  if (error instanceof EmbedderError || error instanceof EmbeddingGenerationMismatchError) {
     console.error(`[worker] ${error.code}: ${error.message}`);
     process.exitCode = EXIT_CONFIG_ERROR;
   } else if (error instanceof DbConnectionError) {

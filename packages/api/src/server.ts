@@ -8,12 +8,13 @@
 import {
   createChatModel,
   createEmbedder,
+  readEmbeddingIdentity,
   createRetriever,
   parseApiKeys,
   readSanitizeOptions,
   VERSION,
 } from "@sentinel/core";
-import { closeDb, getDb } from "@sentinel/core/db";
+import { claimEmbeddingGeneration, closeDb, getDb } from "@sentinel/core/db";
 
 import { createApp } from "./app.js";
 
@@ -48,7 +49,14 @@ export async function start(): Promise<void> {
    * "값을 보고만 한다"이고 이쪽은 "없으면 라우트가 동작하지 않는다"라 판단이 갈린다.
    * 늦게 죽으면 첫 검색 요청이 500을 받고 원인은 로그 한 줄로만 남는다(T-006 인계 패턴).
    */
-  const retriever = createRetriever({ db, embedder: createEmbedder() });
+  const embedder = createEmbedder();
+  // 질의 벡터도 장부의 세대와 같은 공간이어야 한다 (T-053). worker와 같은 대조를 한다.
+  await claimEmbeddingGeneration(db, {
+    version: embedder.version,
+    identity: readEmbeddingIdentity(),
+    now: new Date(),
+  });
+  const retriever = createRetriever({ db, embedder });
 
   /*
    * **`/v1/answer`가 프로덕션에서 뜬다 — T-019 F-8이 남긴 간극을 여기서 닫는다.**

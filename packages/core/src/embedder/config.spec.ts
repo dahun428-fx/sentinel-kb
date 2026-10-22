@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { MAX_EMBEDDING_BATCH_SIZE, readEmbedderConfig } from "./config.js";
+import { MAX_EMBEDDING_BATCH_SIZE, readEmbedderConfig, readEmbeddingIdentity } from "./config.js";
 import { EMBEDDER_ERROR_CODES, EmbedderError } from "./types.js";
 
 const FULL_ENV: NodeJS.ProcessEnv = {
@@ -24,6 +24,22 @@ function codeOf(fn: () => unknown): string {
   }
   throw new Error("에러가 던져지지 않았다");
 }
+
+describe("readEmbeddingIdentity (T-053)", () => {
+  it("provider·모델·차원과 input-type 세대를 담는다", () => {
+    expect(readEmbeddingIdentity(FULL_ENV)).toBe("voyage/model-from-env/dim=8/input-type");
+  });
+
+  it("fake는 모델명과 무관하다 — EMBEDDING_MODEL이 voyage-3로 남아 있어도 fake 공간이다", () => {
+    expect(readEmbeddingIdentity({ ...FULL_ENV, EMBEDDING_PROVIDER: "fake" })).toBe("fake/dim=8");
+  });
+
+  it("모델이나 차원이 바뀌면 다른 식별자다", () => {
+    const base = readEmbeddingIdentity(FULL_ENV);
+    expect(readEmbeddingIdentity({ ...FULL_ENV, EMBEDDING_MODEL: "voyage-3-large" })).not.toBe(base);
+    expect(readEmbeddingIdentity({ ...FULL_ENV, EMBEDDING_DIM: "16" })).not.toBe(base);
+  });
+});
 
 describe("readEmbedderConfig", () => {
   it("env 값을 그대로 읽는다", () => {

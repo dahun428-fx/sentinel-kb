@@ -210,6 +210,26 @@ describe("Acceptance 1 — job 처리 후 chunks가 chunker 출력과 일치한�
   });
 });
 
+describe("문서 임베딩 용도 (T-053, P1 리뷰 C8)", () => {
+  it("인제스트는 document 용도로 임베딩한다 — 질의(query)와 다른 인코딩이다", async () => {
+    const base = fakeEmbedder();
+    const seen: unknown[] = [];
+    const recording: Embedder = {
+      ...base,
+      embed: (texts, options) => {
+        seen.push(options);
+        return base.embed(texts, options);
+      },
+    };
+    await enqueue(await insertRecord());
+
+    await makeWorker({ embedder: recording }).runOnce();
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((options) => JSON.stringify(options) === '{"inputType":"document"}')).toBe(true);
+  });
+});
+
 describe("Acceptance 2 — 같은 job을 2회 처리해도 chunks가 중복 생성되지 않는다", () => {
   it("두 번째 처리는 같은 도큐먼트를 덮어쓴다(insert가 아니라 upsert)", async () => {
     const recordId = await insertRecord({ rootCause: "브로커 스로틀링." });
@@ -298,9 +318,11 @@ describe("Acceptance 3 — 실패 시 attempts가 오르고 3회째에 dead가 �
     const outcome = await worker.runOnce();
 
     expect(outcome?.status).toBe("failed");
-    expect(outcome?.attempts).toBe(1);
+    // specs/03:20 "attempts를 태우지 않는다". 이전 단언(1)은 테스트 이름·스펙과 어긋나 있었다 (T-053, P1 리뷰 C6).
+    expect(outcome?.attempts).toBe(0);
     const job = await jobOf(jobId);
     expect(job.status).toBe("failed");
+    expect(job.attempts).toBe(0);
     expect(job.lastError).toContain("EMBEDDER_REQUEST_FAILED");
     // 재큐잉되지 않는다 — 재시도해도 결과가 같은 실패에 attempts를 태우면 안 된다.
     expect(await worker.runOnce()).toBeUndefined();

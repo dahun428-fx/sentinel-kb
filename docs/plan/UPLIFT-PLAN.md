@@ -94,7 +94,7 @@ sentinel-kb는 M0~M7 태스크 대부분이 구현됐지만 한 번도 운영된
 
 | 항목 | 내용 |
 |---|---|
-| 선행 조건 | P3 완료. Q-1(실행 위치), Q-10(외부 전송 허용 범위) 결정. Voyage 키 발급. **P3에서 쓴 로컬 DB 볼륨 삭제** — fake 벡터와 Voyage 벡터가 같은 `embeddingVersion`으로 섞이면 검색이 정상 응답 모양으로 실패한다(§4-2 C1, T-053이 코드로 막기 전까지의 절차) |
+| 선행 조건 | P3 완료. Q-1(실행 위치), Q-10(외부 전송 허용 범위) 결정. Voyage 키 발급. P3 데이터 정리(삭제, 또는 `EMBEDDING_VERSION` 올리고 재임베딩 — `docs/local-run.md` §5). 정리하지 않으면 T-053 장부 대조로 기동이 거부된다(§4-2 C1) |
 | 할 일 | ① 연결 스모크: 레코드 1건 저장 → 임베딩 → 검색에서 `vectorRank`·`textRank`가 동시에 non-null인 hit 확인. ② 적재 완료: 시드 50건 재임베딩 |
 | 완료 증거 | ① 스모크 결과 1건. ② 다음 값을 기록: 대상 record 수, chunk 수, 전 chunk의 `embeddingVersion`이 기대값과 일치하는 비율(100%), `jobs`에서 `done`이 아닌 것 0(대기·실행 중·실패·dead 모두, §4-2 C2), 검색 인덱스 상태 READY. ③ 시드 레코드 제목 3개로 `/v1/answer`를 불러 `maxVectorScore` 분포를 기록(임계값 0.62 근거, §4-2 U1). ④ GitHub 시크릿 등록 후 `nightly-eval` 스케줄 복구(T-048 F-1) |
 | 중단 조건 | 실패 job이 남거나 `embeddingVersion` 혼재. 품질 판정은 여기서 하지 않는다 (P6) |
@@ -232,7 +232,7 @@ M7 아티클 파이프라인 (T-029~T-034). 저장 → 검색 → 재사용 흐�
 | S1 | Critical | sanitizer | 마스킹 규칙 7종뿐. postgres·redis URI, PEM, JWT, `PASSWORD=`, GitHub 토큰 등이 평문 저장·외부 전송 | P4, P5 | **수정** T-051. 27건 마스킹 + 오탐 17건 고정 |
 | S2 | Critical | api | 검색어·`suggest_resolution` 에러 원문이 마스킹 없이 Voyage·Anthropic으로. 피드백 query가 `eval_cases`에 평문 | P4, P7 | **수정** T-052 |
 | S4 | Critical | 배포(로컬) | 로컬 compose가 nginx를 0.0.0.0에 열고 `.env.example`에 공개된 키 | P3 | **수정** T-050 |
-| C1 | Critical | embedder | fake와 Voyage 벡터가 같은 `embeddingVersion`에 섞여 `found:false`가 정상 응답 모양으로 나감 | P4~P6 | **절차로 차단** (P4 선행 조건: DB 볼륨 삭제 + 벡터 점수 확인). 코드 수정 T-053 |
+| C1 | Critical | embedder | fake와 Voyage 벡터가 같은 `embeddingVersion`에 섞여 `found:false`가 정상 응답 모양으로 나감 | P4~P6 | **수정** T-053 (세대 장부 + 기동 거부 + 재임베딩 CLI, 로컬 스택에서 실동작 확인) |
 | S5 | Critical(공개 시) | git | 회사 메일이 든 커밋 `109a2ee`가 로컬 브랜치 4개·백업 1개에 남음 | — | **수정** 해당 브랜치·worktree 삭제(2026-10-22). 원본은 저장소 밖 보관 |
 | C2 | Major | worker | 죽은 프로세스의 `running` 잡을 회수하지 않음 | P4, P5 | 수용: P4·P5 완료 증거로 확인, 남으면 수동 복구. T-054 |
 | C3 | Major | worker | 429에 10초 만에 `dead`. `failed`/`dead` 재투입 경로 없음 | P4~P6 | 수용: 같은 확인. T-054 |
@@ -247,11 +247,11 @@ M7 아티클 파이프라인 (T-029~T-034). 저장 → 검색 → 재사용 흐�
 | S6 | Major | generator | 여는 `<chunk` 태그로 인용 위조 | P7, P9 | T-060. 1인 사용 영향 작음, 사내 확장 전 필수 |
 | S7 | Major | generator | 코드 블록은 인용 검사 제외인데 "인용된 기록에만 근거" 머리말 | P7 | T-060 |
 | S8 | Major(미확인) | 배포 | 배포 `.env`에서 `$`가 든 값이 보간돼 바뀜 | P9 | T-061 |
-| C6 | Minor | worker | 영구 실패에도 `attempts` 증가 | — | T-053 |
+| C6 | Minor | worker | 영구 실패에도 `attempts` 증가 | — | **수정** T-053 |
 | C7 | Minor | db | 인덱스 drift 검사가 차원만 비교 | P3, P4 | 백로그 (T-053에서 함께 검토) |
 | A6 | Minor | mcp | 기본 검색마다 불필요한 limit 안내문 | P7 | T-059 |
 | S9 | Minor | 문서 | 로컬 atlas-local 안전 기동법 없음 | P3 | T-061. P3 전 runbook 우선 |
-| C8 | 개선 | embedder | Voyage `input_type` 미전송 | P4, P6 | T-053. P5 적재 전 |
+| C8 | 개선 | embedder | Voyage `input_type` 미전송 | P4, P6 | **수정** T-053 |
 | C9 | 개선 | 검색 | `lucene.standard`가 한국어 어절을 못 나눔 (T-010 F-6) | P6 | 백로그. P6 결과의 korean-prose 분해를 보고 판단 |
 | U1 | 개선(미확인) | generator | 임계값 0.62의 실측 근거 없음 | P4, P6 | P4 완료 증거 ③ |
 | A7 | 개선 | mcp | `CORE_API_URL=""` 처리, stdio가 전 키 요구 | P3, P7 | T-059 |

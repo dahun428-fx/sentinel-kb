@@ -13,6 +13,8 @@ import {
   EMBEDDER_ERROR_CODES,
   EmbedderError,
   realSleep,
+  type EmbedInputType,
+  type EmbedOptions,
   type Embedder,
   type FetchLike,
   type HttpResponseLike,
@@ -99,10 +101,10 @@ export function createVoyageEmbedder(options: VoyageEmbedderOptions): Embedder {
   const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
   const backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
 
-  async function requestBatch(batch: string[]): Promise<number[][]> {
+  async function requestBatch(batch: string[], inputType?: EmbedInputType): Promise<number[][]> {
     let attempt = 0;
     for (;;) {
-      const outcome = await attemptBatch(batch);
+      const outcome = await attemptBatch(batch, inputType);
       if (outcome.kind === "ok") return outcome.vectors;
       if (attempt >= maxRetries) {
         throw new EmbedderError(
@@ -119,7 +121,7 @@ export function createVoyageEmbedder(options: VoyageEmbedderOptions): Embedder {
   type Attempt =
     { kind: "ok"; vectors: number[][] } | { kind: "retry"; reason: string; cause?: unknown };
 
-  async function attemptBatch(batch: string[]): Promise<Attempt> {
+  async function attemptBatch(batch: string[], inputType?: EmbedInputType): Promise<Attempt> {
     let response: HttpResponseLike;
     try {
       response = await doFetch(EMBEDDINGS_ENDPOINT, {
@@ -128,7 +130,11 @@ export function createVoyageEmbedder(options: VoyageEmbedderOptions): Embedder {
           "content-type": "application/json",
           authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({ model, input: batch }),
+        body: JSON.stringify({
+          model,
+          input: batch,
+          ...(inputType === undefined ? {} : { input_type: inputType }),
+        }),
       });
     } catch (cause) {
       // 네트워크 자체가 실패한 경우 — 일시 장애로 보고 백오프 재시도 대상에 넣는다.
@@ -155,7 +161,7 @@ export function createVoyageEmbedder(options: VoyageEmbedderOptions): Embedder {
   return {
     dim,
     version,
-    async embed(texts: string[]): Promise<number[][]> {
+    async embed(texts: string[], embedOptions?: EmbedOptions): Promise<number[][]> {
       // 빈 입력에 HTTP를 태우지 않는다 — 워커가 빈 섹션만 있는 record를 물고 왔을 때의 정상 경로다.
       if (texts.length === 0) return [];
 
@@ -163,7 +169,9 @@ export function createVoyageEmbedder(options: VoyageEmbedderOptions): Embedder {
       // 무엇보다 `texts[i]` ↔ 반환값 `[i]` 대응이 흐트러질 여지가 생긴다.
       const vectors: number[][] = [];
       for (let start = 0; start < texts.length; start += batchSize) {
-        vectors.push(...(await requestBatch(texts.slice(start, start + batchSize))));
+        vectors.push(
+          ...(await requestBatch(texts.slice(start, start + batchSize), embedOptions?.inputType)),
+        );
       }
       return vectors;
     },

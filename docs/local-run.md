@@ -58,14 +58,20 @@ claude   # 이 저장소에서 실행하면 .mcp.json을 읽는다. /mcp 로 sen
 
 ## 5. P4로 넘어가기 전
 
-**P3에서 만든 데이터를 지운다.** fake 벡터와 Voyage 벡터가 같은 `embeddingVersion`에 섞이면 검색이 정상 응답 모양으로
-실패한다(P1 리뷰 C1, T-053 전까지의 절차).
+fake 벡터와 Voyage 벡터가 같은 `embeddingVersion`에 섞이면 검색이 정상 응답 모양으로 실패한다(P1 리뷰 C1).
+T-053 이후에는 섞이려 하면 worker·core-api가 `EMBEDDING_GENERATION_MISMATCH`로 기동을 거부한다. 둘 중 하나를 한다.
+
+- **버전을 올리고 재임베딩**: `.env`에서 `EMBEDDING_VERSION`을 올리고 `docker compose up -d` 후
+  `pnpm --filter @sentinel/worker reembed`(호스트에서 실행할 때는 `MONGODB_URI`를 `127.0.0.1:27017`로, `MONGODB_DB=sentinel`).
+- **P3 데이터를 지운다** (실데이터가 없을 때 가장 단순하다):
 
 ```bash
 docker compose down
 docker rm -f sentinel-kb-atlas && docker volume rm sentinel-kb-atlas-data
 ```
 그다음 1단계부터 다시 하되 `EMBEDDING_PROVIDER=voyage`와 `VOYAGE_API_KEY`를 넣는다.
+
+core-api나 mcp 컨테이너만 다시 만들었으면 `docker compose restart nginx`를 한다. nginx가 옛 컨테이너 IP를 쥐고 502를 낸다(T-064).
 
 ## 멈추기
 

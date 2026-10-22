@@ -52,6 +52,7 @@ function markerVector(text: string, dim = DIM): number[] {
 interface RequestBody {
   model: string;
   input: string[];
+  input_type?: string;
 }
 
 function response(status: number, payload: unknown): HttpResponseLike {
@@ -107,6 +108,26 @@ function recordingSleep(): { sleeps: number[]; sleep: (ms: number) => Promise<vo
 }
 
 const alwaysOk: Responder = (input) => response(200, embeddingsPayload(input));
+
+describe("voyage embedder — input_type (T-053, P1 리뷰 C8)", () => {
+  it("용도를 주면 모든 배치에 input_type을 싣는다", async () => {
+    const { calls, fetchImpl } = mockFetch(alwaysOk);
+    const embedder = createEmbedder({ env: BASE_ENV, fetch: fetchImpl, sleep: recordingSleep().sleep });
+
+    await embedder.embed(makeTexts(40), { inputType: "document" });
+
+    expect(calls.map((call) => call.input_type)).toEqual(["document", "document"]);
+  });
+
+  it("용도를 주지 않으면 필드를 보내지 않는다", async () => {
+    const { calls, fetchImpl } = mockFetch(alwaysOk);
+    const embedder = createEmbedder({ env: BASE_ENV, fetch: fetchImpl });
+
+    await embedder.embed(makeTexts(1));
+
+    expect(calls[0]).not.toHaveProperty("input_type");
+  });
+});
 
 describe("voyage embedder — 배치 분할", () => {
   it("100개 입력을 32개씩 4회로 나눠 호출한다 (Acceptance 1)", async () => {

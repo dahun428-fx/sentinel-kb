@@ -114,12 +114,11 @@ export async function failJob(
   maxAttempts: number,
   now: Date,
 ): Promise<JobFailure> {
-  const attempts = job.attempts + 1;
-  const status: JobStatus = isPermanentFailure(error)
-    ? "failed"
-    : attempts >= maxAttempts
-      ? "dead"
-      : "pending";
+  // 영구 실패는 attempts를 태우지 않는다 (specs/03:20, T-053 / P1 리뷰 C6). 설정을 고친 뒤 되살렸을 때
+  // 이미 소진된 횟수로 시작하면 일시 장애 한 번에 바로 dead가 된다.
+  const permanent = isPermanentFailure(error);
+  const attempts = permanent ? job.attempts : job.attempts + 1;
+  const status: JobStatus = permanent ? "failed" : attempts >= maxAttempts ? "dead" : "pending";
   const lastError = describeError(error).slice(0, LAST_ERROR_MAX_CHARS);
 
   await jobs(db).updateOne(
