@@ -79,6 +79,8 @@ export class EmbedderError extends Error {
 export interface HttpResponseLike {
   readonly ok: boolean;
   readonly status: number;
+  /** 429의 `Retry-After`를 읽는 데만 쓴다 (T-054). 없으면 자체 백오프로 기다린다. */
+  readonly headers?: { get(name: string): string | null };
   json(): Promise<unknown>;
   text(): Promise<string>;
 }

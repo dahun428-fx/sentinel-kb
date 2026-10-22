@@ -220,6 +220,46 @@ describe("voyage embedder — 재시도", () => {
     expect(sleeps[1]).toBe((sleeps[0] ?? 0) * 2);
   });
 
+  it("429는 5회까지 1·2·4·8·16초를 기다린다 — 분 단위 한도를 넘길 수 있게 (T-054, P1 리뷰 C3)", async () => {
+    const { calls, fetchImpl } = mockFetch((input, callIndex) =>
+      callIndex < 5 ? response(429, { detail: "rate limited" }) : response(200, embeddingsPayload(input)),
+    );
+    const { sleeps, sleep } = recordingSleep();
+    const embedder = createEmbedder({ env: BASE_ENV, fetch: fetchImpl, sleep });
+
+    await expect(embedder.embed(makeTexts(1))).resolves.toHaveLength(1);
+    expect(calls).toHaveLength(6);
+    expect(sleeps).toEqual([1000, 2000, 4000, 8000, 16000]);
+  });
+
+  it("429의 Retry-After(초)를 따르되 60초에서 자른다", async () => {
+    const withRetryAfter = (value: string): HttpResponseLike => ({
+      ...response(429, { detail: "rate limited" }),
+      headers: { get: (name: string) => (name === "retry-after" ? value : null) },
+    });
+    const { fetchImpl } = mockFetch((input, callIndex) =>
+      callIndex === 0
+        ? withRetryAfter("7")
+        : callIndex === 1
+          ? withRetryAfter("600")
+          : response(200, embeddingsPayload(input)),
+    );
+    const { sleeps, sleep } = recordingSleep();
+    const embedder = createEmbedder({ env: BASE_ENV, fetch: fetchImpl, sleep });
+
+    await embedder.embed(makeTexts(1));
+    expect(sleeps).toEqual([7000, 60000]);
+  });
+
+  it("429를 6번 연속 받으면 RETRY_EXHAUSTED다", async () => {
+    const { calls, fetchImpl } = mockFetch(() => response(429, { detail: "rate limited" }));
+    const embedder = createEmbedder({ env: BASE_ENV, fetch: fetchImpl, sleep: recordingSleep().sleep });
+
+    const error = await embedder.embed(makeTexts(1)).catch((e: unknown) => e);
+    expect((error as EmbedderError).code).toBe(EMBEDDER_ERROR_CODES.RETRY_EXHAUSTED);
+    expect(calls).toHaveLength(6);
+  });
+
   it("5xx도 재시도 대상이고, 3회를 모두 소진하면 RETRY_EXHAUSTED로 실패한다", async () => {
     const { calls, fetchImpl } = mockFetch(() => response(503, { detail: "unavailable" }));
     const { sleeps, sleep } = recordingSleep();

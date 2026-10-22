@@ -31,4 +31,16 @@ M: M2 | deps: T-008
 ## 처리 메모
 - **임시 조치:** UPLIFT P4·P5 완료 증거에 `db.jobs.find({status:{$ne:"done"}})` 0건 확인이 이미 있다. 남으면 손으로 `pending`으로 되돌린다.
 
-STATUS: TODO
+## 결과 (2026-10-22)
+
+- **C2 회수**: `claimNextJob`이 리스(`EMBED_JOB_LEASE_MS`, 기본 10분)가 지난 `running` 잡을 먼저 집는다. 새 필드 없이
+  `updatedAt`(클레임 시각)을 리스 시작점으로 쓴다(contracts 무변경, G3 불필요). 회수는 시도 1회로 세고, 상한에 닿으면
+  처리하지 않고 `dead`로 끝낸다 — 매번 프로세스를 죽이는 잡이 무한 반복하지 않게.
+- **C3 429**: 5xx 재시도와 따로 센다. `Retry-After`(초, 상한 60초)를 따르고, 없으면 1·2·4·8·16초.
+- **C3 재투입**: `pnpm --filter @sentinel/worker requeue [--status=failed,dead]` — pending, attempts 0.
+- **C3 키 확인**: 실 provider면 worker 기동 시 임베딩 1회. `REQUEST_FAILED`(401 등)면 기동 거부(78), 일시 장애는 경고 후 계속.
+- 큐 백오프는 이미 `EMBED_RETRY_BACKOFF_MS`로 조정 가능했다(변경 없음).
+- 테스트: 통합 6건(`recovery.int.spec.ts`), 단위 3건(429). 회수 필터를 끄면 2건 실패(뮤테이션).
+- 로컬 스택: 새 worker 기동 정상, `requeue` 실행 0건.
+
+STATUS: GREEN

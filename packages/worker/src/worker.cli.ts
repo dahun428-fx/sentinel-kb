@@ -8,7 +8,14 @@
  * src에 두는 이유는 `ensure-indexes.cli.ts`와 같다 — tsconfig `include`가 `src`뿐이라
  * 밖에 두면 `pnpm typecheck`가 이 파일을 검사하지 않는다.
  */
-import { createEmbedder, EmbedderError, readEmbeddingIdentity } from "@sentinel/core";
+import {
+  createEmbedder,
+  EMBEDDER_ERROR_CODES,
+  EmbedderError,
+  readEmbedderConfig,
+  readEmbeddingIdentity,
+  type Embedder,
+} from "@sentinel/core";
 import {
   claimEmbeddingGeneration,
   closeDb,
@@ -48,9 +55,25 @@ function logOutcome(outcome: JobOutcome): void {
   );
 }
 
+/**
+ * 실 provider면 짧은 임베딩 1회로 키를 확인한다 (T-054, P1 리뷰 C3). 기동 시 키는 "있다"만 확인됐고, 오타가 있으면
+ * 그 뒤 들어오는 잡이 전부 `failed`가 됐다. 인증·요청 거부(`REQUEST_FAILED`)면 기동하지 않는다. 일시 장애(재시도 소진)는
+ * 기동을 막을 이유가 아니므로 경고만 남긴다 — 잡 재시도가 그 경우를 다룬다.
+ */
+async function checkEmbedderCredentials(embedder: Embedder): Promise<void> {
+  if (readEmbedderConfig().provider === "fake") return;
+  try {
+    await embedder.embed(["sentinel-kb worker boot check"], { inputType: "document" });
+  } catch (error) {
+    if (error instanceof EmbedderError && error.code === EMBEDDER_ERROR_CODES.REQUEST_FAILED) throw error;
+    console.error(`[worker] 기동 시 임베딩 확인 실패(일시 장애로 보고 계속한다): ${String(error)}`);
+  }
+}
+
 async function main(): Promise<void> {
   // 순서가 중요하다: 오설정으로 죽을 거라면 DB 커넥션을 잡기 전에 죽는 편이 낫다.
   const embedder = createEmbedder();
+  await checkEmbedderCredentials(embedder);
   const db = await getDb();
   // 이 세대를 다른 임베더가 만들었으면 여기서 멈춘다 (T-053). 섞인 벡터는 에러 없이 검색을 망가뜨린다.
   await claimEmbeddingGeneration(db, {

@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "tsx src/worker.cli.ts",
     "start": "tsx src/worker.cli.ts",
-    "reembed": "tsx src/reembed.cli.ts"
+    "reembed": "tsx src/reembed.cli.ts",
+    "requeue": "tsx src/requeue.cli.ts"
   },
   "dependencies": {
     "@sentinel/contracts": "workspace:*",

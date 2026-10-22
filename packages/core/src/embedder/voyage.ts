@@ -30,6 +30,22 @@ const DEFAULT_MAX_RETRIES = 3;
 /** 첫 재시도까지의 대기(ms). 이후 매 시도마다 두 배로 늘어난다. */
 const DEFAULT_BACKOFF_BASE_MS = 200;
 
+/**
+ * 429(레이트리밋) 전용 재시도 (T-054, P1 리뷰 C3). 5xx와 같은 200·400·800ms로는 분 단위 한도 창을 넘기지
+ * 못해, 큐 백오프까지 합쳐도 약 10초 만에 잡이 `dead`가 됐다. `Retry-After`가 있으면 그 값을 따르고
+ * (상한 60초), 없으면 1·2·4·8·16초를 기다린다.
+ */
+const DEFAULT_RATE_LIMIT_RETRIES = 5;
+const RATE_LIMIT_BACKOFF_BASE_MS = 1000;
+const RETRY_AFTER_CAP_MS = 60_000;
+
+/** `Retry-After` 초 단위 값을 ms로. 날짜 형식이나 잘못된 값은 무시한다. */
+function retryAfterMs(response: HttpResponseLike): number | undefined {
+  const raw = response.headers?.get("retry-after")?.trim();
+  if (raw === undefined || raw === "" || !/^\d+(\.\d+)?$/.test(raw)) return undefined;
+  return Math.min(Math.round(Number(raw) * 1000), RETRY_AFTER_CAP_MS);
+}
+
 /** 지수백오프 배수. */
 const BACKOFF_FACTOR = 2;
 
@@ -77,6 +93,8 @@ export interface VoyageEmbedderOptions {
   readonly sleep?: SleepFn;
   readonly maxRetries?: number;
   readonly backoffBaseMs?: number;
+  /** 429 전용 재시도 횟수. 5xx 재시도(`maxRetries`)와 따로 센다. */
+  readonly rateLimitRetries?: number;
 }
 
 const defaultFetch: FetchLike = (url, init) => globalThis.fetch(url, init);
@@ -100,12 +118,26 @@ export function createVoyageEmbedder(options: VoyageEmbedderOptions): Embedder {
   const sleep = options.sleep ?? realSleep;
   const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
   const backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
+  const rateLimitRetries = options.rateLimitRetries ?? DEFAULT_RATE_LIMIT_RETRIES;
 
   async function requestBatch(batch: string[], inputType?: EmbedInputType): Promise<number[][]> {
     let attempt = 0;
+    let rateLimitAttempt = 0;
     for (;;) {
       const outcome = await attemptBatch(batch, inputType);
       if (outcome.kind === "ok") return outcome.vectors;
+      if (outcome.rateLimited === true) {
+        if (rateLimitAttempt >= rateLimitRetries) {
+          throw new EmbedderError(
+            EMBEDDER_ERROR_CODES.RETRY_EXHAUSTED,
+            `임베딩 요청이 레이트리밋 재시도 ${String(rateLimitRetries)}회를 모두 소진했다: ${outcome.reason}`,
+            outcome.cause,
+          );
+        }
+        await sleep(outcome.waitMs ?? RATE_LIMIT_BACKOFF_BASE_MS * BACKOFF_FACTOR ** rateLimitAttempt);
+        rateLimitAttempt += 1;
+        continue;
+      }
       if (attempt >= maxRetries) {
         throw new EmbedderError(
           EMBEDDER_ERROR_CODES.RETRY_EXHAUSTED,
@@ -119,7 +151,8 @@ export function createVoyageEmbedder(options: VoyageEmbedderOptions): Embedder {
   }
 
   type Attempt =
-    { kind: "ok"; vectors: number[][] } | { kind: "retry"; reason: string; cause?: unknown };
+    | { kind: "ok"; vectors: number[][] }
+    | { kind: "retry"; reason: string; cause?: unknown; rateLimited?: boolean; waitMs?: number };
 
   async function attemptBatch(batch: string[], inputType?: EmbedInputType): Promise<Attempt> {
     let response: HttpResponseLike;
@@ -154,6 +187,15 @@ export function createVoyageEmbedder(options: VoyageEmbedderOptions): Embedder {
         EMBEDDER_ERROR_CODES.REQUEST_FAILED,
         `임베딩 요청이 거부됐다(status=${String(response.status)}, 재시도 불가): ${body}`,
       );
+    }
+    if (response.status === 429) {
+      const waitMs = retryAfterMs(response);
+      return {
+        kind: "retry",
+        reason: `status=429 ${body}`,
+        rateLimited: true,
+        ...(waitMs === undefined ? {} : { waitMs }),
+      };
     }
     return { kind: "retry", reason: `status=${String(response.status)} ${body}` };
   }

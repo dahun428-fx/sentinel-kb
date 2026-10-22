@@ -20,6 +20,8 @@
 import type { JobSchema, JobStatus } from "@sentinel/contracts";
 import type { Db, ObjectId } from "mongodb";
 
+import { DEFAULT_EMBED_JOB_LEASE_MS, DEFAULT_EMBED_JOB_MAX_ATTEMPTS } from "./config.js";
+
 import { describeError, isPermanentFailure } from "./errors.js";
 
 /**
@@ -58,7 +60,32 @@ export async function claimNextJob(
   db: Db,
   now: Date,
   backoffBaseMs: number,
+  leaseMs: number = DEFAULT_EMBED_JOB_LEASE_MS,
+  maxAttempts: number = DEFAULT_EMBED_JOB_MAX_ATTEMPTS,
 ): Promise<JobDocument | null> {
+  // 리스가 지난 `running` 잡을 먼저 회수한다 (T-054, P1 리뷰 C2). 처리 중 프로세스가 죽거나(OOM, SIGKILL,
+  // 노트북 절전) `failJob` 자체가 던지면 잡이 `running`으로 영구히 남았다. 새 필드 없이 `updatedAt`(클레임 시각)을
+  // 리스 시작점으로 쓴다. 회수는 시도 1회로 센다 — 잡이 매번 프로세스를 죽이면 결국 `dead`로 끝나야 한다.
+  for (;;) {
+    const stale = await jobs(db).findOneAndUpdate(
+      { status: "running", type: "embed", updatedAt: { $lt: new Date(now.getTime() - leaseMs) } },
+      [
+        {
+          $set: {
+            attempts: { $add: ["$attempts", 1] },
+            updatedAt: now,
+            status: { $cond: [{ $gte: [{ $add: ["$attempts", 1] }, maxAttempts] }, "dead", "running"] },
+            lastError: "리스 만료 — 처리하던 프로세스가 끝내지 못했다 (T-054)",
+          },
+        },
+      ],
+      { sort: { createdAt: 1 }, returnDocument: "after" },
+    );
+    if (stale === null) break;
+    // 상한에 닿아 dead가 된 잡은 처리하지 않고 다음을 본다.
+    if (stale.status === "running") return stale;
+  }
+
   // 백오프: `attempts`번 실패한 잡은 `updatedAt`이 충분히 오래돼야 다시 집힌다.
   // `$expr`로 도큐먼트마다 다른 임계를 계산한다 — 새 필드 없이(`.strict()`) 지연 재시도를 만든다.
   return jobs(db).findOneAndUpdate(

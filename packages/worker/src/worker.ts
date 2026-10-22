@@ -12,6 +12,7 @@ import type { Db } from "mongodb";
 import {
   readEmbedJobMaxAttempts,
   readEmbedPollIntervalMs,
+  readEmbedJobLeaseMs,
   readEmbedRetryBackoffMs,
 } from "./config.js";
 import { ingestRecord } from "./ingest.js";
@@ -39,6 +40,8 @@ export interface EmbedWorkerDeps {
   readonly pollIntervalMs?: number;
   /** 재시도 백오프 기준(ms). 실패한 잡이 즉시 다시 집히는 것을 막는다. */
   readonly retryBackoffMs?: number;
+  /** `running` 잡의 리스(ms). 기본값은 `EMBED_JOB_LEASE_MS` env (T-054). */
+  readonly leaseMs?: number;
   /** 시각 주입 지점. 기본은 실제 시계. */
   readonly now?: () => Date;
   /** 잡 1건이 끝날 때마다 호출된다(성공·실패 모두). 관측용. */
@@ -61,6 +64,7 @@ export function createEmbedWorker(deps: EmbedWorkerDeps): EmbedWorker {
   const maxAttempts = deps.maxAttempts ?? readEmbedJobMaxAttempts();
   const pollIntervalMs = deps.pollIntervalMs ?? readEmbedPollIntervalMs();
   const retryBackoffMs = deps.retryBackoffMs ?? readEmbedRetryBackoffMs();
+  const leaseMs = deps.leaseMs ?? readEmbedJobLeaseMs();
   const now = deps.now ?? ((): Date => new Date());
 
   let stopping = false;
@@ -69,7 +73,7 @@ export function createEmbedWorker(deps: EmbedWorkerDeps): EmbedWorker {
   let wake: (() => void) | undefined;
 
   async function runOnce(): Promise<JobOutcome | undefined> {
-    const job = await claimNextJob(db, now(), retryBackoffMs);
+    const job = await claimNextJob(db, now(), retryBackoffMs, leaseMs, maxAttempts);
     if (job === null) return undefined;
     return processClaimedJob(job);
   }

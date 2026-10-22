@@ -205,6 +205,7 @@ services:
       EMBED_JOB_MAX_ATTEMPTS: ${EMBED_JOB_MAX_ATTEMPTS:-3}
       EMBED_POLL_INTERVAL_MS: ${EMBED_POLL_INTERVAL_MS:-1000}
       EMBED_RETRY_BACKOFF_MS: ${EMBED_RETRY_BACKOFF_MS:-2000}
+      EMBED_JOB_LEASE_MS: ${EMBED_JOB_LEASE_MS:-600000}
     depends_on:
       db-init:
         condition: service_completed_successfully

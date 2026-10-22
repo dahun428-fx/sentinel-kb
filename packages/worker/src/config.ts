@@ -42,6 +42,16 @@ export function readEmbedRetryBackoffMs(env: NodeJS.ProcessEnv = process.env): n
 }
 
 /**
+ * `running` 잡의 리스(ms) (T-054, P1 리뷰 C2). 이 시간이 지나도 `running`이면 처리하던 프로세스가 죽은
+ * 것으로 보고 다시 집는다. 잡 하나는 보통 수 초라 10분이면 정상 처리와 겹치지 않는다.
+ */
+export const DEFAULT_EMBED_JOB_LEASE_MS = 600_000;
+
+export function readEmbedJobLeaseMs(env: NodeJS.ProcessEnv = process.env): number {
+  return readPositiveInt(env["EMBED_JOB_LEASE_MS"], DEFAULT_EMBED_JOB_LEASE_MS);
+}
+
+/**
  * `attempts`번 실패한 잡이 다시 클레임되기까지의 최소 경과 시간.
  * attempts 0(첫 시도)이면 0 — 새 잡은 즉시 집힌다.
  */
