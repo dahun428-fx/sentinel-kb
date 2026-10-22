@@ -6,7 +6,7 @@
  * > **해소 (2026-10-21 확인, T-047).** 아래 `seedBatch` 선행 조건은 더 이상 사실이 아니다.
  * > 커밋 `02899c2`가 `--reset`을 제자리 PATCH + `seedManifest` 장부로 바꿔 `_id`를 보존한다
  * > (`scripts/seed.int.spec.ts:335`). 남은 선행 조건은 실 임베딩 자격증명과 골든셋 작성이다.
- * > 아래 문단은 당시 기록이다. `goldenSetWarnings`의 0건 경고 문구는 T-047 Findings F-1로 후속 처리한다.
+ * > 아래 문단은 당시 기록이다. `goldenSetWarnings`의 0건 경고 문구는 T-049에서 이 사실에 맞췄다.
  *
  * T-013 스펙의 `## ⚠️ 착수 전 결정 필요`가 그 이유를 적어 두었다:
  * `scripts/seed.ts`가 `POST /v1/records`로 시드를 넣으므로 **`--reset`을 돌릴 때마다 전 레코드의
@@ -91,7 +91,8 @@ export function goldenSetWarnings(
   if (cases.length === 0) {
     warnings.push(
       `eval_cases에 approvedBy:"human"인 케이스가 0건이다. 골든셋 ${String(expectedSize)}건은 ` +
-        "아직 작성되지 않았다 — T-013의 `⚠️ 착수 전 결정 필요`(seedBatch 마커, G3)가 선행 조건이다.",
+        "아직 작성되지 않았다. 남은 선행 조건은 실 임베딩 자격증명과 골든셋 작성이다 " +
+        "(`--reset`은 `_id`를 보존한다 — 커밋 02899c2, docs/plan/UPLIFT-PLAN.md P4·P6).",
     );
   } else if (cases.length !== expectedSize) {
     warnings.push(

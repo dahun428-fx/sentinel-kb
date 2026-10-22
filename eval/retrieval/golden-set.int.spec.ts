@@ -101,7 +101,7 @@ describe("loadGoldenSet", () => {
   });
 
   it("골든셋이 비어 있는 것이 지금의 실제 상태다 (T-013 STATUS: BLOCKED)", async () => {
-    // 30건은 `seedBatch` 마커 결정(G3) 전까지 만들지 않는다 — `--reset` 한 번에 죽기 때문이다.
+    // 30건은 아직 작성되지 않았다. `--reset`이 `_id`를 보존하므로(02899c2) 막는 것은 자격증명과 작성뿐이다.
     await expect(loadGoldenSet(db)).resolves.toEqual([]);
   });
 });

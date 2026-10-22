@@ -52,9 +52,13 @@ describe("골든셋 로더", () => {
 });
 
 describe("goldenSetWarnings — 골든셋을 고치지 않고 보고만 한다", () => {
-  it("0건이면 T-013의 선행 결정(seedBatch, G3)을 가리킨다", () => {
-    const warnings = goldenSetWarnings([]);
-    expect(warnings.join("\n")).toContain("seedBatch");
+  // T-049: seedBatch 결정은 02899c2(제자리 PATCH + seedManifest)로 대체 구현됐다.
+  // 해소된 선행 조건을 안내하던 문구가 요구사항과 어긋나 있었다 (T-047 Findings F-1).
+  it("0건이면 실제로 남은 선행 조건(자격증명, 골든셋 작성)을 가리킨다", () => {
+    const text = goldenSetWarnings([]).join("\n");
+    expect(text).toContain("자격증명");
+    expect(text).toContain("골든셋 작성");
+    expect(text).not.toContain("seedBatch");
   });
 
   it("specs/05의 30건과 다르면 경고한다", () => {

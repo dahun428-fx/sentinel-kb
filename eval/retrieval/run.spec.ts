@@ -181,7 +181,7 @@ describe("runRetrievalEval", () => {
     });
     expect(report.config.caseCount).toBe(0);
     expect(report.regression.evaluated).toBe(false);
-    expect(report.warnings.join("\n")).toContain("seedBatch");
+    expect(report.warnings.join("\n")).toContain("자격증명");
   });
 
   it("골든셋이 30건이 아니면 경고한다 (specs/05)", async () => {
