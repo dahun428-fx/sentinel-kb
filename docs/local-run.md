@@ -71,8 +71,6 @@ docker rm -f sentinel-kb-atlas && docker volume rm sentinel-kb-atlas-data
 ```
 그다음 1단계부터 다시 하되 `EMBEDDING_PROVIDER=voyage`와 `VOYAGE_API_KEY`를 넣는다.
 
-core-api나 mcp 컨테이너만 다시 만들었으면 `docker compose restart nginx`를 한다. nginx가 옛 컨테이너 IP를 쥐고 502를 낸다(T-064).
-
 ## 멈추기
 
 ```bash

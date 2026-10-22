@@ -20,4 +20,12 @@ T-053 실동작 확인 중 core-api 컨테이너만 다시 만들자 nginx가 50
 ## Context budget
 - 읽기: `nginx/conf.d/00-upstreams.conf`, `nginx/snippets/*.conf`, `docker/Dockerfile.nginx`, `tools/nginx-contract.spec.ts`, `tools/nginx-streaming.int.spec.ts`, `.github/workflows/ci.yml`(nginx 단계)
 
-STATUS: TODO
+## 결과 (2026-10-22)
+
+- `00-upstreams.conf`: `resolver 127.0.0.11 valid=10s ipv6=off;`, 업스트림마다 `zone` + `server … resolve`.
+  CI(`deploy-config`)와 `nginx-streaming.int.spec.ts`는 이 파일을 통째로 바꿔 끼우므로 영향이 없다.
+- `nginx-contract.spec.ts`: 업스트림 파서가 `server 주소 매개변수;`를 읽도록 넓혔다(단언은 그대로). resolver·zone·resolve 단언 4건.
+- **실동작**: 임시 컨테이너로 옛 IP를 점유한 채 core-api를 다시 만들어 IP를 `172.21.0.2 → 172.21.0.7`로 바꿨다.
+  nginx 재시작 없이 `/v1/search` 3회 200.
+
+STATUS: GREEN

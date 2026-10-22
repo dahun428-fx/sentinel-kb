@@ -83,7 +83,8 @@ function parseUpstreams(conf: string): Map<string, string> {
   const pattern = /upstream\s+(\S+)\s*\{([^}]*)\}/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(source)) !== null) {
-    const server = /server\s+([^\s;]+)\s*;/.exec(match[2] ?? "");
+    // `server host:port resolve;`처럼 매개변수가 붙어도 주소만 읽는다 (T-064).
+    const server = /server\s+([^\s;]+)(?:\s+[^;]*)?;/.exec(match[2] ?? "");
     if (match[1] !== undefined && server?.[1] !== undefined) result.set(match[1], server[1]);
   }
   return result;
@@ -250,6 +251,20 @@ describe("업스트림 ↔ compose 서비스·포트 (T-026)", () => {
         new RegExp(`^\\s{2}${service}:$`, "m"),
       );
     }
+  });
+});
+
+describe("업스트림이 컨테이너 재생성을 따라간다 (T-064)", () => {
+  const directives = stripComments(upstreamsConf);
+
+  it("Docker 내장 DNS를 짧은 주기로 다시 읽는다", () => {
+    expect(directives).toMatch(/resolver\s+127\.0\.0\.11\s+valid=\d+s/);
+  });
+
+  it.each(["core_api_upstream", "mcp_upstream", "web_upstream"])("%s는 zone과 resolve를 갖는다", (name) => {
+    const body = new RegExp(`upstream\\s+${name}\\s*\\{([^}]*)\\}`).exec(directives)?.[1] ?? "";
+    expect(body).toMatch(/zone\s+\S+\s+\d+k;/);
+    expect(body).toMatch(/server\s+\S+\s+resolve;/);
   });
 });
 
