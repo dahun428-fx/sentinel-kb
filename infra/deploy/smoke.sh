@@ -55,7 +55,8 @@ log "/health OK"
 # `tools/loadtest.ts` 가 세운 규약과 같다. 스모크 전용 키를 따로 두면 그 키가
 # 만료·회수될 때 스모크만 조용히 빨개진다.
 # ---------------------------------------------------------------------------
-api_keys="$(sed -n 's/^API_KEYS=//p' "$ENV_FILE" | head -n1)"
+# deploy.sh 가 시크릿을 작은따옴표로 감싸 렌더한다(T-061). 감싼 따옴표를 벗긴다.
+api_keys="$(sed -n 's/^API_KEYS=//p' "$ENV_FILE" | head -n1 | sed "s/^'\(.*\)'\$/\1/")"
 [ -n "$api_keys" ] || {
   printf '[smoke] ERROR: %s 에서 API_KEYS 를 읽지 못했다\n' "$ENV_FILE" >&2
   exit 78

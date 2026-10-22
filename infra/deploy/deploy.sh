@@ -132,7 +132,16 @@ render_env() {
       # 여기서 멈추지 않으면 컨테이너가 뜬 뒤에야 죽고, 그때는 이미 이전 스택이 내려가 있다.
       die "${SSM_PREFIX}/${name} 에 값이 주입되지 않았다(${UNSET_SENTINEL}). infra/README.md '최초 구축' 3번을 보라."
     fi
-    printf '%s=%s\n' "$name" "$value" >>"$ENV_FILE.tmp"
+    # 작은따옴표로 감싼다 (T-061, P1 리뷰 S8). compose 는 따옴표 없는 .env 값의 `$VAR`·`${VAR}` 를 보간하므로
+    # `Ab$9…` 같은 비밀번호가 조용히 바뀌어 이전 스택을 내린 뒤에야 인증이 실패했다. 작은따옴표 안은 보간하지 않는다.
+    # 작은따옴표·개행은 이 형식으로 담을 수 없으므로 렌더 전에 이름을 대고 멈춘다.
+    case "$value" in
+      *"'"* | *$'\n'*)
+        rm -f "$ENV_FILE.tmp"
+        die "${SSM_PREFIX}/${name} 에 작은따옴표나 개행이 있다 — .env 로 안전하게 렌더할 수 없다. 값을 바꾸거나 base64 로 감싸라."
+        ;;
+    esac
+    printf "%s='%s'\n" "$name" "$value" >>"$ENV_FILE.tmp"
   done
 
   # 시크릿이 아닌 배포 파라미터. compose 가 `:?` 로 요구하는 것들이다.

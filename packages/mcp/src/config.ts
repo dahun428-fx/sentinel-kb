@@ -10,7 +10,7 @@
  * 파일을 **수정할 수 없어서** 넣지 못했다 → Findings F-2(T-026에서 compose env와 함께 추가).
  * 그때까지는 아래 기본값이 문서 역할을 한다.
  */
-import { parseApiKeys } from "@sentinel/core";
+import { apiKeyOptionsFor, parseApiKeys } from "@sentinel/core";
 
 /** `.env.example`의 `MCP_PORT`. */
 const DEFAULT_MCP_PORT = 3002;
@@ -35,7 +35,7 @@ export interface McpConfig {
 export function readMcpConfig(env: NodeJS.ProcessEnv): McpConfig {
   const bearerKey = env["SENTINEL_KB_KEY"]?.trim();
   return {
-    apiKeys: parseApiKeys(env["API_KEYS"]),
+    apiKeys: parseApiKeys(env["API_KEYS"], apiKeyOptionsFor(env)),
     port: readPositiveInt(env["MCP_PORT"], DEFAULT_MCP_PORT),
     // 빈 문자열도 미설정이다 (T-059, P1 리뷰 A7). `?? 기본값`은 ""를 남겨 모든 요청이 `/v1/...` 상대 경로로 나가 실패했다.
     coreApiBaseUrl: env["CORE_API_URL"]?.trim() || DEFAULT_CORE_API_URL,

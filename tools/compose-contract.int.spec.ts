@@ -130,6 +130,27 @@ describe.skipIf(!HAS_DOCKER)("실행 환경의 env가 판정을 바꾸지 않는
   });
 });
 
+describe.skipIf(!HAS_DOCKER)("컨테이너 서비스는 0.0.0.0에서 듣는다 — 코드 기본값은 127.0.0.1이다 (T-061)", () => {
+  it.each(["core-api", "mcp"])("%s에 HOST=0.0.0.0", (name) => {
+    expect(config(BASE, writeEnvFile()).services[name]?.environment?.["HOST"]).toBe("0.0.0.0");
+  });
+});
+
+describe.skipIf(!HAS_DOCKER)("작은따옴표로 감싼 .env 값은 보간되지 않는다 (T-061, P1 리뷰 S8)", () => {
+  // `config` 출력은 리터럴 `$`를 `$$`로 다시 이스케이프해 보여 준다. `$$Secret`이면 값이 그대로 남은 것이다.
+  it("감싸면 비밀번호의 `$Secret`이 그대로 남는다", () => {
+    const resolved = config(BASE, writeEnvFile({ MONGODB_URI: "'mongodb+srv://u:p$Secret@c/sentinel'" }));
+    expect(resolved.services["core-api"]?.environment?.["MONGODB_URI"]).toBe(
+      "mongodb+srv://u:p$$Secret@c/sentinel",
+    );
+  });
+
+  it("대조군: 감싸지 않으면 `$Secret`이 빈 변수로 보간돼 비밀번호가 바뀐다 — 이 결함이 실재한다", () => {
+    const resolved = config(BASE, writeEnvFile({ MONGODB_URI: "mongodb+srv://u:p$Secret@c/sentinel" }));
+    expect(resolved.services["core-api"]?.environment?.["MONGODB_URI"]).toBe("mongodb+srv://u:p@c/sentinel");
+  });
+});
+
 describe.skipIf(!HAS_DOCKER)("compose 베이스 계약 (T-026)", () => {
   const resolved = config(BASE, writeEnvFile());
   const service = (name: string): ComposeService => {

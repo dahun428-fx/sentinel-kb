@@ -6,6 +6,7 @@
  * 모든 요청을 401로 돌려주는 서버는 원인을 어디에도 남기지 않는다.
  */
 import {
+  apiKeyOptionsFor,
   createChatModel,
   createEmbedder,
   readEmbeddingIdentity,
@@ -38,7 +39,7 @@ function readEmbeddingVersion(env: NodeJS.ProcessEnv): number {
 }
 
 export async function start(): Promise<void> {
-  const apiKeys = parseApiKeys(process.env["API_KEYS"]);
+  const apiKeys = parseApiKeys(process.env["API_KEYS"], apiKeyOptionsFor(process.env));
   const sanitizeOptions = readSanitizeOptions();
   const db = await getDb();
 
@@ -97,7 +98,12 @@ export async function start(): Promise<void> {
   process.once("SIGTERM", () => void shutdown());
   process.once("SIGINT", () => void shutdown());
 
-  await app.listen({ port: readPort(process.env["CORE_API_PORT"]), host: "0.0.0.0" });
+  // 기본은 127.0.0.1이다 (T-061, T-050 F-1). compose 밖에서 `pnpm dev`로 띄우면 노트북의 모든 인터페이스에 열렸다.
+  // 컨테이너는 다른 컨테이너가 닿아야 하므로 compose가 `HOST=0.0.0.0`을 준다.
+  await app.listen({
+    port: readPort(process.env["CORE_API_PORT"]),
+    host: process.env["HOST"]?.trim() || "127.0.0.1",
+  });
 }
 
 // `tsx src/server.ts`로 직접 실행될 때만 뜬다. import만으로는 포트를 잡지 않는다.

@@ -52,7 +52,26 @@ export class ApiKeyConfigError extends Error {
  * 말한다(빈 조각도 자리를 차지한다 — 운영자가 세는 콤마 수와 일치한다). 운영자는 몇 번째
  * 항목이 틀렸는지 알 수 있고, 로그에는 자격증명 후보 문자열이 남지 않는다.
  */
-export function parseApiKeys(raw: string | undefined): ReadonlyMap<string, string> {
+export interface ParseApiKeysOptions {
+  /**
+   * 키 최소 길이. 운영(`NODE_ENV=production`)에서 32를 준다 (T-061, T-050 F-2). 예전 예시 키 `devkey123`처럼 짧고
+   * 추측 가능한 키로 운영이 뜨지 않게 한다. 주지 않으면 검사하지 않는다(테스트·로컬).
+   */
+  readonly minKeyLength?: number;
+}
+
+/** 운영에서 요구하는 키 최소 길이. `openssl rand -hex 32`는 64자다. */
+export const PRODUCTION_MIN_KEY_LENGTH = 32;
+
+/** `NODE_ENV`가 production이면 최소 길이를 건다. 호출자(api·mcp 기동부)가 같은 규칙을 쓰게 한 곳에 둔다. */
+export function apiKeyOptionsFor(env: NodeJS.ProcessEnv): ParseApiKeysOptions {
+  return env["NODE_ENV"] === "production" ? { minKeyLength: PRODUCTION_MIN_KEY_LENGTH } : {};
+}
+
+export function parseApiKeys(
+  raw: string | undefined,
+  options: ParseApiKeysOptions = {},
+): ReadonlyMap<string, string> {
   const trimmed = raw?.trim();
   if (!trimmed) {
     throw new ApiKeyConfigError(
@@ -82,6 +101,12 @@ export function parseApiKeys(raw: string | undefined): ReadonlyMap<string, strin
     if (key === "" || project === "") {
       throw new ApiKeyConfigError(
         `API_KEYS의 ${String(position)}번째 항목에 빈 키나 빈 project가 있다.`,
+      );
+    }
+    if (options.minKeyLength !== undefined && key.length < options.minKeyLength) {
+      throw new ApiKeyConfigError(
+        `API_KEYS의 ${String(position)}번째 항목의 키가 ${String(options.minKeyLength)}자보다 짧다. ` +
+          "운영에서는 `openssl rand -hex 32`로 만든 키를 쓴다. 값은 로그로 새지 않도록 싣지 않는다.",
       );
     }
     const previous = firstSeenAt.get(key);

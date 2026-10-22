@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { ApiKeyConfigError, parseApiKeys } from "./api-keys.js";
+import {
+  ApiKeyConfigError,
+  parseApiKeys,
+  apiKeyOptionsFor,
+  PRODUCTION_MIN_KEY_LENGTH,
+} from "./api-keys.js";
 
 /**
  * 파싱 규칙 자체의 행동은 `packages/api/src/auth.spec.ts`와 `packages/mcp/src/auth.spec.ts`가
@@ -51,5 +56,30 @@ describe("parseApiKeys 에러 메시지 — 설정 원문을 로그로 흘리지
 
     expect(message).toContain("3번째");
     expect(message).toContain("1번째");
+  });
+});
+
+describe("운영 키 최소 길이 (T-061, T-050 F-2)", () => {
+  const LONG = "a".repeat(32);
+
+  it("minKeyLength보다 짧은 키는 몇 번째 항목인지만 대고 거부한다 — 값은 싣지 않는다", () => {
+    expect(() => parseApiKeys(`${LONG}:sentinel-kb,devkey123:other`, { minKeyLength: 32 })).toThrow(
+      /2번째 항목의 키가 32자보다 짧다/,
+    );
+    try {
+      parseApiKeys("devkey123:other", { minKeyLength: 32 });
+    } catch (error) {
+      expect(String(error)).not.toContain("devkey123");
+    }
+  });
+
+  it("production에서만 최소 길이를 건다", () => {
+    expect(apiKeyOptionsFor({ NODE_ENV: "production" })).toEqual({
+      minKeyLength: PRODUCTION_MIN_KEY_LENGTH,
+    });
+    expect(apiKeyOptionsFor({ NODE_ENV: "development" })).toEqual({});
+    expect(parseApiKeys("devkey123:sentinel-kb", apiKeyOptionsFor({})).get("devkey123")).toBe(
+      "sentinel-kb",
+    );
   });
 });

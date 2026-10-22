@@ -7,5 +7,11 @@
  * `./db`·`./testing`과 달리 `package.json`의 서브패스로 가르지 않는다.
  * 외부 의존이 없는 순수 문자열 처리라 메인 배럴에 실려도 안전하다(`sanitizer`와 같은 근거).
  */
-export { ApiKeyConfigError, parseApiKeys } from "./api-keys.js";
+export {
+  ApiKeyConfigError,
+  apiKeyOptionsFor,
+  parseApiKeys,
+  PRODUCTION_MIN_KEY_LENGTH,
+  type ParseApiKeysOptions,
+} from "./api-keys.js";
 export { extractBearerKey } from "./bearer.js";

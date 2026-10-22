@@ -25,7 +25,8 @@ export async function start(): Promise<void> {
   process.once("SIGINT", shutdown);
 
   await new Promise<void>((resolve) => {
-    server.listen(config.port, "0.0.0.0", resolve);
+    // 기본 127.0.0.1, 컨테이너는 compose가 `HOST=0.0.0.0` (T-061, T-050 F-1).
+    server.listen(config.port, process.env["HOST"]?.trim() || "127.0.0.1", resolve);
   });
   console.log(
     JSON.stringify({

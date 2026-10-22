@@ -28,4 +28,18 @@ M: M6 | deps: T-025,T-026
 ## 처리 메모
 - S9는 P3 전에 runbook만이라도 먼저. S8은 P9 전.
 
-STATUS: TODO
+## 결과 (2026-10-22)
+
+- **S8 (실측으로 확인)**: 따옴표 없는 `.env`의 `Ab$HOMEx`는 compose가 `Ab`로 바꾼다. `deploy.sh`가 시크릿을 작은따옴표로
+  감싸 렌더하고, 작은따옴표·개행이 든 값은 렌더 전에 이름을 대고 멈춘다. `smoke.sh`는 감싼 따옴표를 벗겨 키를 읽는다.
+  테스트: compose 대조군(감싸지 않으면 바뀐다)과 감싼 경우, deploy-rollback의 SSM 스텁 값에 `$Secret`.
+- **S9**: atlas-local 테스트 헬퍼가 `-P` 대신 `127.0.0.1::27017`. 로컬 기동법은 `docs/local-run.md` §1(127.0.0.1 + 인증).
+  이미지 태그 고정은 안정 태그를 확인하지 못해 하지 않았다 (Findings F-1).
+- **T-050 F-1**: core-api·MCP HTTP 기본 listen 주소 127.0.0.1, compose가 `HOST=0.0.0.0`.
+- **T-050 F-2**: `NODE_ENV=production`이면 API 키 32자 미만 거부(`apiKeyOptionsFor`). api·mcp 기동부가 같은 규칙.
+- 로컬 스택 재기동: core-api·mcp healthy, `mcp:ping` 도구 5개. 통합 428 그린.
+
+## Findings
+- **F-1** `mongodb/mongodb-atlas-local:latest`가 테스트·CI·로컬 문서 모두에서 고정되지 않았다. 재현성이 필요해지면 digest로 고정.
+
+STATUS: GREEN

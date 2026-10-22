@@ -38,7 +38,8 @@ case "$1 $2" in
   "ssm get-parameter")
     for arg in "$@"; do
       case "$arg" in
-        */MONGODB_URI)      echo "mongodb+srv://u:p@c/sentinel"; exit 0;;
+        # T-061: 비밀번호에 \`$\`가 있다. compose 보간으로 바뀌지 않게 deploy.sh 가 작은따옴표로 감싸야 한다.
+        */MONGODB_URI)      echo 'mongodb+srv://u:p$Secret@c/sentinel'; exit 0;;
         */ANTHROPIC_API_KEY) echo "sk-fake"; exit 0;;
         */VOYAGE_API_KEY)   echo "vk-fake"; exit 0;;
         */API_KEYS)         echo "smokekey:sentinel-kb,other:bizcare"; exit 0;;
@@ -275,6 +276,8 @@ describe("배포 성공 경로 (T-027)", () => {
     ]) {
       expect(env, `.env 에 ${name} 이 없다`).toMatch(new RegExp(`^${name}=.+$`, "m"));
     }
+    // 시크릿은 작은따옴표로 감싸 compose 보간을 막는다 (T-061, P1 리뷰 S8).
+    expect(env).toContain("MONGODB_URI='mongodb+srv://u:p$Secret@c/sentinel'");
   });
 
   /**
@@ -290,7 +293,8 @@ describe("배포 성공 경로 (T-027)", () => {
     const matches = [...env.matchAll(/^WEB_HTPASSWD_B64=(.*)$/gm)];
     expect(matches, "WEB_HTPASSWD_B64 줄이 하나가 아니다").toHaveLength(1);
     // base64 알파벳 밖의 문자(공백·개행 포함)가 있으면 감싸이지 않은 것이다.
-    expect(matches[0]?.[1] ?? "").toMatch(/^[A-Za-z0-9+/=]+$/);
+    // 바깥 작은따옴표는 compose 보간을 막는 렌더 형식이다 (T-061).
+    expect(matches[0]?.[1] ?? "").toMatch(/^'[A-Za-z0-9+/=]+'$/);
   });
 
   it("값이 주입되지 않은 SSM 파라미터면 **컨테이너를 띄우기 전에** 거절한다", () => {

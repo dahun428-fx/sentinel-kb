@@ -89,7 +89,8 @@ export async function startAtlasLocal(options: StartAtlasLocalOptions): Promise<
   const bootTimeoutMs = options.bootTimeoutMs ?? ATLAS_LOCAL_BOOT_TIMEOUT_MS;
 
   docker(["rm", "-f", containerName]);
-  const run = docker(["run", "-d", "--name", containerName, "-P", ATLAS_LOCAL_IMAGE]);
+  // 호스트 쪽은 127.0.0.1의 임의 포트에만 연다 (T-061, P1 리뷰 S9). `-P`는 인증 없는 DB를 모든 인터페이스에 열었다.
+  const run = docker(["run", "-d", "--name", containerName, "-p", "127.0.0.1::27017", ATLAS_LOCAL_IMAGE]);
   if (run.status !== 0) {
     throw new Error(`컨테이너 기동 실패: ${run.stderr || run.stdout}`);
   }

@@ -106,6 +106,8 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       CORE_API_PORT: "3001"
+      # 컨테이너 밖(nginx 등)에서 닿아야 한다. 코드 기본값은 127.0.0.1이다 (T-061).
+      HOST: 0.0.0.0
       # 힙 상한을 mem_limit 아래로 못박는다. 이게 없으면 V8이 호스트 메모리(2GiB)를
       # 기준으로 힙을 키우다 컨테이너 한도에 먼저 부딪혀 OOM-kill 당한다 — GC가
       # 일할 기회조차 없이 죽는다 (T-025 F-2 인계).
@@ -160,6 +162,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       MCP_PORT: "3002"
+      HOST: 0.0.0.0
       NODE_OPTIONS: --max-old-space-size=160
       # compose 네트워크 안에서는 서비스 이름이 DNS 이름이다 (docs/connect.md §5).
       CORE_API_URL: ${CORE_API_URL:-http://core-api:3001}
