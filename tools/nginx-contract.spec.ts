@@ -293,6 +293,29 @@ describe(".env.example이 서비스가 실제로 읽는 env를 담는다 (T-014 
   });
 });
 
+// ======================================================== 로컬 노출 (T-050)
+
+describe("로컬 실행이 네트워크에 열리지 않는다 (T-050, P1 보안 리뷰 S4)", () => {
+  it("베이스 compose의 공개 포트는 전부 127.0.0.1에 묶인다", () => {
+    const published = [...composeYml.matchAll(/^\s*-\s*"([^"]*:\d+)"\s*$/gm)]
+      .map((match) => match[1] ?? "")
+      .filter((mapping) => /:\d+$/.test(mapping) && mapping.split(":").length >= 2);
+    expect(published.length, "포트 매핑을 하나도 읽지 못했다 — 파서를 확인하라").toBeGreaterThan(0);
+    for (const mapping of published) {
+      expect(mapping, `호스트 주소 없이 열린 포트: ${mapping}`).toMatch(/^127\.0\.0\.1:/);
+    }
+  });
+
+  it.each(["API_KEYS", "SENTINEL_KB_KEY", "CORE_API_KEY"])(
+    ".env.example의 %s에 그대로 쓸 수 있는 키 값이 없다",
+    (name) => {
+      const value = new RegExp(`^${name}=(.*)$`, "m").exec(envExample)?.[1];
+      expect(value, `${name} 줄이 없다`).toBeDefined();
+      expect(value?.trim()).toBe("");
+    },
+  );
+});
+
 // ======================================================== 시크릿 하드코딩 금지
 
 describe("시크릿 하드코딩 금지 (CLAUDE.md)", () => {

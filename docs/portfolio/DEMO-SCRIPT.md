@@ -15,7 +15,7 @@
 
 ```bash
 # .env — 키 하나가 프로젝트 하나다
-API_KEYS=devkey123:sentinel-kb,devkey456:bizcare-web
+API_KEYS=<key-a>:sentinel-kb,<key-b>:bizcare-web   # 키는 openssl rand -hex 32로 만든다
 
 pnpm dev:compose          # nginx · core-api · mcp · worker · web
 pnpm db:seed              # 시드 50건 (self/ · divergence/ · incidents/ · public/)
@@ -25,8 +25,8 @@ pnpm mcp:ping             # 도구 5개 확인. 판정은 눈이 아니라 종�
 화면에 띄울 디렉터리 둘:
 
 ```
-~/demo/project-a/.mcp.json   →  Authorization: Bearer ${SENTINEL_KB_KEY}  (devkey123)
-~/demo/project-b/.mcp.json   →  Authorization: Bearer ${SENTINEL_KB_KEY}  (devkey456)
+~/demo/project-a/.mcp.json   →  Authorization: Bearer ${SENTINEL_KB_KEY}  (<key-a>)
+~/demo/project-b/.mcp.json   →  Authorization: Bearer ${SENTINEL_KB_KEY}  (<key-b>)
 ```
 
 두 파일의 내용은 **토큰만 다르고 나머지는 같다.** 레포 루트의 `.mcp.json`이 정본 예시다.

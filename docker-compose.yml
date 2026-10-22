@@ -273,7 +273,9 @@ services:
       WEB_HTPASSWD_B64: ${WEB_HTPASSWD_B64:?WEB_HTPASSWD_B64가 필요하다 — web 표면 basic 인증 htpasswd를 base64한 값 (T-042, specs/06)}
     ports:
       # 로컬에서만 80을 매핑한다. prod 오버레이가 443으로 갈아끼운다.
-      - "${NGINX_HTTP_PORT:-8080}:80"
+      # 호스트 주소를 127.0.0.1로 고정한다 (T-050). 주소를 빼면 Docker가 0.0.0.0에 열어
+      # 같은 사무실 네트워크의 누구나 평문 HTTP로 `/v1`·`/mcp`에 닿는다.
+      - "127.0.0.1:${NGINX_HTTP_PORT:-8080}:80"
     depends_on:
       core-api:
         condition: service_healthy
